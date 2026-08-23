@@ -122,9 +122,11 @@ interface Installation {
 }
 ```
 
-The installation loader derives the stagebox→AES50 edges from `aes50.offset`
-(box input *n* → bus channel *offset + n*), so YAML only declares the
-panel→stagebox cabling explicitly.
+The domain derives the stagebox→AES50 edges from `aes50.offset` (box input *n*
+→ bus channel *offset + n*) in `deriveStaticEdges`, which route resolution
+(`buildRouteIndex`) calls. `Installation` therefore stays a record of the
+*declared* facts, and YAML only declares the panel→stagebox cabling
+explicitly.
 
 ### Mixer routing model (`packages/domain`)
 

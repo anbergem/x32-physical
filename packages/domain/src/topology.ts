@@ -41,7 +41,8 @@ export interface Installation {
  * connections plus the stagebox→AES50 edges derived from each stagebox's
  * cascade offset (box input *n* → bus channel *offset + n*, both 1-based).
  *
- * The installation loader calls this rather than doing the arithmetic itself.
+ * Route resolution calls this rather than doing the arithmetic itself; the
+ * loader leaves `Installation` a record of the declared facts only.
  * Assumes a validated installation — see `validateInstallation`.
  */
 export function deriveStaticEdges(installation: Installation): TopologyEdge[] {

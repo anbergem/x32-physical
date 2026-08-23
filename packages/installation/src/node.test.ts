@@ -11,49 +11,39 @@ const VENUE_CONFIG = fileURLToPath(
   new URL("../../../config/installation.yaml", import.meta.url),
 );
 
+/**
+ * Only the *confirmed* facts of docs/installation.md are asserted here. The
+ * passive panels and their cabling are placeholders that the docs promise can
+ * be replaced by a YAML-only edit, so nothing below may depend on them;
+ * mapping and derivation are covered against the fixture in `parse.test.ts`.
+ */
 describe("loadInstallationFile", () => {
-  it("loads the venue configuration through the whole pipeline", () => {
+  it("loads and validates the venue configuration", () => {
     const installation = loadInstallationFile(VENUE_CONFIG);
 
-    expect(installation.devices.map((device) => device.id)).toEqual([
-      "stagebox-1",
-      "stagebox-2",
-      "front-left",
-      "front-right",
-    ]);
-
-    // The confirmed cascade: both boxes on AES50-A, offsets 0 and 16.
     expect(
       installation.devices
         .filter((device) => device.kind === "stagebox")
-        .map((device) => device.aes50),
+        .map((device) => ({
+          id: device.id,
+          inputs: device.inputs,
+          aes50: device.aes50,
+        })),
     ).toEqual([
-      { bus: "A", offset: 0 },
-      { bus: "A", offset: 16 },
+      { id: "stagebox-1", inputs: 16, aes50: { bus: "A", offset: 0 } },
+      { id: "stagebox-2", inputs: 16, aes50: { bus: "A", offset: 16 } },
     ]);
   });
 
-  it("derives the cascade offsets: stagebox-2 input 7 is AES50-A 23", () => {
+  it("derives the cascade: stagebox-2 input 7 is AES50-A 23", () => {
     const edges = deriveStaticEdges(loadInstallationFile(VENUE_CONFIG));
-    const ids = edges.map((edge) => ({
-      from: endpointId(edge.from),
-      to: endpointId(edge.to),
-    }));
 
-    expect(ids).toContainEqual({
-      from: "stagebox:stagebox-2:7",
-      to: "aes50:A:23",
-    });
-
-    // …and the placeholder cabling that feeds it, so the chain is complete:
-    // front-right 7 → stagebox-2 7 → AES50-A 23.
-    expect(ids).toContainEqual({
-      from: "panel:front-right:7",
-      to: "stagebox:stagebox-2:7",
-    });
-
-    // 16 cabled panel sockets + 32 derived stagebox→AES50 edges.
-    expect(edges).toHaveLength(48);
+    expect(
+      edges.map((edge) => ({
+        from: endpointId(edge.from),
+        to: endpointId(edge.to),
+      })),
+    ).toContainEqual({ from: "stagebox:stagebox-2:7", to: "aes50:A:23" });
   });
 
   it("names the file when it cannot be read", () => {
@@ -73,19 +63,34 @@ describe("loadInstallationFile", () => {
   });
 });
 
-describe("the browser-safe entry point", () => {
-  // `node.ts` is the only module in this package allowed to reach for a Node
-  // builtin; a stray `node:fs` import elsewhere would break the web bundle,
-  // which nothing else in the build would catch.
-  it.each(["index.ts", "parse.ts", "schema.ts"])(
-    "%s imports no Node builtin",
-    (file) => {
-      const source = readFileSync(
-        fileURLToPath(new URL(`./${file}`, import.meta.url)),
-        "utf8",
-      );
+/**
+ * Comments legitimately mention `node:fs`, so the guard below reads code only.
+ * Crude but sufficient: string literals in these modules contain no comment
+ * markers.
+ */
+function codeOf(file: string): string {
+  return readFileSync(fileURLToPath(new URL(`./${file}`, import.meta.url)), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
+}
 
-      expect(source).not.toMatch(/from\s+["']node:/);
+describe("the browser-safe entry point", () => {
+  // `node.ts` is the only module here allowed to reach for Node. A stray
+  // builtin or global elsewhere would break the web bundle, and nothing else
+  // in the build would catch it: `types: ["node"]` covers the whole package.
+  it.each(["index.ts", "parse.ts", "schema.ts"])(
+    "%s reaches for nothing Node-only",
+    (file) => {
+      const code = codeOf(file);
+
+      // Any specifier form: static import, `import()`, `require()`.
+      expect(code).not.toMatch(/["']node:/);
+      expect(code).not.toMatch(/\b(?:process|Buffer|__dirname|__filename)\b/);
     },
   );
+
+  it("guards a module that does reach for Node", () => {
+    // Proves the guard above can fail rather than passing vacuously.
+    expect(codeOf("node.ts")).toMatch(/["']node:/);
+  });
 });

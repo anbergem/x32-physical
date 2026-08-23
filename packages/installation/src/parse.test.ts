@@ -1,3 +1,4 @@
+import { deriveStaticEdges, endpointId } from "@x32/domain";
 import { describe, expect, it } from "vitest";
 
 import { parseInstallationYaml } from "./parse";
@@ -109,6 +110,25 @@ describe("parseInstallationYaml", () => {
         (connection) => connection.to.kind === "aes50-channel",
       ),
     ).toBe(false);
+  });
+
+  it("yields an installation the domain can derive the cascade from", () => {
+    const ids = deriveStaticEdges(parseInstallationYaml(VALID_YAML)).map(
+      (edge) => ({ from: endpointId(edge.from), to: endpointId(edge.to) }),
+    );
+
+    // The cascade in full: front-left 8 → stagebox-2 7 → AES50-A 23 (16 + 7).
+    expect(ids).toContainEqual({
+      from: "panel:front-left:8",
+      to: "stagebox:stagebox-2:7",
+    });
+    expect(ids).toContainEqual({
+      from: "stagebox:stagebox-2:7",
+      to: "aes50:A:23",
+    });
+
+    // 2 cabled panel sockets + 32 derived stagebox→AES50 edges.
+    expect(ids).toHaveLength(34);
   });
 
   describe("YAML layer", () => {
@@ -233,12 +253,31 @@ describe("parseInstallationYaml", () => {
       expect(message).toContain("front-left");
     });
 
-    it("surfaces the domain message for an unknown device in a connection", () => {
-      const message = failureOf(edited("from: { device: front-left, input: 1 }", "from: { device: front-right, input: 1 }"));
+    it("reports a zero socket as shape and an unknown device as topology", () => {
+      const unknownDevice = edited(
+        "  - from: { device: front-left, input: 1 }",
+        "  - from: { device: front-right, input: 1 }",
+      );
 
-      expect(message).toContain("Invalid installation topology");
-      expect(message).toContain("Connection #1");
-      expect(message).toContain("front-right");
+      // A socket number below 1 is shape-invalid, so it never reaches the
+      // domain: Zod stops the file while the unknown device is still unseen.
+      const withZeroSocket = unknownDevice.replace(
+        "to: { device: stagebox-2, input: 7 }",
+        "to: { device: stagebox-2, input: 0 }",
+      );
+      const shapeFailure = failureOf(withZeroSocket);
+
+      expect(shapeFailure).toContain("Invalid installation schema");
+      expect(shapeFailure).toContain("connections[1].to.input");
+      expect(shapeFailure).not.toContain("front-right");
+
+      // With the shape sound, the domain reports the unknown device itself.
+      const topologyFailure = failureOf(unknownDevice);
+
+      expect(topologyFailure).toContain("Invalid installation topology");
+      expect(topologyFailure).toContain("Connection #1");
+      expect(topologyFailure).toContain("unknown device");
+      expect(topologyFailure).toContain("front-right");
     });
 
     it("surfaces the domain message for a reversed connection", () => {
@@ -251,16 +290,6 @@ describe("parseInstallationYaml", () => {
 
       expect(message).toContain("Invalid installation topology");
       expect(message).toContain("Connection #1");
-    });
-
-    it("rejects a socket number below 1, naming the connection", () => {
-      const message = failureOf(
-        edited("to: { device: stagebox-2, input: 7 }", "to: { device: stagebox-2, input: 0 }"),
-      );
-
-      expect(message).toContain("Invalid installation topology");
-      expect(message).toContain("connection #2");
-      expect(message).toContain("stagebox-2 input 0");
     });
 
     it("fails on the first broken layer only", () => {

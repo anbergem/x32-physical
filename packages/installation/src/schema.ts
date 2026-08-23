@@ -54,10 +54,16 @@ const deviceSchema = z.discriminatedUnion("kind", [
   passivePanelSchema,
 ]);
 
-/** One end of a cabled connection: a device and one of its input sockets. */
+/**
+ * One end of a cabled connection: a device and one of its input sockets.
+ *
+ * Socket numbers are 1-based, so `≥ 1` is part of the shape — a zero or
+ * negative socket is not a topology question. Whether the socket exists on
+ * *that* device is, and stays with the domain.
+ */
 const connectionEndpointSchema = z.strictObject({
   device: deviceIdSchema,
-  input: z.number().int(),
+  input: z.number().int().min(1),
 });
 
 const connectionSchema = z.strictObject({

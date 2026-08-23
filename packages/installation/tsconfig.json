@@ -1,8 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // Only `src/node.ts` — the `@x32/installation/node` subpath — may use Node
-    // builtins. The package index must stay browser-safe.
+    // For `src/node.ts` — the `@x32/installation/node` subpath — which is the
+    // only module here that may use Node builtins. This setting cannot enforce
+    // that: it applies package-wide. The package index staying browser-safe is
+    // a convention, guarded by a test in `src/node.test.ts`.
     "types": ["node"]
   },
   "include": ["src"]

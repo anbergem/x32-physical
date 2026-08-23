@@ -43,18 +43,17 @@ export function parseInstallationYaml(
 ): Installation {
   const document = parseYaml(text, source);
   const parsed = validateShape(document, source);
-  const installation = toInstallation(parsed, source);
 
   try {
+    const installation = toInstallation(parsed);
     assertValidInstallation(installation);
+    return installation;
   } catch (cause) {
     throw new Error(
       `Invalid installation topology in ${source}: ${messageOf(cause)}`,
       { cause },
     );
   }
-
-  return installation;
 }
 
 /** Layer 1: YAML syntax. */
@@ -113,36 +112,22 @@ function formatPath(path: ReadonlyArray<PropertyKey>): string {
 }
 
 /**
- * Layer 3a: document → domain model. The endpoint constructors enforce the
- * 1-based socket numbering the schema deliberately leaves open, so their
- * throws are relabelled with the connection they came from.
+ * Layer 3a: document → domain model.
+ *
+ * The schema has already guaranteed kebab-case ids and 1-based integer
+ * sockets, so the endpoint constructors reject nothing that reaches here.
+ * Their throws are still caught by the caller and labelled as a topology
+ * failure, in case schema and constructors ever drift apart.
  */
-function toInstallation(
-  document: InstallationDocument,
-  source: string,
-): Installation {
+function toInstallation(document: InstallationDocument): Installation {
   const devices: Device[] = Object.entries(document.devices).map(([id, device]) =>
     toDevice(id, device),
   );
 
-  const connections: TopologyEdge[] = document.connections.map(
-    (connection, index) => {
-      try {
-        return {
-          from: panelInput(connection.from.device, connection.from.input),
-          to: stageboxInput(connection.to.device, connection.to.input),
-        };
-      } catch (cause) {
-        throw new Error(
-          `Invalid installation topology in ${source}: connection #${index + 1} ` +
-            `(${connection.from.device} input ${connection.from.input} → ` +
-            `${connection.to.device} input ${connection.to.input}): ` +
-            messageOf(cause),
-          { cause },
-        );
-      }
-    },
-  );
+  const connections: TopologyEdge[] = document.connections.map((connection) => ({
+    from: panelInput(connection.from.device, connection.from.input),
+    to: stageboxInput(connection.to.device, connection.to.input),
+  }));
 
   return { devices, connections };
 }
