@@ -1,0 +1,341 @@
+# Architecture
+
+This document is the contract for the codebase structure. It corresponds to
+the "first task" deliverable of the project spec: package structure, domain
+models, dependency direction, interfaces, and event flow.
+
+## 1. Repository layout
+
+```text
+/
+├── apps/
+│   ├── web/                  # React app (Vite). Schematic UI + Zustand store.
+│   │   └── src/
+│   │       ├── state/        # store, selectors, gateway wiring
+│   │       ├── components/   # PhysicalInputPanel, Stagebox, Mixer, ...
+│   │       ├── gateway/      # MixerGateway: WebSocket impl + local-mock impl
+│   │       └── devtools/     # mock control surface (dev/mock mode only)
+│   │
+│   └── x32-bridge/           # Node app. Owns the MixerClient, serves WebSocket.
+│       └── src/
+│           ├── x32/          # X32MixerClient + OSC codec. The ONLY place
+│           │                 # that knows OSC / UDP / X32 semantics.
+│           └── server/       # WebSocket server, snapshot + event fan-out
+│
+├── packages/
+│   ├── domain/               # Pure TS. Topology graph, IDs, route resolution,
+│   │                         # route index. Zero infrastructure imports.
+│   ├── mixer-contracts/      # MixerClient interface, MixerSnapshot, MixerEvent,
+│   │                         # MixerSourceRef + MockMixerClient (pure TS).
+│   ├── installation/         # Zod schema + YAML loader → domain topology.
+│   └── protocol/             # WebSocket message types shared bridge ↔ web.
+│
+├── config/
+│   └── installation.yaml     # The venue's physical topology (no coordinates).
+│
+├── docs/
+└── package.json              # pnpm workspace root
+```
+
+Notes vs. the original spec sketch: `x32-contracts` is named
+`mixer-contracts` (it is mixer-agnostic by design; the X32 is one
+implementation), and the X32 adapter lives inside `apps/x32-bridge/src/x32/`
+rather than its own package — nothing else may import it, and workspace
+boundaries enforce that for the web app automatically.
+
+## 2. Dependency direction
+
+```text
+                 domain
+                   ▲
+        ┌──────────┼──────────────┐
+        │          │              │
+  installation  mixer-contracts  protocol
+        ▲          ▲              ▲
+        │          │              │
+   YAML/Zod    x32 adapter    bridge + web
+               (bridge only)
+```
+
+Rules, enforced by workspace dependencies and review:
+
+- `domain` imports **nothing** (no React, OSC, YAML, WS, fs, browser, Zustand).
+- `mixer-contracts` imports `domain` types only. `MockMixerClient` lives here
+  and is pure TS (usable in Node *and* the browser).
+- `installation` depends on `domain` (+ Zod, yaml). Topology model does not
+  know YAML exists.
+- `protocol` depends on `domain` + `mixer-contracts` types. No hand-duplicated
+  JSON shapes between bridge and web.
+- `apps/x32-bridge` depends on all packages; only its `src/x32/` module may
+  contain OSC/UDP code.
+- `apps/web` depends on `domain`, `mixer-contracts`, `protocol`,
+  `installation` (schema types only). It must never import bridge code.
+
+## 3. Domain model (`packages/domain`)
+
+### Identifiers
+
+Branded types so unrelated IDs cannot be mixed accidentally:
+
+```ts
+type DeviceId = string & { __brand: "DeviceId" };
+type MixerChannelId = number & { __brand: "MixerChannelId" }; // 1–32, 1-based
+type EndpointId = string & { __brand: "EndpointId" };         // canonical encoding
+```
+
+Endpoints are structured objects internally; `EndpointId` is the canonical
+string encoding used for map keys and wire transfer:
+
+```text
+panel:front-left:3        # physical panel socket
+stagebox:stagebox-1:3     # stagebox input socket
+aes50:A:19                # AES50 bus channel (bus-level, box-agnostic)
+mixer:12                  # X32 input channel
+```
+
+```ts
+type EndpointRef =
+  | { kind: "panel-input";    device: DeviceId; input: number }
+  | { kind: "stagebox-input"; device: DeviceId; input: number }
+  | { kind: "aes50-channel";  bus: "A" | "B";   channel: number } // 1–48
+  | { kind: "mixer-channel";  channel: MixerChannelId };
+```
+
+`aes50-channel` is deliberately distinct from `stagebox-input`: the mixer only
+ever sees bus+channel; which physical box that channel belongs to is a static
+topology fact (cascade offsets), expressed as graph edges.
+
+### Topology (static)
+
+```ts
+interface Device {
+  id: DeviceId;
+  kind: "passive-panel" | "stagebox";
+  label: string;
+  inputs: number;
+  aes50?: { bus: "A" | "B"; offset: number }; // stageboxes only
+}
+
+interface Installation {
+  devices: Device[];
+  connections: Array<{ from: EndpointRef; to: EndpointRef }>; // signal direction
+}
+```
+
+The installation loader derives the stagebox→AES50 edges from `aes50.offset`
+(box input *n* → bus channel *offset + n*), so YAML only declares the
+panel→stagebox cabling explicitly.
+
+### Mixer state model (`packages/mixer-contracts`, consumed by domain)
+
+The domain resolves routes from a normalized mixer routing state — it never
+sees OSC:
+
+```ts
+/** Where a mixer input slot or channel ultimately pulls signal from. */
+type MixerSourceRef =
+  | { kind: "aes50"; bus: "A" | "B"; channel: number } // 1–48
+  | { kind: "local"; input: number }                   // console XLR 1–32
+  | { kind: "card"; input: number }
+  | { kind: "aux"; input: number }
+  | { kind: "usb"; side: "L" | "R" }
+  | { kind: "fx"; ret: number }
+  | { kind: "bus"; bus: number }
+  | { kind: "talkback"; which: "int" | "ext" }
+  | { kind: "off" };
+
+interface MixerChannelState {
+  channel: MixerChannelId;
+  name: string;
+  /** Fully resolved source (input-block + user-in indirection already applied
+      by the adapter/mock — see docs/x32-protocol.md §Resolution). */
+  source: MixerSourceRef;
+}
+
+interface MixerSnapshot {
+  channels: MixerChannelState[];       // exactly 32
+  selectedChannel: MixerChannelId | null;
+}
+```
+
+Design choice: the *adapter* (X32 or mock) resolves the X32's two-level
+indirection (channel source → IN block routing → optional User In slot) down
+to a flat `MixerSourceRef` per channel, and re-emits `channel-source-changed`
+for every affected channel when a block or user-in mapping changes. The domain
+then only maps `MixerSourceRef` → topology endpoints. This keeps every X32
+semantic (blocks of 8, user-in tables, REC/PLAY switch) inside the adapter,
+per the centralization rule. The mock produces the same flat form directly.
+
+### Route resolution
+
+```ts
+interface SignalRoute {
+  /** Upstream → downstream, e.g. panel → stagebox → aes50 → mixer(s). */
+  endpoints: EndpointId[];
+  mixerChannels: MixerChannelId[];      // all consumers of this source
+  physicalInputs: EndpointRef[];        // [] when source is unmapped
+  /** Present when the mixer channel's source has no physical mapping
+      (local/card/usb/... or an AES50 channel no stagebox occupies). */
+  unmappedSource?: MixerSourceRef;
+}
+
+interface RouteIndex {
+  byMixerChannel: Map<MixerChannelId, SignalRoute>;
+  byEndpoint: Map<EndpointId, SignalRoute[]>;
+}
+
+function buildRouteIndex(installation: Installation,
+                         channels: MixerChannelState[]): RouteIndex;
+```
+
+- Not one-to-one: one source feeding CH12 and CH28 yields one shared route
+  whose `mixerChannels` is `[12, 28]`, indexed under both channels and every
+  endpoint on the path.
+- Unmapped sources (Card 5, unoccupied AES50 channel, OFF) yield a route with
+  `physicalInputs: []` and `unmappedSource` set — never a throw.
+- The graph is tiny (< 200 nodes); `buildRouteIndex` is a full rebuild on any
+  routing/config change. No incremental graph engine.
+- Traversal is generic over directed edges, not hardcoded to the
+  panel→stagebox→aes50→mixer shape, so output routing can reuse it later.
+
+### Validation (in `installation` package, rules in domain)
+
+Fail fast at load with actionable messages: unique device ids; connection
+endpoints must reference existing devices and in-range inputs; a stagebox
+input has at most one feeding panel socket; AES50 ranges (`offset`,
+`offset + inputs`) must not overlap per bus and must fit in 1–48.
+
+## 4. `MixerClient` (`packages/mixer-contracts`)
+
+```ts
+type MixerConnectionState = "connecting" | "connected" | "disconnected";
+
+type MixerEvent =
+  | { type: "selected-channel-changed"; channel: MixerChannelId | null }
+  | { type: "channel-name-changed"; channel: MixerChannelId; name: string }
+  | { type: "channel-source-changed"; channel: MixerChannelId; source: MixerSourceRef }
+  | { type: "connection-state-changed"; state: MixerConnectionState };
+
+interface MixerClient {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  getSnapshot(): Promise<MixerSnapshot>;
+  subscribe(listener: (event: MixerEvent) => void): () => void;
+  getConnectionState(): MixerConnectionState;
+}
+```
+
+There is no separate `routing-changed` wire event: block/user-in changes are
+expanded by the adapter into per-channel `channel-source-changed` events
+(possibly many at once), so consumers have exactly one code path for "a
+channel's effective source changed". Commands (writes) are deliberately
+absent; the mock exposes mutation via its own wider interface
+(`MockMixerClient extends MixerClient` with `simulate*` methods), which
+production code never sees.
+
+### `MockMixerClient` behavior
+
+Pure TS, runs in Node and browser. Constructed from an initial
+`MixerSnapshot` (a realistic default matching `installation.yaml`). Simulation
+API (dev-only): `simulateSelect(ch | null)`, `simulateRename(ch, name)`,
+`simulateSourceChange(ch, source)`, `simulateConnectionLoss()`,
+`simulateReconnect()`. Each mutates the mock's internal snapshot and emits the
+corresponding `MixerEvent`, so mock and real adapter exercise identical
+consumer code. Defaults include: one source feeding two channels, one channel
+on an unmapped source (Card), and one channel OFF.
+
+## 5. State boundaries (web app)
+
+Zustand store with three distinct slices — different lifecycles, never merged:
+
+```ts
+interface AppState {
+  // Structural: set at load, effectively immutable.
+  installation: Installation;
+
+  // Mixer configuration: changes occasionally; updating it rebuilds routeIndex.
+  channels: MixerChannelState[];
+
+  // Derived (recomputed only when installation/channels change):
+  routeIndex: RouteIndex;
+
+  // Runtime: fast-changing, never triggers index rebuilds.
+  connection: MixerConnectionState;
+  selectedChannel: MixerChannelId | null;   // from the physical console
+  hoveredEndpoint: EndpointId | null;       // browser-local
+}
+```
+
+Selection and hover are independent: hovering must never clear or overwrite
+the physically-selected route, and both can be active at once with distinct
+visual treatments. Components subscribe via selectors keyed by their own
+domain ID (e.g. a channel strip selects a precomputed highlight status for
+`mixer:12`), so a rename of CH7 does not rerender CH12.
+
+## 6. Gateway: how the web app gets mixer data
+
+The web app talks to a narrow `MixerGateway` (same event shapes as
+`MixerClient`, minus connect lifecycle details):
+
+- **Live mode**: `WebSocketMixerGateway` — connects to the bridge, receives a
+  `snapshot` message then incremental events (types from `packages/protocol`).
+- **Mock mode** (default for dev): `LocalMockGateway` — wraps a
+  `MockMixerClient` instance running *in the browser*; no bridge process
+  needed. The dev control surface (visible only in this mode, clearly labeled
+  "simulated data") drives the mock directly.
+
+Mode is chosen at startup (env/query param). Nothing outside the gateway
+module knows which mode is active.
+
+## 7. Bridge protocol (`packages/protocol`)
+
+WebSocket, JSON messages, discriminated unions shared as TS types:
+
+```ts
+type ServerMessage =
+  | { type: "snapshot"; snapshot: MixerSnapshot; mixerConnection: MixerConnectionState }
+  | { type: "event"; event: MixerEvent };   // re-uses mixer-contracts types
+
+type ClientMessage = { type: "resync" };     // explicit full-snapshot request
+```
+
+On WS connect the bridge sends `snapshot` immediately (from its cached state,
+even if the X32 is currently unreachable — the topology and last-known config
+still render, with `connection: "disconnected"`). All subsequent changes are
+`event` messages. If the bridge itself resyncs with the X32 (reconnection), it
+pushes a fresh `snapshot` to all clients.
+
+## 8. End-to-end event flow (live mode)
+
+```text
+Operator presses SELECT on CH12
+  → X32 sends UDP OSC: /-stat/selidx ,i 11          (0-based)
+  → x32 adapter decodes, translates index (+1), emits
+      { type: "selected-channel-changed", channel: 12 }
+  → bridge fans out over WS: { type: "event", event: ... }
+  → web gateway dispatches to store: selectedChannel = 12   (runtime slice only;
+      routeIndex untouched)
+  → selectors: routeIndex.byMixerChannel.get(12) → route endpoints
+  → components with matching endpoint IDs re-render with the
+      "selected-on-console" highlight
+```
+
+A `channel-source-changed` event instead updates the `channels` slice and
+recomputes `routeIndex`; hover state changes touch only `hoveredEndpoint`.
+
+## 9. Future boundaries (design for, don't build)
+
+- `InstallationRepository` / `LayoutRepository` interfaces can later replace
+  the static YAML load and hard-coded JSX layout; components already identify
+  themselves by domain IDs only.
+- Diagnostics (expected vs. actual routing) compares two `RouteIndex` /
+  `MixerChannelState[]` values — no model change needed.
+- Output routing adds new `EndpointRef` kinds and edges to the same graph.
+- Write support adds command methods to `MixerClient` — kept conceptually
+  separate from the read path.
+
+## 10. Explicitly out of scope
+
+No databases, CQRS/event sourcing, Redux, message brokers, React Flow/canvas,
+generic graph editors, draggable nodes, multi-tenant support, settings
+screens, or mixer write operations.
