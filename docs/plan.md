@@ -35,7 +35,7 @@ adapter swap at the end.
 - [x] **9. Bridge + WS protocol** (`apps/x32-bridge`, `packages/protocol`) —
       WS server, snapshot-on-connect, event fan-out, resync;
       `WebSocketMixerGateway` in the web app; bridge initially hosts the mock.
-- [ ] **10. X32 adapter** (`apps/x32-bridge/src/x32/`) — OSC codec (fixture
+- [x] **10. X32 adapter** (`apps/x32-bridge/src/x32/`) — OSC codec (fixture
       tests), snapshot reads, `/xremote` loop, resolution algorithm per
       docs/x32-protocol.md, reconnect + resync. Unit-test resolution against
       recorded message fixtures.

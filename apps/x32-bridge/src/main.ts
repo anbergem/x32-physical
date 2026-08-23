@@ -1,13 +1,14 @@
 /**
  * Bridge entry point (architecture.md §6/§7). Owns the `MixerClient` and
- * serves the WebSocket API; the X32 adapter (`src/x32/`, the only module
- * allowed to know OSC) arrives in plan step 10 — until then `MockMixerClient`
- * behind the same interface is what the bridge hosts.
+ * serves the WebSocket API; `src/x32/` (the only module allowed to know OSC)
+ * provides `X32MixerClient` for `X32_MIXER=x32`, interchangeable with
+ * `MockMixerClient` behind the same interface.
  *
  * Env:
- *   X32_MIXER=mock|x32   which MixerClient backs the bridge (default: mock;
- *                        "x32" is not implemented yet — see ./config.ts)
+ *   X32_MIXER=mock|x32   which MixerClient backs the bridge (default: mock)
  *   X32_BRIDGE_PORT=n    WebSocket port (default: 8765)
+ *   X32_HOST=host        console IP/hostname — required when X32_MIXER=x32
+ *   X32_PORT=n           console OSC port — x32 mode only (default: 10023)
  *   X32_DEMO=1           dev-only: cycles a scripted mock sequence every ~3s
  *                        so bridge -> browser events can be watched live
  *                        without an X32 connected. Off by default, mock mode
@@ -30,7 +31,7 @@ async function main(): Promise<void> {
   const port = resolvePort(process.env);
   const demo = resolveDemoMode(process.env);
 
-  const mixerClient = createMixerClient(mode);
+  const mixerClient = createMixerClient(mode, process.env);
   const bridge = await startBridgeServer({ mixerClient, port });
 
   console.log(

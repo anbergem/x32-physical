@@ -7,16 +7,24 @@
  * | ------------------ | ------------------------------------ | ------- |
  * | `X32_MIXER`        | which `MixerClient` backs the bridge | `mock`  |
  * | `X32_BRIDGE_PORT`  | WebSocket port                       | `8765`  |
+ * | `X32_HOST`         | console IP/hostname (`x32` mode only) | required |
+ * | `X32_PORT`         | console OSC port (`x32` mode only)    | `10023` |
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
  */
 
 import type { MixerClient } from "@x32/mixer-contracts";
 import { MockMixerClient } from "@x32/mixer-contracts";
 
-/** Which `MixerClient` backs the bridge. `x32` arrives in plan step 10. */
+import { createDgramTransport } from "./x32/dgramTransport";
+import { X32MixerClient } from "./x32/x32MixerClient";
+
+/** Which `MixerClient` backs the bridge. */
 export type MixerMode = "mock" | "x32";
 
 export const DEFAULT_PORT = 8765;
+
+/** The X32's OSC port is fixed by the protocol (docs/x32-protocol.md §Transport). */
+export const DEFAULT_X32_PORT = 10023;
 
 export function resolveMixerMode(env: NodeJS.ProcessEnv): MixerMode {
   const requested = env.X32_MIXER;
@@ -24,8 +32,7 @@ export function resolveMixerMode(env: NodeJS.ProcessEnv): MixerMode {
   if (requested === "x32") return "x32";
 
   throw new Error(
-    `Unrecognised X32_MIXER "${requested}": expected "mock" (the only mode ` +
-      `implemented so far — "x32" arrives in plan step 10).`,
+    `Unrecognised X32_MIXER "${requested}": expected "mock" or "x32".`,
   );
 }
 
@@ -47,23 +54,45 @@ export function resolveDemoMode(env: NodeJS.ProcessEnv): boolean {
   return env.X32_DEMO === "1";
 }
 
+/** Required in `x32` mode: the console has no discovery protocol we implement. */
+export function resolveX32Host(env: NodeJS.ProcessEnv): string {
+  const host = env.X32_HOST;
+  if (host === undefined || host.trim() === "") {
+    throw new Error(
+      'X32_HOST is required when X32_MIXER=x32: set it to the console\'s ' +
+        "IP address or hostname (e.g. X32_HOST=192.168.1.10).",
+    );
+  }
+  return host;
+}
+
+export function resolveX32Port(env: NodeJS.ProcessEnv): number {
+  const raw = env.X32_PORT;
+  if (raw === undefined) return DEFAULT_X32_PORT;
+
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(
+      `Invalid X32_PORT "${raw}": expected an integer between 0 and 65535.`,
+    );
+  }
+  return port;
+}
+
 /**
- * The bridge's `MixerClient`, chosen by `X32_MIXER`. `MockMixerClient` is the
- * only implementation today; the "x32" case is the one-line addition point
- * for plan step 10's `X32MixerClient` — this mirrors the same seam pattern as
- * `apps/web/src/gateway/createGateway.ts`'s "live" branch.
+ * The bridge's `MixerClient`, chosen by `X32_MIXER`. `x32` mode wires up
+ * `X32MixerClient` (apps/x32-bridge/src/x32/, the only module allowed to
+ * know OSC) with the real `node:dgram` transport — this mirrors the same
+ * seam pattern as `apps/web/src/gateway/createGateway.ts`'s "live" branch.
  */
-export function createMixerClient(mode: MixerMode): MixerClient {
+export function createMixerClient(mode: MixerMode, env: NodeJS.ProcessEnv): MixerClient {
   switch (mode) {
     case "mock":
       return new MockMixerClient();
-    case "x32":
-      // Seam for plan step 10: `X32MixerClient` (apps/x32-bridge/src/x32/,
-      // the only module allowed to know OSC) lands here. Failing loudly beats
-      // silently serving mock data as if it were the console.
-      throw new Error(
-        "X32 mode is not implemented yet: the OSC adapter arrives in plan " +
-          'step 10. Unset X32_MIXER (or set it to "mock") to run against the mock.',
-      );
+    case "x32": {
+      const host = resolveX32Host(env);
+      const port = resolveX32Port(env);
+      return new X32MixerClient(createDgramTransport(host, port));
+    }
   }
 }
