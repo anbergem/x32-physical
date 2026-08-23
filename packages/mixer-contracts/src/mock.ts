@@ -28,6 +28,14 @@ import type {
 import { createDefaultMockSnapshot } from "./default-snapshot";
 
 /**
+ * A host global both Node and browsers provide, but which the ES lib this
+ * workspace compiles against does not declare. Declaring the one signature used
+ * here keeps the package free of `@types/node` and of the DOM lib — it must run
+ * unchanged in both.
+ */
+declare function queueMicrotask(callback: () => void): void;
+
+/**
  * One `subscribe` call. A record per call rather than a bare listener so that
  * registering the same function twice yields two independent subscriptions.
  */
@@ -120,6 +128,15 @@ export class MockMixerClient implements MixerClient {
     });
   }
 
+  /**
+   * A connection attempt is in flight. The real adapter reports this while it
+   * is reaching for the console; the mock exposes it so the connection-status
+   * UI has no branch that mock mode cannot reach.
+   */
+  simulateConnecting(): void {
+    this.#setConnectionState("connecting");
+  }
+
   /** The console dropped off the network. The snapshot is kept as-is. */
   simulateConnectionLoss(): void {
     this.#setConnectionState("disconnected");
@@ -154,13 +171,21 @@ export class MockMixerClient implements MixerClient {
   #emit(event: MixerEvent): void {
     // Iterate a copy so subscribing/unsubscribing from inside a listener is
     // safe, and isolate listeners from each other: one that throws is the
-    // consumer's bug and must not starve the rest of the fan-out. The mock
-    // has no logger by design (it must run in Node and the browser alike).
+    // consumer's bug and must not starve the rest of the fan-out.
+    //
+    // The failure is rethrown on a fresh microtask rather than swallowed, so it
+    // still reaches the host's unhandled-error reporting (window.onerror,
+    // Node's uncaughtException) with its stack intact. A silently eaten
+    // exception from a store or React listener is exactly the bug that is
+    // hardest to find later. The mock has no logger by design — it must run in
+    // Node and the browser alike.
     for (const subscription of [...this.#subscriptions]) {
       try {
         subscription.listener(event);
-      } catch {
-        // intentionally ignored — see above
+      } catch (error) {
+        queueMicrotask(() => {
+          throw error;
+        });
       }
     }
   }

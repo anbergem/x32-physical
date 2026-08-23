@@ -249,6 +249,50 @@ describe("buildRouteIndex: sources with no physical input", () => {
   });
 });
 
+describe("buildRouteIndex: ownership of the objects it hands out", () => {
+  const installation = routingInstallation();
+  const index = buildRouteIndex(
+    installation,
+    // A cabled panel socket (A3), a cascaded one (A23) and a direct stage
+    // socket (A9): every way a physical input can be produced.
+    channels({ 12: a(3), 7: a(23), 9: a(9) }),
+  );
+
+  it("never puts an installation-owned object in a route", () => {
+    const owned = new Set<unknown>();
+    for (const connection of installation.connections) {
+      owned.add(connection.from);
+      owned.add(connection.to);
+    }
+
+    const routes = [
+      ...index.byMixerChannel.values(),
+      ...[...index.byEndpoint.values()].flat(),
+    ];
+    expect(routes.length).toBeGreaterThan(0);
+    for (const route of routes) {
+      for (const ref of route.physicalInputs) {
+        expect(owned.has(ref)).toBe(false);
+      }
+    }
+  });
+
+  it("survives a consumer mutating a ref it was handed", () => {
+    const ref = routeOf(index, 12).physicalInputs[0];
+    expect(ref).toEqual(panelInput("front-left", 3));
+    (ref as { input: number }).input = 99;
+
+    // The installation, and a fresh index built from it, are unaffected.
+    expect(installation.connections[1]?.from).toEqual(
+      panelInput("front-left", 3),
+    );
+    const rebuilt = buildRouteIndex(installation, channels({ 12: a(3) }));
+    expect(routeOf(rebuilt, 12).physicalInputs).toEqual([
+      panelInput("front-left", 3),
+    ]);
+  });
+});
+
 describe("buildRouteIndex: cascade and direct stage sockets", () => {
   it("resolves AES50-A 23 through stagebox-2 input 7 and its panel socket", () => {
     const index = buildRouteIndex(routingInstallation(), channels({ 7: a(23) }));

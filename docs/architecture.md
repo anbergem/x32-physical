@@ -242,8 +242,8 @@ production code never sees.
 Pure TS, runs in Node and browser. Constructed from an initial
 `MixerSnapshot` (a realistic default matching `installation.yaml`). Simulation
 API (dev-only): `simulateSelect(ch | null)`, `simulateRename(ch, name)`,
-`simulateSourceChange(ch, source)`, `simulateConnectionLoss()`,
-`simulateReconnect()`. Each mutates the mock's internal snapshot and emits the
+`simulateSourceChange(ch, source)`, `simulateConnecting()`,
+`simulateConnectionLoss()`, `simulateReconnect()`. Each mutates the mock's internal snapshot and emits the
 corresponding `MixerEvent`, so mock and real adapter exercise identical
 consumer code. Defaults include: one source feeding two channels, one channel
 on an unmapped source (Card), and one channel OFF.

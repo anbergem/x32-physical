@@ -11,10 +11,15 @@
  *
  * - Traversal is generic over directed edges, not hardcoded to the
  *   panel → stagebox → aes50 → mixer shape, so output routing can reuse it.
- * - It never throws. Sources with no physical mapping (card, off, an AES50
- *   channel no stagebox occupies) yield a route with `physicalInputs: []` and
- *   `unmappedSource` set; malformed input is skipped rather than fatal, because
- *   a stray value from an adapter must not blank the whole schematic.
+ * - Given a **validated** installation it never throws, whatever the channel
+ *   data says. Sources with no physical mapping (card, off, an AES50 channel no
+ *   stagebox occupies) yield a route with `physicalInputs: []` and
+ *   `unmappedSource` set; malformed channel values are skipped rather than
+ *   fatal, because a stray value from an adapter must not blank the whole
+ *   schematic. The installation itself is the caller's responsibility: an
+ *   invalid one (say an AES50 range running past channel 48) throws while its
+ *   edges are derived, before any route is built. Load installations through
+ *   the installation loader, or `assertValidInstallation`.
  */
 
 import type { Aes50ChannelRef, EndpointRef } from "./endpoints";
@@ -127,6 +132,24 @@ function isPhysical(ref: EndpointRef): boolean {
   return ref.kind === "panel-input" || ref.kind === "stagebox-input";
 }
 
+/**
+ * A route hands out only its own objects. Part of the graph is built from the
+ * caller's `Installation`, and a consumer mutating a ref it got from a route
+ * must not be able to corrupt the topology through it.
+ */
+function cloneEndpoint(ref: EndpointRef): EndpointRef {
+  switch (ref.kind) {
+    case "panel-input":
+      return { kind: ref.kind, device: ref.device, input: ref.input };
+    case "stagebox-input":
+      return { kind: ref.kind, device: ref.device, input: ref.input };
+    case "aes50-channel":
+      return { kind: ref.kind, bus: ref.bus, channel: ref.channel };
+    case "mixer-channel":
+      return { kind: ref.kind, channel: ref.channel };
+  }
+}
+
 function adjacencyOf(
   map: Map<EndpointId, EndpointRef[]>,
   id: EndpointId,
@@ -165,6 +188,9 @@ function buildStaticGraph(installation: Installation): Graph {
 
   for (const device of installation.devices) {
     if (device.kind !== "passive-panel") continue;
+    // A bound on this loop, not a validation substitute: an unvalidated
+    // installation has already thrown by the time its stagebox edges are
+    // derived below. `validateInstallation` is what rejects a bad input count.
     if (!Number.isInteger(device.inputs) || device.inputs < 1) continue;
     for (let input = 1; input <= device.inputs; input += 1) {
       addNode(graph, panelInput(device.id, input));
@@ -255,7 +281,7 @@ function makeRoute(
         isPhysical(node.ref) &&
         (graph.incoming.get(node.id) ?? []).length === 0,
     )
-    .map((node) => node.ref);
+    .map((node) => cloneEndpoint(node.ref));
 
   return {
     endpoints: nodes.map((node) => node.id),
@@ -314,6 +340,9 @@ interface Aes50Group {
  * (`mixerChannels: []`, no `unmappedSource`): this is a debugging tool, so
  * hovering a stage socket must always show where its signal goes, patched or
  * not. All 32 mixer channels are always present in `byMixerChannel`.
+ *
+ * @throws Error if `installation` is not a valid topology — validate it at load
+ *         (`assertValidInstallation`), not here.
  */
 export function buildRouteIndex(
   installation: Installation,
@@ -331,6 +360,13 @@ export function buildRouteIndex(
   const ordered = [...states.values()].sort((a, b) => a.channel - b.channel);
 
   // Dynamic edges: aes50 → mixer channel, one group per distinct AES50 source.
+  //
+  // Only AES50 consumers are grouped into a shared route; two channels off the
+  // same card input stay two routes. Sharing exists so that hovering an
+  // endpoint on a path co-highlights every channel reachable from it — and a
+  // non-AES50 source has no such endpoint to hover. Whether two channels
+  // happen to share a mixer-internal source is a question about the mixer, not
+  // about this venue's physical wiring, and is out of this tool's scope.
   const groups = new Map<EndpointId, Aes50Group>();
   const unmapped: MixerChannelState[] = [];
 

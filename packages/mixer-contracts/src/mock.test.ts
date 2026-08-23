@@ -54,6 +54,25 @@ describe("MockMixerClient connection lifecycle", () => {
     expect(events).toEqual([]);
   });
 
+  it("simulates a connection attempt in flight", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateConnecting();
+    expect(client.getConnectionState()).toBe("connecting");
+
+    // Idempotent like the other transitions.
+    client.simulateConnecting();
+
+    await client.connect();
+    expect(client.getConnectionState()).toBe("connected");
+
+    expect(events).toEqual([
+      { type: "connection-state-changed", state: "connecting" },
+      { type: "connection-state-changed", state: "connected" },
+    ]);
+  });
+
   it("simulates connection loss and reconnection", async () => {
     const client = new MockMixerClient();
     await client.connect();
@@ -234,23 +253,43 @@ describe("MockMixerClient subscriptions", () => {
     ]);
   });
 
-  it("keeps delivering when a listener throws", () => {
+  it("keeps delivering when a listener throws, and rethrows out of band", () => {
     const client = new MockMixerClient();
     const delivered: MixerEvent[] = [];
 
-    client.subscribe(() => {
-      throw new Error("listener blew up");
-    });
-    client.subscribe((event) => {
-      delivered.push(event);
-    });
+    // Capture the microtask instead of letting it reach the test runner as an
+    // unhandled error — the point is that the failure is rethrown, not eaten.
+    const host = globalThis as unknown as {
+      queueMicrotask: (callback: () => void) => void;
+    };
+    const original = host.queueMicrotask;
+    const rethrown: Array<() => void> = [];
+    host.queueMicrotask = (callback) => {
+      rethrown.push(callback);
+    };
 
-    expect(() => {
-      client.simulateSelect(CH12);
-    }).not.toThrow();
-    expect(delivered).toEqual([
-      { type: "selected-channel-changed", channel: 12 },
-    ]);
+    try {
+      client.subscribe(() => {
+        throw new Error("listener blew up");
+      });
+      client.subscribe((event) => {
+        delivered.push(event);
+      });
+
+      expect(() => {
+        client.simulateSelect(CH12);
+      }).not.toThrow();
+      expect(delivered).toEqual([
+        { type: "selected-channel-changed", channel: 12 },
+      ]);
+
+      expect(rethrown).toHaveLength(1);
+      expect(() => {
+        rethrown[0]?.();
+      }).toThrowError("listener blew up");
+    } finally {
+      host.queueMicrotask = original;
+    }
   });
 
   it("tolerates unsubscribing from inside a listener", () => {
