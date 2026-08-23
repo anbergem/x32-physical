@@ -7,6 +7,9 @@
  * ignored — e.g. `/config/routing/IN/AUX`, explicitly out of MVP scope.
  */
 
+/** The console's fixed OSC port (docs/x32-protocol.md §Transport). Protocol knowledge — lives here, not in config.ts. */
+export const X32_OSC_PORT = 10023;
+
 const IN_BLOCK_RANGES = ["1-8", "9-16", "17-24", "25-32"] as const;
 
 function pad2(n: number): string {

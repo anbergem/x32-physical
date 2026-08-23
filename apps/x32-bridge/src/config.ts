@@ -15,6 +15,7 @@
 import type { MixerClient } from "@x32/mixer-contracts";
 import { MockMixerClient } from "@x32/mixer-contracts";
 
+import { X32_OSC_PORT } from "./x32/addresses";
 import { createDgramTransport } from "./x32/dgramTransport";
 import { X32MixerClient } from "./x32/x32MixerClient";
 
@@ -23,8 +24,8 @@ export type MixerMode = "mock" | "x32";
 
 export const DEFAULT_PORT = 8765;
 
-/** The X32's OSC port is fixed by the protocol (docs/x32-protocol.md §Transport). */
-export const DEFAULT_X32_PORT = 10023;
+/** The X32's OSC port is protocol knowledge — defined in `./x32/addresses.ts`, re-exported here as the env default. */
+export const DEFAULT_X32_PORT = X32_OSC_PORT;
 
 export function resolveMixerMode(env: NodeJS.ProcessEnv): MixerMode {
   const requested = env.X32_MIXER;

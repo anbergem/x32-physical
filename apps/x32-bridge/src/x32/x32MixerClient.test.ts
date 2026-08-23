@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OscArgument } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import type { UdpTransport } from "./transport";
-import { X32MixerClient } from "./x32MixerClient";
+import { DEFAULTS, X32MixerClient } from "./x32MixerClient";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -232,6 +232,24 @@ describe("live pushes", () => {
     expect(snapshot.channels[8]?.source).toEqual({ kind: "aes50", bus: "A", channel: 9 }); // CH9 untouched
   });
 
+  it("re-sending an unchanged IN block value emits zero events (a scene recall echoing the current routing)", async () => {
+    const { transport, events } = await connectedClient();
+
+    // Same value the default snapshot already has for this block (A1-8 = 4).
+    transport.push("/config/routing/IN/1-8", [{ type: "i", value: 4 }]);
+
+    expect(events).toEqual([]);
+  });
+
+  it("re-sending an unchanged channel source value emits zero events", async () => {
+    const { transport, events } = await connectedClient();
+
+    // CH5's default source value is already 5.
+    transport.push("/ch/05/config/source", [{ type: "i", value: 5 }]);
+
+    expect(events).toEqual([]);
+  });
+
   it("a userrout change affects only channels currently routed through that slot", async () => {
     const transport = new FakeTransport();
     transport.autoReply = defaultAutoReply({
@@ -249,6 +267,22 @@ describe("live pushes", () => {
     expect(events).toEqual([
       { type: "channel-source-changed", channel: 20, source: { kind: "card", input: 1 } },
     ]);
+  });
+
+  it("re-sending an unchanged userrout value emits zero events", async () => {
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply({
+      "/config/routing/IN/17-24": [{ type: "i", value: 22 }], // UIN17-24
+      "/config/userrout/in/20": [{ type: "i", value: 55 }], // CH20 -> aes50 A23
+    });
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+    await client.connect();
+    const events: MixerEvent[] = [];
+    client.subscribe((event) => events.push(event));
+
+    transport.push("/config/userrout/in/20", [{ type: "i", value: 55 }]); // same value
+
+    expect(events).toEqual([]);
   });
 
   it("ignores an unknown address silently", async () => {
@@ -342,6 +376,49 @@ describe("retry, disconnect detection, and resync", () => {
 
 describe("disconnect()", () => {
   it("stops the transport and leaves no pending timers", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+    expect(vi.getTimerCount()).toBeGreaterThan(0); // the renewal + liveness intervals are running
+
+    await client.disconnect();
+
+    expect(transport.closed).toBe(true);
+    expect(client.getConnectionState()).toBe("disconnected");
+    expect(vi.getTimerCount()).toBe(0);
+
+    client = null; // already disconnected — afterEach must not double-disconnect
+  });
+
+  it("during a running connect() leaves no timers behind and sends nothing after close (race)", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    transport.autoReply = () => undefined; // nothing ever replies — connect() is still mid-retry
+    client = new X32MixerClient(transport, { requestTimeoutMs: 10, maxRetries: 5 });
+
+    const connectPromise = client.connect();
+    await client.disconnect(); // races the in-flight connect()
+
+    const sentAtClose = transport.sent.length;
+    await connectPromise; // must settle without resurrecting state or timers
+
+    expect(client.getConnectionState()).toBe("disconnected");
+    expect(transport.closed).toBe(true);
+    expect(transport.sent.length).toBe(sentAtClose); // nothing sent while connect() unwound
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Even far into the future, nothing fires — no /xremote renewal, no liveness poll.
+    await vi.advanceTimersByTimeAsync(1_000_000);
+    expect(transport.sent.length).toBe(sentAtClose);
+    expect(vi.getTimerCount()).toBe(0);
+
+    client = null; // already disconnected — afterEach must not double-disconnect
+  });
+
+  it("is single-use: connect() after disconnect() throws rather than silently doing nothing", async () => {
     const transport = new FakeTransport();
     transport.autoReply = defaultAutoReply();
     client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
@@ -349,9 +426,16 @@ describe("disconnect()", () => {
     await client.connect();
     await client.disconnect();
 
-    expect(transport.closed).toBe(true);
-    expect(client.getConnectionState()).toBe("disconnected");
+    await expect(client.connect()).rejects.toThrow(
+      "X32MixerClient is single-use; construct a new instance",
+    );
 
     client = null; // already disconnected — afterEach must not double-disconnect
+  });
+});
+
+describe("defaults", () => {
+  it("renews /xremote comfortably inside the console's 10s subscription expiry", () => {
+    expect(DEFAULTS.xremoteRenewalMs).toBeLessThan(10_000);
   });
 });

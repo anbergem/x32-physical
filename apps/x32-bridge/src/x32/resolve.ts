@@ -98,6 +98,37 @@ export function resolveChannelSource(inputs: ChannelResolutionInputs): MixerSour
   }
 }
 
+/**
+ * Structural equality for `MixerSourceRef`. A scene recall on the console
+ * commonly re-sends an IN block or userrout value that hasn't actually
+ * changed; the client uses this to skip emitting a no-op
+ * `channel-source-changed` for a channel whose re-resolved source is
+ * identical to what it already was.
+ */
+export function sourceRefEquals(a: MixerSourceRef, b: MixerSourceRef): boolean {
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case "off":
+      return true;
+    case "aes50":
+      return b.kind === "aes50" && a.bus === b.bus && a.channel === b.channel;
+    case "local":
+      return b.kind === "local" && a.input === b.input;
+    case "card":
+      return b.kind === "card" && a.input === b.input;
+    case "aux":
+      return b.kind === "aux" && a.input === b.input;
+    case "usb":
+      return b.kind === "usb" && a.side === b.side;
+    case "fx":
+      return b.kind === "fx" && a.ret === b.ret;
+    case "bus":
+      return b.kind === "bus" && a.bus === b.bus;
+    case "talkback":
+      return b.kind === "talkback" && a.which === b.which;
+  }
+}
+
 function isInputSlotInRange(sourceValue: number, start: number, end: number): number | null {
   const category = classifyChannelSourceValue(sourceValue);
   if (category.kind !== "input-slot") return null;
@@ -206,18 +237,17 @@ export class X32State {
     this.#userRoutIn[slot - 1] = value;
   }
 
-  /**
-   * Returns `true` only on a REC → PLAY transition (docs/x32-protocol.md:
-   * `routswitch` 0 = REC, 1 = PLAY), so the caller can log the "playback
-   * routing active" warning exactly once per transition instead of on every
-   * read or liveness poll.
-   */
-  setRoutSwitch(value: number): boolean {
-    const wasPlay = this.#routSwitch === 1;
+  /** `routswitch`: 0 = REC (the `IN` blocks are active), 1 = PLAY. */
+  setRoutSwitch(value: number): void {
     this.#routSwitch = value;
-    return !wasPlay && value === 1;
   }
 
+  /**
+   * `x32MixerClient.ts` reads this before and after `setRoutSwitch` to
+   * edge-detect the REC → PLAY transition (docs/x32-protocol.md) and log its
+   * "playback routing active" warning exactly once per transition rather
+   * than on every read or liveness poll.
+   */
   isPlaybackRoutingActive(): boolean {
     return this.#routSwitch === 1;
   }

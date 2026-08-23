@@ -40,7 +40,7 @@ config node as one plain-text line; optional optimization, not needed for MVP.
 | `/ch/[01…32]/config/source` | int 0–64 | Channel input source: 0 = OFF; **1–32 = In 01–32**; 33–38 = Aux 1–6; 39 = USB L; 40 = USB R; 41–48 = FX 1L–4R; 49–64 = Bus 01–16. |
 | `/config/routing/IN/1-8`, `/9-16`, `/17-24`, `/25-32` | int 0–23 | Which physical block feeds input slots In 1–32. Enum order: 0–3 `AN1-8…AN25-32` (local), 4–9 `A1-8…A41-48` (AES50-A), 10–15 `B1-8…B41-48`, 16–19 `CARD1-8…CARD25-32`, 20–23 `UIN1-8…UIN25-32` (User In). |
 | `/config/routing/IN/AUX` | int 0–15 | Aux-remap block; not needed for CH 1–32 MVP, ignored. |
-| `/config/routing/routswitch` | int 0/1 | 0 = REC (the `IN` blocks are active), 1 = PLAY (the `PLAY` blocks are active). MVP: read + subscribe; when PLAY is active, show a "playback routing active" notice rather than resolving `PLAY` blocks. |
+| `/config/routing/routswitch` | int 0/1 | 0 = REC (the `IN` blocks are active), 1 = PLAY (the `PLAY` blocks are active). MVP: bridge logs a clear warning when PLAY is active and keeps resolving IN/REC blocks; an operator-visible UI notice is deferred (needs a protocol field). |
 | `/config/userrout/in/[01…32]` | int 0–168 | User In slot mapping: 0 = OFF; 1–32 = Local In; **33–80 = AES50-A 1–48**; 81–128 = AES50-B 1–48; 129–160 = Card In 1–32; 161–166 = Aux In 1–6; 167 = TB Internal; 168 = TB External. |
 | `/xinfo` | 4 strings | Liveness + console model/firmware for the status display. |
 

@@ -29,10 +29,17 @@
  * live push — goes through the same decode-and-apply path
  * (`#handleIncoming` → `#applyMessage`), per docs/x32-protocol.md's framing:
  * one decoder for both. Events are only emitted for that path once the
- * client is not in the middle of building a snapshot (`#suppressEvents`) —
- * building a snapshot must not look like ~100 live changes to consumers.
+ * client is not in the middle of building a snapshot (`#suppressEvents`), and
+ * only when a channel's re-resolved source actually differs from what it was
+ * — a scene recall on the console commonly re-sends an IN block or userrout
+ * value that hasn't changed, and that must not fan out into no-op events.
+ *
+ * `disconnect()` is terminal: this instance is single-use. A `connect()`
+ * called after `disconnect()` throws rather than silently doing nothing —
+ * construct a new `X32MixerClient` (with a fresh transport) to reconnect.
  */
 
+import type { MixerSourceRef } from "@x32/domain";
 import { mixerChannelId, MIXER_CHANNEL_COUNT } from "@x32/domain";
 import type {
   MixerClient,
@@ -56,7 +63,7 @@ import {
 } from "./addresses";
 import type { OscArgument, OscMessage } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
-import { X32State } from "./resolve";
+import { sourceRefEquals, X32State } from "./resolve";
 import type { UdpTransport } from "./transport";
 
 export interface X32MixerClientOptions {
@@ -70,7 +77,8 @@ export interface X32MixerClientOptions {
   livenessPollMs?: number;
 }
 
-const DEFAULTS = {
+/** Exported so tests can regression-proof the renewal interval against the console's 10s subscription expiry. */
+export const DEFAULTS = {
   requestTimeoutMs: 300,
   maxRetries: 3,
   xremoteRenewalMs: 8000,
@@ -133,12 +141,21 @@ export class X32MixerClient implements MixerClient {
   // --- MixerClient ---------------------------------------------------------
 
   async connect(): Promise<void> {
-    if (this.#closed || this.#connectionState !== "disconnected") return;
+    if (this.#closed) {
+      throw new Error("X32MixerClient is single-use; construct a new instance");
+    }
+    if (this.#connectionState !== "disconnected") return; // already connecting/connected: no-op
 
     this.#setConnectionState("connecting");
     const success = await this.#attemptFullSnapshot();
-    this.#setConnectionState(success ? "connected" : "disconnected");
 
+    // `disconnect()` may have run while the snapshot sequence was in flight
+    // (every read now rejects instantly via `#readOnce`'s `#closed` check, so
+    // `success` is `false` here) — bail out without resurrecting the
+    // connection state or the timers `disconnect()` already stopped.
+    if (this.#closed) return;
+
+    this.#setConnectionState(success ? "connected" : "disconnected");
     this.#startXremoteRenewal();
     this.#startLivenessPoll();
   }
@@ -293,8 +310,12 @@ export class X32MixerClient implements MixerClient {
       case "routswitch": {
         const value = firstInt(args);
         if (value === undefined) return;
-        const enteredPlayback = this.#state.setRoutSwitch(value);
-        if (enteredPlayback) {
+        // Edge-detect REC -> PLAY via `isPlaybackRoutingActive()` (before and
+        // after) so the warning logs exactly once per transition, not on
+        // every read or liveness poll.
+        const wasPlaybackActive = this.#state.isPlaybackRoutingActive();
+        this.#state.setRoutSwitch(value);
+        if (!wasPlaybackActive && this.#state.isPlaybackRoutingActive()) {
           console.warn(
             "x32-bridge: playback routing active (routswitch = PLAY) — routing " +
               "display reflects REC/IN blocks, per docs/x32-protocol.md's documented MVP limitation.",
@@ -306,22 +327,26 @@ export class X32MixerClient implements MixerClient {
       case "in-block": {
         const value = firstInt(args);
         if (value === undefined) return;
-        this.#state.setInBlock(parsed.blockIndex, value);
-        if (this.#suppressEvents) return;
-        for (const channel of this.#state.channelsAffectedByInBlockChange(parsed.blockIndex)) {
-          this.#emitChannelSourceChanged(channel);
+        if (this.#suppressEvents) {
+          this.#state.setInBlock(parsed.blockIndex, value);
+          return;
         }
+        const before = this.#resolveBefore(this.#state.channelsAffectedByInBlockChange(parsed.blockIndex));
+        this.#state.setInBlock(parsed.blockIndex, value);
+        this.#emitChangedChannelSources(before);
         return;
       }
 
       case "user-rout": {
         const value = firstInt(args);
         if (value === undefined) return;
-        this.#state.setUserRoutIn(parsed.slot, value);
-        if (this.#suppressEvents) return;
-        for (const channel of this.#state.channelsAffectedByUserRoutChange(parsed.slot)) {
-          this.#emitChannelSourceChanged(channel);
+        if (this.#suppressEvents) {
+          this.#state.setUserRoutIn(parsed.slot, value);
+          return;
         }
+        const before = this.#resolveBefore(this.#state.channelsAffectedByUserRoutChange(parsed.slot));
+        this.#state.setUserRoutIn(parsed.slot, value);
+        this.#emitChangedChannelSources(before);
         return;
       }
 
@@ -341,9 +366,13 @@ export class X32MixerClient implements MixerClient {
       case "channel-source": {
         const value = firstInt(args);
         if (value === undefined) return;
+        if (this.#suppressEvents) {
+          this.#state.setChannelSource(parsed.channel, value);
+          return;
+        }
+        const before = this.#resolveBefore([parsed.channel]);
         this.#state.setChannelSource(parsed.channel, value);
-        if (this.#suppressEvents) return;
-        this.#emitChannelSourceChanged(parsed.channel);
+        this.#emitChangedChannelSources(before);
         return;
       }
 
@@ -364,12 +393,23 @@ export class X32MixerClient implements MixerClient {
     }
   }
 
-  #emitChannelSourceChanged(channel: number): void {
-    this.#emit({
-      type: "channel-source-changed",
-      channel: mixerChannelId(channel),
-      source: this.#state.resolveChannel(channel),
-    });
+  /** Snapshots each channel's currently-resolved source, before a state mutation that may change it. */
+  #resolveBefore(channels: number[]): Array<[channel: number, previous: MixerSourceRef]> {
+    return channels.map((channel) => [channel, this.#state.resolveChannel(channel)]);
+  }
+
+  /**
+   * Re-resolves each channel from `before` and emits `channel-source-changed`
+   * only for the ones whose source actually differs — a scene recall commonly
+   * re-sends an IN block or userrout value that hasn't changed, and that must
+   * not fan out into no-op events over the WebSocket.
+   */
+  #emitChangedChannelSources(before: Array<[channel: number, previous: MixerSourceRef]>): void {
+    for (const [channel, previous] of before) {
+      const source = this.#state.resolveChannel(channel);
+      if (sourceRefEquals(previous, source)) continue;
+      this.#emit({ type: "channel-source-changed", channel: mixerChannelId(channel), source });
+    }
   }
 
   // --- background loops -----------------------------------------------------

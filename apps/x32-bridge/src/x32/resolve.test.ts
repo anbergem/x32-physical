@@ -16,6 +16,7 @@ import {
   affectedChannelsForInBlockChange,
   affectedChannelsForUserRoutChange,
   resolveChannelSource,
+  sourceRefEquals,
   X32State,
 } from "./resolve";
 
@@ -168,6 +169,15 @@ describe("resolveChannelSource — input slots (step 3)", () => {
       input: 3,
     });
   });
+
+  it("boundary: slot 32 with IN/25-32 = 9 (A41-48) -> aes50 A48 (top of both the block and the bus)", () => {
+    const inBlocks: InBlockValues = [0, 0, 0, 9];
+    expect(resolveChannelSource({ sourceValue: 32, inBlocks, userRoutIn: NO_USER_ROUT })).toEqual({
+      kind: "aes50",
+      bus: "A",
+      channel: 48,
+    });
+  });
 });
 
 describe("resolveChannelSource — User In indirection (step 3, UIN branch)", () => {
@@ -190,6 +200,16 @@ describe("resolveChannelSource — User In indirection (step 3, UIN branch)", ()
     const userRoutIn = [...NO_USER_ROUT];
     userRoutIn[0] = 0; // slot 1 -> off
     expect(resolveChannelSource({ sourceValue: 1, inBlocks, userRoutIn })).toEqual({ kind: "off" });
+  });
+
+  it("boundary: slot 32 with IN/25-32 = 23 (UIN25-32) resolves via userrout slot 32 (top of both ranges)", () => {
+    const inBlocks: InBlockValues = [0, 0, 0, 23];
+    const userRoutIn = [...NO_USER_ROUT];
+    userRoutIn[31] = 1; // slot 32 -> index 31 -> local 1
+    expect(resolveChannelSource({ sourceValue: 32, inBlocks, userRoutIn })).toEqual({
+      kind: "local",
+      input: 1,
+    });
   });
 });
 
@@ -260,13 +280,16 @@ describe("X32State", () => {
     expect(state.selectedChannel()).toBeNull();
   });
 
-  it("setRoutSwitch reports true only on the REC -> PLAY transition", () => {
+  it("isPlaybackRoutingActive reflects the current routswitch value", () => {
+    // x32MixerClient.ts edge-detects the REC -> PLAY transition itself, by
+    // reading this before and after calling setRoutSwitch.
     const state = new X32State();
-    expect(state.setRoutSwitch(0)).toBe(false); // REC -> REC, no transition
-    expect(state.setRoutSwitch(1)).toBe(true); // REC -> PLAY
-    expect(state.setRoutSwitch(1)).toBe(false); // PLAY -> PLAY, already warned
+    expect(state.isPlaybackRoutingActive()).toBe(false);
+    state.setRoutSwitch(0);
+    expect(state.isPlaybackRoutingActive()).toBe(false);
+    state.setRoutSwitch(1);
     expect(state.isPlaybackRoutingActive()).toBe(true);
-    expect(state.setRoutSwitch(0)).toBe(false); // PLAY -> REC
+    state.setRoutSwitch(0);
     expect(state.isPlaybackRoutingActive()).toBe(false);
   });
 
@@ -284,5 +307,41 @@ describe("X32State", () => {
     const state = new X32State();
     expect(() => state.setChannelSource(0, 5)).toThrow(/Invalid X32 channel/);
     expect(() => state.setChannelSource(33, 5)).toThrow(/Invalid X32 channel/);
+  });
+});
+
+describe("sourceRefEquals", () => {
+  it("treats two structurally identical refs as equal", () => {
+    expect(sourceRefEquals({ kind: "off" }, { kind: "off" })).toBe(true);
+    expect(
+      sourceRefEquals(
+        { kind: "aes50", bus: "A", channel: 12 },
+        { kind: "aes50", bus: "A", channel: 12 },
+      ),
+    ).toBe(true);
+    expect(sourceRefEquals({ kind: "local", input: 3 }, { kind: "local", input: 3 })).toBe(true);
+    expect(sourceRefEquals({ kind: "talkback", which: "int" }, { kind: "talkback", which: "int" })).toBe(
+      true,
+    );
+  });
+
+  it("treats a different kind as unequal", () => {
+    expect(sourceRefEquals({ kind: "off" }, { kind: "local", input: 1 })).toBe(false);
+  });
+
+  it("treats the same kind with different fields as unequal", () => {
+    expect(
+      sourceRefEquals(
+        { kind: "aes50", bus: "A", channel: 12 },
+        { kind: "aes50", bus: "A", channel: 13 },
+      ),
+    ).toBe(false);
+    expect(
+      sourceRefEquals(
+        { kind: "aes50", bus: "A", channel: 12 },
+        { kind: "aes50", bus: "B", channel: 12 },
+      ),
+    ).toBe(false);
+    expect(sourceRefEquals({ kind: "usb", side: "L" }, { kind: "usb", side: "R" })).toBe(false);
   });
 });
