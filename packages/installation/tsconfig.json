@@ -1,4 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Only `src/node.ts` — the `@x32/installation/node` subpath — may use Node
+    // builtins. The package index must stay browser-safe.
+    "types": ["node"]
+  },
   "include": ["src"]
 }

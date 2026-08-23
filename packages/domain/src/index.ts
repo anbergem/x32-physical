@@ -49,6 +49,6 @@ export { assertValidInstallation, validateInstallation } from "./validation";
 
 /**
  * Scaffolding marker still imported by the placeholder sources in
- * `installation`, `mixer-contracts` and `protocol` (plan steps 3, 4 and 9).
+ * `mixer-contracts` and `protocol` (plan steps 4 and 9).
  */
 export const PACKAGE_NAME = "@x32/domain" as const;

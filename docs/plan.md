@@ -11,7 +11,7 @@ adapter swap at the end.
       correct dependency direction.
 - [x] **2. Domain topology model** (`packages/domain`) — IDs, `EndpointRef`,
       `Installation`, graph edges, validation rules. Unit tests.
-- [ ] **3. Installation loader** (`packages/installation`) — Zod schema, YAML
+- [x] **3. Installation loader** (`packages/installation`) — Zod schema, YAML
       parse, derived stagebox→AES50 edges, fail-fast errors. Placeholder
       `config/installation.yaml` per docs/installation.md.
 - [ ] **4. Mixer contracts + mock** (`packages/mixer-contracts`) —

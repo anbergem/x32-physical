@@ -1,7 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // The only package that runs on Node and may use its globals/builtins.
+    // Runs on Node and may use its globals/builtins. (The only other place
+    // allowed to is `@x32/installation`'s `/node` subpath — see its tsconfig.)
     "types": ["node"]
   },
   "include": ["src"]

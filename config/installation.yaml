@@ -1,0 +1,79 @@
+# The venue's physical input topology (docs/installation.md).
+#
+# No coordinates, ever: connectivity and visual layout are separate concerns
+# (CLAUDE.md invariant 6). Stagebox -> AES50 edges are *derived* from
+# `aes50.offset` by the domain and must never be written here.
+
+version: 1
+
+devices:
+  # Confirmed: two 16-in boxes daisy-chained on AES50-A. stagebox-1 is patched
+  # to the console's AES50-A port (bus channels 1-16); stagebox-2 cascades
+  # through stagebox-1 (bus channels 17-32). AES50-B is unused.
+  #
+  # Chain-order caveat: AES50 slots are positional. Re-ordering the boxes or
+  # adding a third one is an `offset` edit here and nothing else.
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  stagebox-2:
+    kind: stagebox
+    label: "Stagebox 2"
+    inputs: 16
+    aes50: { bus: A, offset: 16 }
+
+  # PLACEHOLDER PANELS - not the real inventory.
+  # The passive panel inventory has not been captured yet
+  # (docs/installation.md, "Still to be captured"). These two plausible panels
+  # exist so mock-driven development can proceed; replacing them with the real
+  # wiring is a YAML-only edit.
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+  front-right:
+    kind: passive-panel
+    label: "Front Right"
+    inputs: 8
+
+# PLACEHOLDER CABLING - panel socket -> stagebox input, in signal direction.
+# Stagebox inputs 9-16 of both boxes intentionally have no connection: they are
+# direct stage sockets, which is valid.
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+  - from: { device: front-left, input: 2 }
+    to: { device: stagebox-1, input: 2 }
+  - from: { device: front-left, input: 3 }
+    to: { device: stagebox-1, input: 3 }
+  - from: { device: front-left, input: 4 }
+    to: { device: stagebox-1, input: 4 }
+  - from: { device: front-left, input: 5 }
+    to: { device: stagebox-1, input: 5 }
+  - from: { device: front-left, input: 6 }
+    to: { device: stagebox-1, input: 6 }
+  - from: { device: front-left, input: 7 }
+    to: { device: stagebox-1, input: 7 }
+  - from: { device: front-left, input: 8 }
+    to: { device: stagebox-1, input: 8 }
+
+  - from: { device: front-right, input: 1 }
+    to: { device: stagebox-2, input: 1 }
+  - from: { device: front-right, input: 2 }
+    to: { device: stagebox-2, input: 2 }
+  - from: { device: front-right, input: 3 }
+    to: { device: stagebox-2, input: 3 }
+  - from: { device: front-right, input: 4 }
+    to: { device: stagebox-2, input: 4 }
+  - from: { device: front-right, input: 5 }
+    to: { device: stagebox-2, input: 5 }
+  - from: { device: front-right, input: 6 }
+    to: { device: stagebox-2, input: 6 }
+  - from: { device: front-right, input: 7 }
+    to: { device: stagebox-2, input: 7 }
+  - from: { device: front-right, input: 8 }
+    to: { device: stagebox-2, input: 8 }
