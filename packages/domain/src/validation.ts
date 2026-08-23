@@ -80,7 +80,8 @@ export function validateInstallation(
   const ranges: Aes50Range[] = [];
 
   for (const device of installation.devices) {
-    if (devices.has(device.id)) {
+    const isDuplicate = devices.has(device.id);
+    if (isDuplicate) {
       errors.push({
         code: "duplicate-device-id",
         device: device.id,
@@ -135,7 +136,9 @@ export function validateInstallation(
       });
     }
 
-    if (!offsetValid || !inputsValid) continue;
+    // A duplicate id is the error to fix first; comparing its range against
+    // its own twin would only add a misleading self-overlap.
+    if (!offsetValid || !inputsValid || isDuplicate) continue;
 
     const first = aes50.offset + 1;
     const last = aes50.offset + device.inputs;

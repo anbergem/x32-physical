@@ -120,6 +120,11 @@ function malformed(value: string, expected: string): Error {
   );
 }
 
+/**
+ * Strictly canonical digits only: `endpointId` never emits a leading zero or a
+ * value beyond exact integer precision, so neither may parse. Two spellings of
+ * one endpoint would otherwise yield two `EndpointId` map keys.
+ */
 function parseNumber(
   raw: string | undefined,
   value: string,
@@ -128,7 +133,11 @@ function parseNumber(
   if (raw === undefined || !/^[0-9]+$/.test(raw)) {
     throw malformed(value, expected);
   }
-  return Number(raw);
+  const parsed = Number(raw);
+  if (String(parsed) !== raw) {
+    throw malformed(value, expected);
+  }
+  return parsed;
 }
 
 /** Inverse of `endpointId`. Throws on anything it did not produce. */

@@ -75,6 +75,11 @@ describe("parseEndpointId", () => {
     "aes50:A",
     "mixer:33",
     "mixer:0",
+    // Non-canonical numerics: endpointId never emits these, so parsing them
+    // would give one endpoint two distinct EndpointId map keys.
+    "mixer:012",
+    "panel:front-left:03",
+    "panel:front-left:99999999999999999999",
     "mixer:12:3",
     "socket:front-left:3",
     "PANEL:front-left:3",

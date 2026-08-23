@@ -44,6 +44,19 @@ describe("validateInstallation", () => {
     expect(errors[0]?.message).toMatch(/stagebox-1/);
   });
 
+  it("does not report a duplicated stagebox as overlapping itself", () => {
+    const installation = broken((topology) => {
+      topology.devices.push({
+        id: deviceId("stagebox-2"),
+        kind: "stagebox",
+        label: "Stagebox 2 (pasted twice)",
+        inputs: 16,
+        aes50: { bus: "A", offset: 16 },
+      });
+    });
+    expect(codesOf(installation)).toEqual(["duplicate-device-id"]);
+  });
+
   it("rejects a device with no inputs", () => {
     const installation = broken((topology) => {
       topology.devices[2]!.inputs = 0;
@@ -81,6 +94,23 @@ describe("validateInstallation", () => {
       "aes50-range-out-of-bounds",
     ]);
     expect(errors[0]?.message).toMatch(/41–56/);
+  });
+
+  it("accepts an AES50 range ending exactly on channel 48", () => {
+    const installation = broken((topology) => {
+      topology.devices[1]!.aes50 = { bus: "A", offset: 32 }; // A33–48
+    });
+    expect(validateInstallation(installation)).toEqual([]);
+  });
+
+  it("rejects a one-channel AES50 overlap", () => {
+    const installation = broken((topology) => {
+      // stagebox-1 holds A1–16; A16–31 collides on exactly one channel.
+      topology.devices[1]!.aes50 = { bus: "A", offset: 15 };
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["aes50-range-overlap"]);
+    expect(errors[0]?.message).toMatch(/16–31/);
   });
 
   it("rejects overlapping AES50 ranges on the same bus", () => {
