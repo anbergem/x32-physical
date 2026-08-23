@@ -14,7 +14,7 @@ adapter swap at the end.
 - [x] **3. Installation loader** (`packages/installation`) — Zod schema, YAML
       parse, derived stagebox→AES50 edges, fail-fast errors. Placeholder
       `config/installation.yaml` per docs/installation.md.
-- [ ] **4. Mixer contracts + mock** (`packages/mixer-contracts`) —
+- [x] **4. Mixer contracts + mock** (`packages/mixer-contracts`) —
       `MixerClient`, `MixerSnapshot`, `MixerEvent` (source/channel-state
       types come from domain);
       `MockMixerClient` with simulation API and realistic default snapshot

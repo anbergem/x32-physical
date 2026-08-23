@@ -1,0 +1,306 @@
+import type { MixerChannelId } from "@x32/domain";
+import { mixerChannelId } from "@x32/domain";
+import { describe, expect, it } from "vitest";
+
+import type { MixerEvent, MixerSnapshot } from "./client";
+import { createDefaultMockSnapshot } from "./default-snapshot";
+import { MockMixerClient } from "./mock";
+
+const CH12: MixerChannelId = mixerChannelId(12);
+const CH23: MixerChannelId = mixerChannelId(23);
+
+/** Records every event a client fans out, in order. */
+function recorder(client: MockMixerClient): {
+  events: MixerEvent[];
+  stop: () => void;
+} {
+  const events: MixerEvent[] = [];
+  const stop = client.subscribe((event) => {
+    events.push(event);
+  });
+  return { events, stop };
+}
+
+describe("MockMixerClient connection lifecycle", () => {
+  it("starts disconnected", () => {
+    expect(new MockMixerClient().getConnectionState()).toBe("disconnected");
+  });
+
+  it("connects and disconnects, emitting one event per transition", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    await client.connect();
+    expect(client.getConnectionState()).toBe("connected");
+
+    await client.disconnect();
+    expect(client.getConnectionState()).toBe("disconnected");
+
+    expect(events).toEqual([
+      { type: "connection-state-changed", state: "connected" },
+      { type: "connection-state-changed", state: "disconnected" },
+    ]);
+  });
+
+  it("treats a redundant transition as a no-op", async () => {
+    const client = new MockMixerClient();
+    await client.connect();
+    const { events } = recorder(client);
+
+    await client.connect();
+    client.simulateReconnect();
+
+    expect(client.getConnectionState()).toBe("connected");
+    expect(events).toEqual([]);
+  });
+
+  it("simulates connection loss and reconnection", async () => {
+    const client = new MockMixerClient();
+    await client.connect();
+    const { events } = recorder(client);
+
+    client.simulateConnectionLoss();
+    expect(client.getConnectionState()).toBe("disconnected");
+
+    client.simulateReconnect();
+    expect(client.getConnectionState()).toBe("connected");
+
+    expect(events).toEqual([
+      { type: "connection-state-changed", state: "disconnected" },
+      { type: "connection-state-changed", state: "connected" },
+    ]);
+  });
+
+  it("keeps the snapshot across a connection loss", async () => {
+    const client = new MockMixerClient();
+    await client.connect();
+    client.simulateSelect(CH12);
+
+    client.simulateConnectionLoss();
+
+    expect(await client.getSnapshot()).toEqual({
+      ...createDefaultMockSnapshot(),
+      selectedChannel: 12,
+    });
+  });
+});
+
+describe("MockMixerClient simulation API", () => {
+  it("emits selected-channel-changed and updates the snapshot", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateSelect(CH12);
+    expect((await client.getSnapshot()).selectedChannel).toBe(12);
+
+    client.simulateSelect(null);
+    expect((await client.getSnapshot()).selectedChannel).toBeNull();
+
+    expect(events).toEqual([
+      { type: "selected-channel-changed", channel: 12 },
+      { type: "selected-channel-changed", channel: null },
+    ]);
+  });
+
+  it("emits channel-name-changed and updates the snapshot", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateRename(CH12, "Grand Pno");
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.channels[11]).toEqual({
+      channel: 12,
+      name: "Grand Pno",
+      source: { kind: "aes50", bus: "A", channel: 12 },
+    });
+    expect(events).toEqual([
+      { type: "channel-name-changed", channel: 12, name: "Grand Pno" },
+    ]);
+  });
+
+  it("emits channel-source-changed and updates the snapshot", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateSourceChange(CH12, { kind: "aes50", bus: "A", channel: 8 });
+
+    expect((await client.getSnapshot()).channels[11]?.source).toEqual({
+      kind: "aes50",
+      bus: "A",
+      channel: 8,
+    });
+    expect(events).toEqual([
+      {
+        type: "channel-source-changed",
+        channel: 12,
+        source: { kind: "aes50", bus: "A", channel: 8 },
+      },
+    ]);
+  });
+
+  it("accepts unmapped sources", async () => {
+    const client = new MockMixerClient();
+
+    client.simulateSourceChange(CH12, { kind: "card", input: 5 });
+    expect((await client.getSnapshot()).channels[11]?.source).toEqual({
+      kind: "card",
+      input: 5,
+    });
+
+    client.simulateSourceChange(CH12, { kind: "off" });
+    expect((await client.getSnapshot()).channels[11]?.source).toEqual({
+      kind: "off",
+    });
+  });
+
+  it("does not alias the source object it was handed", async () => {
+    const client = new MockMixerClient();
+    const source = { kind: "aes50", bus: "A", channel: 8 } as const;
+
+    client.simulateSourceChange(CH12, { ...source });
+    const { events } = recorder(client);
+    client.simulateSourceChange(CH12, { ...source });
+
+    // A consumer mutating the event payload must not reach the mock's state.
+    const emitted = events[0];
+    if (emitted?.type !== "channel-source-changed") {
+      throw new Error("expected a channel-source-changed event");
+    }
+    Object.assign(emitted.source, { channel: 99 });
+
+    expect((await client.getSnapshot()).channels[11]?.source).toEqual(source);
+  });
+
+  it("rejects channels the snapshot does not contain", () => {
+    const snapshot: MixerSnapshot = {
+      channels: [
+        {
+          channel: CH12,
+          name: "Keys R",
+          source: { kind: "aes50", bus: "A", channel: 12 },
+        },
+      ],
+      selectedChannel: null,
+    };
+    const client = new MockMixerClient(snapshot);
+
+    expect(() => client.simulateRename(CH23, "Podium")).toThrow(
+      /Unknown mixer channel 23/,
+    );
+    expect(() => client.simulateSelect(CH23)).toThrow(/Unknown mixer channel/);
+    expect(() =>
+      client.simulateSourceChange(CH23, { kind: "off" }),
+    ).toThrow(/Unknown mixer channel/);
+  });
+});
+
+describe("MockMixerClient subscriptions", () => {
+  it("fans out to every subscriber, including duplicates of one listener", () => {
+    const client = new MockMixerClient();
+    const seen: string[] = [];
+    const listener = (): void => {
+      seen.push("listener");
+    };
+
+    client.subscribe(listener);
+    const unsubscribeSecond = client.subscribe(listener);
+    client.subscribe(() => {
+      seen.push("other");
+    });
+
+    client.simulateSelect(CH12);
+    expect(seen).toEqual(["listener", "listener", "other"]);
+
+    // Unsubscribing one registration leaves the other one intact.
+    seen.length = 0;
+    unsubscribeSecond();
+    client.simulateSelect(null);
+    expect(seen).toEqual(["listener", "other"]);
+  });
+
+  it("stops delivery after unsubscribe, idempotently", () => {
+    const client = new MockMixerClient();
+    const first = recorder(client);
+    const second = recorder(client);
+
+    first.stop();
+    first.stop(); // idempotent: must not disturb the other subscription
+    client.simulateSelect(CH12);
+
+    expect(first.events).toEqual([]);
+    expect(second.events).toEqual([
+      { type: "selected-channel-changed", channel: 12 },
+    ]);
+  });
+
+  it("keeps delivering when a listener throws", () => {
+    const client = new MockMixerClient();
+    const delivered: MixerEvent[] = [];
+
+    client.subscribe(() => {
+      throw new Error("listener blew up");
+    });
+    client.subscribe((event) => {
+      delivered.push(event);
+    });
+
+    expect(() => {
+      client.simulateSelect(CH12);
+    }).not.toThrow();
+    expect(delivered).toEqual([
+      { type: "selected-channel-changed", channel: 12 },
+    ]);
+  });
+
+  it("tolerates unsubscribing from inside a listener", () => {
+    const client = new MockMixerClient();
+    const delivered: MixerEvent[] = [];
+
+    const stop = client.subscribe(() => {
+      stop();
+    });
+    client.subscribe((event) => {
+      delivered.push(event);
+    });
+
+    client.simulateSelect(CH12);
+    client.simulateSelect(null);
+
+    expect(delivered).toHaveLength(2);
+  });
+});
+
+describe("MockMixerClient snapshot isolation", () => {
+  it("returns a defensive copy", async () => {
+    const client = new MockMixerClient();
+
+    const snapshot = await client.getSnapshot();
+    snapshot.selectedChannel = CH12;
+    snapshot.channels.push({
+      channel: CH23,
+      name: "Injected",
+      source: { kind: "off" },
+    });
+    const firstChannel = snapshot.channels[0];
+    if (firstChannel === undefined) throw new Error("expected a channel");
+    firstChannel.name = "Tampered";
+    firstChannel.source = { kind: "off" };
+
+    expect(await client.getSnapshot()).toEqual(createDefaultMockSnapshot());
+  });
+
+  it("copies the snapshot it was constructed from", async () => {
+    const initial = createDefaultMockSnapshot();
+    const client = new MockMixerClient(initial);
+
+    const firstChannel = initial.channels[0];
+    if (firstChannel === undefined) throw new Error("expected a channel");
+    firstChannel.name = "Tampered";
+    initial.selectedChannel = CH12;
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.channels[0]?.name).toBe("Kick In");
+    expect(snapshot.selectedChannel).toBeNull();
+  });
+});
