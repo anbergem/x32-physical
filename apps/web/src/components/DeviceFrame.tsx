@@ -4,6 +4,7 @@
  * identical apart from what their sockets say.
  */
 
+import type { DeviceId } from "@x32/domain";
 import type { ReactNode } from "react";
 
 export function DeviceFrame({
@@ -34,7 +35,7 @@ export function DeviceFrame({
  * (MVP layout is hard-coded JSX — CLAUDE.md invariant 6). Say so in place
  * rather than crashing or silently dropping part of the schematic.
  */
-export function MissingDevice({ deviceId }: { deviceId: string }) {
+export function MissingDevice({ deviceId }: { deviceId: DeviceId }) {
   return (
     <section className="device device--missing">
       <header className="device__header">

@@ -11,6 +11,8 @@
  * no toolbars, no settings — a title, a connection state, and the venue.
  */
 
+import { deviceId } from "@x32/domain";
+
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Mixer } from "./components/Mixer";
 import { PhysicalInputPanel } from "./components/PhysicalInputPanel";
@@ -29,16 +31,16 @@ export function App({ mode }: { mode: GatewayMode }) {
         <div className="stage">
           <section className="stage-area">
             <h2 className="stage-area__title">Stage left</h2>
-            <PhysicalInputPanel deviceId="front-left" />
+            <PhysicalInputPanel deviceId={deviceId("front-left")} />
             <div className="cable" aria-hidden="true" />
-            <Stagebox deviceId="stagebox-1" />
+            <Stagebox deviceId={deviceId("stagebox-1")} />
           </section>
 
           <section className="stage-area">
             <h2 className="stage-area__title">Stage right</h2>
-            <PhysicalInputPanel deviceId="front-right" />
+            <PhysicalInputPanel deviceId={deviceId("front-right")} />
             <div className="cable" aria-hidden="true" />
-            <Stagebox deviceId="stagebox-2" />
+            <Stagebox deviceId={deviceId("stagebox-2")} />
           </section>
         </div>
 

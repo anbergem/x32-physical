@@ -48,7 +48,7 @@ export function selectHoveredEndpoint(state: AppState): EndpointId | null {
  * component says so rather than crashing the whole schematic.
  */
 export function selectDevice(
-  device: DeviceId | string,
+  device: DeviceId,
 ): (state: AppState) => Device | undefined {
   return (state) =>
     state.installation.devices.find((candidate) => candidate.id === device);

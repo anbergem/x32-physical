@@ -146,11 +146,10 @@ describe("configuration slice", () => {
     expect(after.installation).toBe(before.installation);
   });
 
-  it("keeps every other channel's identity when one is renamed", () => {
+  it("does not rebuild the route index when a channel is renamed", () => {
     const store = createStore();
-    const untouched = store
-      .getState()
-      .channels.find((state) => state.channel === CH12);
+    const before = store.getState();
+    const untouched = before.channels.find((state) => state.channel === CH12);
 
     store.getState().setChannelName(CH7, "OH Right");
 
@@ -158,11 +157,29 @@ describe("configuration slice", () => {
     expect(after.channels.find((state) => state.channel === CH7)?.name).toBe(
       "OH Right",
     );
-    // Selector discipline (architecture.md §5): renaming CH7 must leave CH12's
-    // object identical, so a strip subscribed to CH12 does not rerender.
+    // A name is not part of a route: the index — and every highlight lookup
+    // memoised on it — survives a rename untouched (architecture.md §5).
+    expect(after.routeIndex).toBe(before.routeIndex);
+    // Selector discipline: renaming CH7 must leave CH12's object identical,
+    // so a strip subscribed to CH12 does not rerender.
     expect(after.channels.find((state) => state.channel === CH12)).toBe(
       untouched,
     );
+  });
+
+  it("rebuilds once when the same source is applied twice", () => {
+    const store = createStore();
+    const source = { kind: "aes50", bus: "A", channel: 8 } as const;
+
+    store.getState().setChannelSource(CH12, source);
+    const afterFirst = store.getState();
+
+    // The X32 adapter fans one input-block change out to eight events, most of
+    // them carrying the source that channel already had.
+    store.getState().setChannelSource(CH12, { ...source });
+
+    expect(store.getState()).toBe(afterFirst);
+    expect(store.getState().routeIndex).toBe(afterFirst.routeIndex);
   });
 
   it("ignores an event for a channel it does not have", () => {

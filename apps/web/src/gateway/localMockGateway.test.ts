@@ -63,6 +63,8 @@ describe("event → slice mapping", () => {
       "Overhead R",
     );
     expect(after.channels).not.toBe(before.channels);
+    // Configuration, but not routing: a name cannot change where signal goes.
+    expect(after.routeIndex).toBe(before.routeIndex);
   });
 
   it("routes channel-source-changed to the configuration slice and rebuilds the index", () => {

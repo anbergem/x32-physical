@@ -7,6 +7,7 @@
  */
 
 import { endpointId, panelInput } from "@x32/domain";
+import type { DeviceId } from "@x32/domain";
 
 import { selectDevice } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
@@ -14,7 +15,7 @@ import { useAppStore } from "../state/storeContext";
 import { DeviceFrame, MissingDevice, socketNumbers } from "./DeviceFrame";
 import { InputPort } from "./InputPort";
 
-export function PhysicalInputPanel({ deviceId }: { deviceId: string }) {
+export function PhysicalInputPanel({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;

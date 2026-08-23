@@ -37,7 +37,7 @@ export type {
   Installation,
   TopologyEdge,
 } from "./topology";
-export { deriveStaticEdges } from "./topology";
+export { aes50ChannelForInput, deriveStaticEdges } from "./topology";
 
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
 

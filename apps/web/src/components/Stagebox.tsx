@@ -4,13 +4,13 @@
  * screen because the X32's own routing screens speak AES50 channels while the
  * person on stage is looking at the box.
  *
- * The AES50 number is arithmetic on static installation data (`aes50.offset`,
- * box input *n* → bus channel *offset + n*), not a route lookup: no topology
- * tracing happens in components (architecture.md §5).
+ * The cascade arithmetic behind that second number belongs to the domain
+ * (`aes50ChannelForInput`), not to this component: the same function derives
+ * the graph edges, so a label can never disagree with a route.
  */
 
-import { endpointId, stageboxInput } from "@x32/domain";
-import type { Device } from "@x32/domain";
+import { aes50ChannelForInput, endpointId, stageboxInput } from "@x32/domain";
+import type { Device, DeviceId } from "@x32/domain";
 
 import { selectDevice } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
@@ -20,32 +20,34 @@ import { InputPort } from "./InputPort";
 
 /** `AES50-A 17–32`, or a warning when the device declares no AES50 mapping. */
 function metaOf(device: Device): string {
-  if (device.aes50 === undefined) return "no AES50 mapping";
-  const { bus, offset } = device.aes50;
-  return `AES50-${bus} ${offset + 1}–${offset + device.inputs}`;
+  const first = aes50ChannelForInput(device, 1);
+  const last = aes50ChannelForInput(device, device.inputs);
+  if (first === undefined || last === undefined) return "no AES50 mapping";
+  return `AES50-${first.bus} ${first.channel}–${last.channel}`;
 }
 
-export function Stagebox({ deviceId }: { deviceId: string }) {
+export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
-  const aes50 = device.aes50;
-
   return (
     <DeviceFrame kind="stagebox" label={device.label} meta={metaOf(device)}>
-      {socketNumbers(device.inputs).map((socket) => (
-        <InputPort
-          key={socket}
-          endpoint={endpointId(stageboxInput(device.id, socket))}
-          label={String(socket)}
-          aes50Label={
-            aes50 === undefined
-              ? undefined
-              : `${aes50.bus}${aes50.offset + socket}`
-          }
-        />
-      ))}
+      {socketNumbers(device.inputs).map((socket) => {
+        const busChannel = aes50ChannelForInput(device, socket);
+        return (
+          <InputPort
+            key={socket}
+            endpoint={endpointId(stageboxInput(device.id, socket))}
+            label={String(socket)}
+            aes50Label={
+              busChannel === undefined
+                ? undefined
+                : `${busChannel.bus}${busChannel.channel}`
+            }
+          />
+        );
+      })}
     </DeviceFrame>
   );
 }

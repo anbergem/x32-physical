@@ -20,6 +20,12 @@ import installationYaml from "../../../../config/installation.yaml?raw";
 /** How the document is named in parse/validation error messages. */
 const SOURCE = "config/installation.yaml";
 
+/**
+ * What the operator can do about a failure *from this loader*. It travels with
+ * the loader so no other failure inherits advice that does not apply to it.
+ */
+export const INSTALLATION_ERROR_HINT = `Fix ${SOURCE} and reload.`;
+
 export function loadInstallation(): Installation {
   return parseInstallationYaml(installationYaml, SOURCE);
 }

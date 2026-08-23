@@ -5,12 +5,12 @@
  *
  * The slice each event lands in is the whole point:
  *
- * | event                     | slice                              |
- * | ------------------------- | ---------------------------------- |
- * | `selected-channel-changed`| runtime only — no index rebuild    |
- * | `connection-state-changed`| runtime only — no index rebuild    |
- * | `channel-name-changed`    | configuration                      |
- * | `channel-source-changed`  | configuration (route index rebuild) |
+ * | event                      | slice                                  |
+ * | -------------------------- | -------------------------------------- |
+ * | `selected-channel-changed` | runtime only — no index rebuild        |
+ * | `connection-state-changed` | runtime only — no index rebuild        |
+ * | `channel-name-changed`     | configuration — no index rebuild       |
+ * | `channel-source-changed`   | configuration — rebuilds the index     |
  */
 
 import type {

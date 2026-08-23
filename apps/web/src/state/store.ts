@@ -4,8 +4,9 @@
  * Three slices with three different lifecycles, deliberately never merged:
  *
  * - `installation` — structural, set once at load, effectively immutable.
- * - `channels` — mixer configuration; changes occasionally, and every write
- *   rebuilds the derived `routeIndex`.
+ * - `channels` — mixer configuration; changes occasionally. A *source* change
+ *   rebuilds the derived `routeIndex`; a rename does not, because routes are
+ *   derived from sources alone (architecture.md §5).
  * - `connection` / `selectedChannel` / `hoveredEndpoint` — runtime state, fast
  *   changing. Writing these must **never** rebuild the route index
  *   (CLAUDE.md invariant 1); `store.test.ts` asserts the object identity.
@@ -57,7 +58,7 @@ export interface AppActions {
   /** Configuration + runtime, as one atomic mixer snapshot. */
   applySnapshot(snapshot: MixerSnapshot, connection: MixerConnectionState): void;
 
-  // Configuration slice — each rebuilds routeIndex.
+  // Configuration slice — only a source change rebuilds routeIndex.
   setChannelName(channel: MixerChannelId, name: string): void;
   setChannelSource(channel: MixerChannelId, source: MixerSourceRef): void;
 
@@ -70,7 +71,7 @@ export interface AppActions {
 export type AppStoreState = AppState & AppActions;
 export type AppStore = StoreApi<AppStoreState>;
 
-/** The configuration slice and its derived index always move together. */
+/** The configuration slice and its derived index, rebuilt together. */
 type ConfigurationPatch = Pick<AppState, "channels" | "routeIndex">;
 
 function configurationPatch(
@@ -85,12 +86,15 @@ function configurationPatch(
  * that a strip subscribed to its own channel does not rerender when a
  * neighbour changes (architecture.md §5). Returns `null` when there is nothing
  * to do, so an unchanged store never notifies listeners.
+ *
+ * Whether the route index needs rebuilding is the caller's call: routes are
+ * derived from *sources*, so a rename leaves them intact.
  */
-function patchChannel(
+function replaceChannel(
   state: AppState,
   channel: MixerChannelId,
   update: (current: MixerChannelState) => MixerChannelState,
-): ConfigurationPatch | null {
+): MixerChannelState[] | null {
   const index = state.channels.findIndex(
     (candidate) => candidate.channel === channel,
   );
@@ -102,7 +106,28 @@ function patchChannel(
 
   const channels = [...state.channels];
   channels[index] = next;
-  return configurationPatch(state.installation, channels);
+  return channels;
+}
+
+/**
+ * Structural equality of two sources. Every `MixerSourceRef` field is a
+ * primitive (`kind` plus at most one or two scalars), so a shallow key-wise
+ * comparison is exact.
+ *
+ * This matters on real hardware: the X32 adapter expands one input-block
+ * change into eight `channel-source-changed` events, most of which carry the
+ * source the channel already had. Without this guard each of them would
+ * rebuild the route index and invalidate every highlight lookup.
+ */
+function sameSource(a: MixerSourceRef, b: MixerSourceRef): boolean {
+  if (a.kind !== b.kind) return false;
+
+  const left: Record<string, unknown> = a;
+  const right: Record<string, unknown> = b;
+  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
 }
 
 function cloneChannel(channel: MixerChannelState): MixerChannelState {
@@ -143,19 +168,24 @@ export function createAppStore(
       });
     },
 
+    /** Names are not part of a route: no index rebuild. */
     setChannelName(channel, name) {
-      const patch = patchChannel(get(), channel, (current) =>
+      const channels = replaceChannel(get(), channel, (current) =>
         current.name === name ? current : { ...current, name },
       );
-      if (patch !== null) set(patch);
+      if (channels !== null) set({ channels });
     },
 
     setChannelSource(channel, source) {
-      const patch = patchChannel(get(), channel, (current) => ({
-        ...current,
-        source: { ...source },
-      }));
-      if (patch !== null) set(patch);
+      const state = get();
+      const channels = replaceChannel(state, channel, (current) =>
+        sameSource(current.source, source)
+          ? current
+          : { ...current, source: { ...source } },
+      );
+      if (channels !== null) {
+        set(configurationPatch(state.installation, channels));
+      }
     },
 
     setConnection(connection) {

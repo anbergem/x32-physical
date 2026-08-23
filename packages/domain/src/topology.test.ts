@@ -4,8 +4,8 @@ import { venueInstallation } from "./__fixtures__/venue";
 import type { EndpointRef } from "./endpoints";
 import { aes50Channel, endpointId, stageboxInput } from "./endpoints";
 import { deviceId } from "./ids";
-import { deriveStaticEdges } from "./topology";
-import type { Installation, TopologyEdge } from "./topology";
+import { aes50ChannelForInput, deriveStaticEdges } from "./topology";
+import type { Device, Installation, TopologyEdge } from "./topology";
 
 function edgeFrom(edges: TopologyEdge[], from: EndpointRef): TopologyEdge {
   const id = endpointId(from);
@@ -81,5 +81,49 @@ describe("deriveStaticEdges", () => {
     const derived = deriveStaticEdges(installationB);
     expect(derived).toHaveLength(8);
     expect(endpointId(derived[7]!.to)).toBe("aes50:B:48");
+  });
+});
+
+describe("aes50ChannelForInput", () => {
+  const installation = venueInstallation();
+
+  function device(id: string): Device {
+    const match = installation.devices.find(
+      (candidate) => candidate.id === deviceId(id),
+    );
+    expect(match).toBeDefined();
+    return match as Device;
+  }
+
+  it("maps the first box's inputs one-to-one onto the bus", () => {
+    expect(aes50ChannelForInput(device("stagebox-1"), 1)).toEqual(
+      aes50Channel("A", 1),
+    );
+    expect(aes50ChannelForInput(device("stagebox-1"), 16)).toEqual(
+      aes50Channel("A", 16),
+    );
+  });
+
+  it("shifts a cascaded box by its offset", () => {
+    const cascaded = device("stagebox-2"); // offset 16
+    expect(aes50ChannelForInput(cascaded, 1)).toEqual(aes50Channel("A", 17));
+    // The dual label the UI prints on stagebox-2 socket 7.
+    expect(aes50ChannelForInput(cascaded, 7)).toEqual(aes50Channel("A", 23));
+    expect(aes50ChannelForInput(cascaded, 16)).toEqual(aes50Channel("A", 32));
+  });
+
+  it("returns nothing for a device with no AES50 mapping", () => {
+    expect(aes50ChannelForInput(device("front-left"), 1)).toBeUndefined();
+  });
+
+  it("rejects a mapping that runs off the end of the bus", () => {
+    const overflowing: Device = {
+      id: deviceId("stagebox-3"),
+      kind: "stagebox",
+      label: "Stagebox 3",
+      inputs: 16,
+      aes50: { bus: "A", offset: 40 },
+    };
+    expect(() => aes50ChannelForInput(overflowing, 9)).toThrow(/AES50 channel/);
   });
 });

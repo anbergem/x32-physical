@@ -258,7 +258,8 @@ interface AppState {
   // Structural: set at load, effectively immutable.
   installation: Installation;
 
-  // Mixer configuration: changes occasionally; updating it rebuilds routeIndex.
+  // Mixer configuration: changes occasionally; updating it rebuilds routeIndex
+  // (source changes; renames don't invalidate routes).
   channels: MixerChannelState[];
 
   // Derived (recomputed only when installation/channels change):
