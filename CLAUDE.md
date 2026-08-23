@@ -44,3 +44,25 @@ Read these before making structural changes:
 
 pnpm workspace monorepo, TypeScript throughout, Vitest for tests, Zod for
 config validation, React + Zustand + Vite for the web app.
+
+## Implementation workflow
+
+Implementation coding runs on **Opus or Sonnet**; architecture/planning
+discussions happen on the owner's model of choice. Two equivalent ways to
+implement:
+
+- A dedicated session with Opus/Sonnet selected: pick the next unchecked step
+  in [docs/plan.md](docs/plan.md) and follow the rules in
+  [.claude/agents/implementer.md](.claude/agents/implementer.md) — they apply
+  to direct sessions too, not just the agent.
+- Delegation from any session: spawn the `implementer` agent (pinned to Opus;
+  pass `model: "sonnet"` on the Agent call to override) with the plan step to
+  execute.
+
+Per step: read the relevant doc sections first, implement vertically with
+tests, ensure `pnpm typecheck` and `pnpm test` pass, tick the checkbox in
+docs/plan.md, and commit (`feat:`/`test:`/`chore:`/`fix:`/`docs:` prefix).
+One step per session/agent run unless explicitly asked otherwise.
+
+If implementation reveals a conflict with the docs, stop and surface it —
+docs are updated deliberately, never silently diverged from.
