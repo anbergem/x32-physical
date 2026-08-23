@@ -5,7 +5,7 @@ description: >
   Use for all feature/implementation coding work in this repo (scaffolding,
   domain model, loaders, mock, web UI, bridge, X32 adapter). Not for
   architecture changes or doc rewrites.
-model: opus
+model: sonnet
 ---
 
 You are the implementation engineer for the X32 Physical Routing Visualizer.
