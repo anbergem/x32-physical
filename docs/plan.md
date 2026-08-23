@@ -6,15 +6,17 @@ adapter swap at the end.
 
 ## Sequence
 
-- [x] **1. Workspace scaffolding** — pnpm workspace, TypeScript project refs,
-      Vitest; empty packages wired with correct dependency direction.
+- [x] **1. Workspace scaffolding** — pnpm workspace, shared strict tsconfig
+      with by-source workspace consumption, Vitest; empty packages wired with
+      correct dependency direction.
 - [ ] **2. Domain topology model** (`packages/domain`) — IDs, `EndpointRef`,
       `Installation`, graph edges, validation rules. Unit tests.
 - [ ] **3. Installation loader** (`packages/installation`) — Zod schema, YAML
       parse, derived stagebox→AES50 edges, fail-fast errors. Placeholder
       `config/installation.yaml` per docs/installation.md.
 - [ ] **4. Mixer contracts + mock** (`packages/mixer-contracts`) —
-      `MixerClient`, `MixerSnapshot`, `MixerEvent`, `MixerSourceRef`;
+      `MixerClient`, `MixerSnapshot`, `MixerEvent` (source/channel-state
+      types come from domain);
       `MockMixerClient` with simulation API and realistic default snapshot
       (incl. one dual-consumer source, one Card-sourced channel, one OFF).
 - [ ] **5. Route resolution** (`packages/domain`) — `buildRouteIndex`,
