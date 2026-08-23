@@ -3,17 +3,23 @@
  *
  * It knows its `EndpointId` and nothing else: no topology, no route walking
  * (architecture.md §5). Hovering it publishes that id to the runtime slice;
- * what lights up as a result is decided by `selectHoverStatus`, which reads the
- * precomputed route index.
+ * what lights up as a result is decided by `selectHoverStatus` and
+ * `selectSelectionStatus`, which read the precomputed route index. Selection
+ * comes from the physical console (`selectedChannel` in the store) — this
+ * component never sets it, only reads its effect.
  */
 
 import type { EndpointId } from "@x32/domain";
 
-import { selectHoverStatus, selectSetHoveredEndpoint } from "../state/selectors";
+import {
+  selectHoverStatus,
+  selectSelectionStatus,
+  selectSetHoveredEndpoint,
+} from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { hoverModifier } from "./highlight";
+import { hoverModifier, selectionModifier } from "./highlight";
 
 export interface InputPortProps {
   /** Domain identity of this socket; the handle for hover and highlighting. */
@@ -28,15 +34,19 @@ export interface InputPortProps {
 }
 
 export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
-  const status = useAppStore(selectHoverStatus(endpoint));
+  const hoverStatus = useAppStore(selectHoverStatus(endpoint));
+  const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const setHovered = useAppStore(selectSetHoveredEndpoint);
 
   // Single composition point for the class list: one class per highlight
-  // layer, so step 8's selection modifier joins without touching the markup.
+  // layer, so hover and selection join independently without touching the
+  // markup below.
   const classNames = ["port"];
   if (aes50Label !== undefined) classNames.push("port--dual");
-  const highlight = hoverModifier("port", status);
-  if (highlight !== null) classNames.push(highlight);
+  const hoverClass = hoverModifier("port", hoverStatus);
+  if (hoverClass !== null) classNames.push(hoverClass);
+  const selectionClass = selectionModifier("port", selectionStatus);
+  if (selectionClass !== null) classNames.push(selectionClass);
 
   return (
     <div
@@ -51,7 +61,7 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
       {aes50Label !== undefined && (
         <span className="port__aes50">{aes50Label}</span>
       )}
-      {status === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
     </div>
   );
 }

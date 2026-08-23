@@ -21,7 +21,9 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import { StartupError } from "./components/StartupError";
+import { DevControlSurface } from "./devtools/DevControlSurface";
 import { createGateway } from "./gateway/createGateway";
+import { LocalMockGateway } from "./gateway/localMockGateway";
 import type { MixerGateway } from "./gateway/mixerGateway";
 import { resolveGatewayMode } from "./gateway/mixerGateway";
 import {
@@ -70,10 +72,17 @@ function start(): void {
     return;
   }
 
+  // Dev-only mock control surface (plan step 8): only reachable when the
+  // resolved mode actually built a `LocalMockGateway` — never in live mode,
+  // and never by inspecting `mode` alone, so this can't drift from what
+  // `createGateway` actually constructed.
+  const devMock = gateway instanceof LocalMockGateway ? gateway.mock : null;
+
   root.render(
     <StrictMode>
       <StoreProvider store={store}>
         <App mode={mode} />
+        {devMock !== null && <DevControlSurface mock={devMock} />}
       </StoreProvider>
     </StrictMode>,
   );

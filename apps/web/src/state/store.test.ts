@@ -77,12 +77,18 @@ describe("createAppStore", () => {
 describe("runtime slice", () => {
   it("selection change mutates runtime state only", () => {
     const store = createStore();
+    // A hover already in progress when the console SELECTs a channel must
+    // survive untouched — selection and hover are independent runtime state
+    // (architecture.md §5).
+    const hovered = endpointId(panelInput("front-left", 4));
+    store.getState().setHoveredEndpoint(hovered);
     const before = store.getState();
 
     store.getState().setSelectedChannel(CH12);
 
     const after = store.getState();
     expect(after.selectedChannel).toBe(CH12);
+    expect(after.hoveredEndpoint).toBe(hovered);
     expect(after.routeIndex).toBe(before.routeIndex);
     expect(after.channels).toBe(before.channels);
     expect(after.installation).toBe(before.installation);
@@ -90,6 +96,10 @@ describe("runtime slice", () => {
 
   it("hover change mutates runtime state only", () => {
     const store = createStore();
+    // A real selection in place, so "preserves selectedChannel" below is not
+    // just two nulls agreeing — it comes from the physical console and
+    // hovering must never touch it (architecture.md §5).
+    store.getState().setSelectedChannel(CH7);
     const before = store.getState();
     const endpoint = endpointId(panelInput("front-left", 3));
 

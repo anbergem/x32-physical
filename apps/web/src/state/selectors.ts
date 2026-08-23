@@ -23,6 +23,7 @@ import type {
   MixerChannelState,
   RouteIndex,
 } from "@x32/domain";
+import { endpointId, mixerChannel } from "@x32/domain";
 import type { MixerConnectionState } from "@x32/mixer-contracts";
 
 import type { AppState, AppStoreState } from "./store";
@@ -85,6 +86,48 @@ export function selectHoverStatus(
     const routes = state.routeIndex.byEndpoint.get(hovered) ?? [];
     return routes.some((route) => route.endpoints.includes(endpoint))
       ? "on-route"
+      : "none";
+  };
+}
+
+/**
+ * How an endpoint relates to what the physical console has SELECTed:
+ *
+ * - `selected` — this is the mixer-channel endpoint of `selectedChannel`
+ *   itself.
+ * - `on-selected-route` — it is elsewhere on that channel's route (its
+ *   physical source, and any sibling channel fed by the same source).
+ * - `none` — unrelated, or nothing is selected.
+ *
+ * A separate status from `HoverStatus` on purpose (architecture.md §5):
+ * selection is runtime state that arrives from the physical console and must
+ * never be touched by hovering, so it gets its own selector, its own CSS
+ * layer (`highlight.ts`'s `selectionModifier`) and its own set of classes —
+ * an endpoint on both the hovered and the selected route carries both
+ * modifier classes at once.
+ */
+export type SelectionStatus = "none" | "selected" | "on-selected-route";
+
+/**
+ * A primitive per endpoint, for the same rerender-discipline reason as
+ * `selectHoverStatus`: only the endpoints on the (small) selected route
+ * change status when `selectedChannel` changes.
+ */
+export function selectSelectionStatus(
+  endpoint: EndpointId,
+): (state: AppState) => SelectionStatus {
+  return (state) => {
+    const selected = state.selectedChannel;
+    if (selected === null) return "none";
+
+    if (endpointId(mixerChannel(selected)) === endpoint) return "selected";
+
+    // Read the precomputed index; never traverse the graph here. A selected
+    // channel with an unmapped source still has an entry here (its route is
+    // just its own strip), so this never throws or falls through.
+    const route = state.routeIndex.byMixerChannel.get(selected);
+    return route !== undefined && route.endpoints.includes(endpoint)
+      ? "on-selected-route"
       : "none";
   };
 }

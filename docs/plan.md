@@ -29,7 +29,7 @@ adapter swap at the end.
       both directions, including multi-consumer fan-out; tooltip with
       CH name/source/physical path; unmapped sources render "no mapped
       physical input".
-- [ ] **8. Selected-channel highlighting** — persistent, visually distinct
+- [x] **8. Selected-channel highlighting** — persistent, visually distinct
       from hover; driven via mock control surface (select, rename, re-route,
       disconnect). *MVP criteria 1–6 verifiable here.*
 - [ ] **9. Bridge + WS protocol** (`apps/x32-bridge`, `packages/protocol`) —

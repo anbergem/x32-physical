@@ -22,11 +22,21 @@
   --mock: #e0a458;
 
   /* Highlight layers. Hover is the transient one and works on borders and
-     text; plan step 8's selection is persistent and works on fill, so the two
-     compose on one element instead of fighting over the same property. */
+     text; selection is persistent and works on fill, so the two compose on
+     one element instead of fighting over the same property. */
   --hover: #4ea6c9;
   --hover-strong: #7fd4f2;
   --hover-glow: rgba(78, 166, 201, 0.35);
+
+  /* Selection: warm, deliberately a different colour family from hover's
+     cyan, so the two layers stay distinguishable when they overlap on one
+     element. Persistent — it comes from the physical console, not the
+     pointer — so it paints fill/background plus an outline (a box outside
+     the border, never fighting hover's own box-shadow ring). */
+  --selected: #d9822b;
+  --selected-strong: #f5a83c;
+  --selected-wash: rgba(217, 130, 43, 0.16);
+  --selected-wash-strong: rgba(217, 130, 43, 0.34);
 
   color-scheme: dark;
 }
@@ -200,27 +210,58 @@ body {
 
 /* --- highlight layers -------------------------------------------------- */
 
+/* Every rule below is doubled up on its own base class (`.port.port--x`, not
+   just `.port--x`) to force higher specificity than `.port`/`.strip`
+   themselves. Those base rules are declared later in this file (in the
+   sockets/mixer sections below) and set the very same properties
+   (border/background) as their own defaults — at equal specificity, source
+   order would let the later base rule silently win and erase the highlight.
+   The doubled selector is immune to that regardless of where either rule
+   sits in the file. */
+
 /* On the hovered route: the whole path lights, both directions at once. */
-.port--on-hovered-route,
-.strip--on-hovered-route {
+.port.port--on-hovered-route,
+.strip.strip--on-hovered-route {
   border-color: var(--hover);
 }
 
-.port--on-hovered-route .port__number,
-.strip--on-hovered-route .strip__name {
+.port.port--on-hovered-route .port__number,
+.strip.strip--on-hovered-route .strip__name {
   color: var(--hover-strong);
 }
 
 /* The endpoint actually under the pointer: same colour, more of it. */
-.port--hovered,
-.strip--hovered {
+.port.port--hovered,
+.strip.strip--hovered {
   border-color: var(--hover-strong);
   box-shadow: 0 0 0 3px var(--hover-glow);
 }
 
-.port--hovered .port__number,
-.strip--hovered .strip__name {
+.port.port--hovered .port__number,
+.strip.strip--hovered .strip__name {
   color: var(--hover-strong);
+}
+
+/* Persistent, from the physical console (plan step 8): every endpoint on the
+   selected channel's route, painted as a background wash so it never touches
+   the border/text properties hover owns above. Independent layers, so an
+   endpoint that is on both routes at once shows both — a tinted fill inside
+   a coloured border. */
+.port.port--on-selected-route,
+.strip.strip--on-selected-route {
+  background: var(--selected-wash);
+}
+
+/* The selected channel's own strip: the same fill, stronger, plus an outline
+   (outside the border box, so it never collides with hover's box-shadow ring
+   when the operator hovers the very channel they just SELECTed). A port is
+   never itself the selected endpoint — only ever on its route — but the rule
+   is harmless if it never matches. */
+.port.port--selected,
+.strip.strip--selected {
+  background: var(--selected-wash-strong);
+  outline: 2px solid var(--selected-strong);
+  outline-offset: 1px;
 }
 
 /* --- tooltip ----------------------------------------------------------- */
@@ -434,4 +475,111 @@ body {
 
 .startup-error__hint code {
   color: var(--text);
+}
+
+/* --- dev control surface (mock mode only) ------------------------------- */
+
+/* Docked to a corner, collapsed by default: a debugging aid for *this tool*,
+   not part of the schematic it debugs (architecture.md §6). It reuses
+   `--mock`, the same colour that marks simulated data in the connection
+   status bar, so it reads as "not the real console" at a glance. */
+.devtools {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.devtools__toggle {
+  padding: 6px 10px;
+  border: 1px solid var(--mock);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--mock);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.devtools__panel {
+  width: 290px;
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.devtools__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.devtools__section-title {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.devtools__hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.devtools__row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.devtools__row + .devtools__row {
+  margin-top: 2px;
+}
+
+.devtools__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.devtools select,
+.devtools input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.devtools button {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.devtools button:hover {
+  border-color: var(--mock);
+  color: var(--mock);
 }
