@@ -1,0 +1,23 @@
+{
+  "name": "@x32/x32-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@x32/domain": "workspace:*",
+    "@x32/installation": "workspace:*",
+    "@x32/mixer-contracts": "workspace:*",
+    "@x32/protocol": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.12"
+  }
+}

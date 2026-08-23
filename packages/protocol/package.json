@@ -1,0 +1,17 @@
+{
+  "name": "@x32/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@x32/domain": "workspace:*",
+    "@x32/mixer-contracts": "workspace:*"
+  }
+}

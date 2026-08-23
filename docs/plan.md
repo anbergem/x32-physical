@@ -6,7 +6,7 @@ adapter swap at the end.
 
 ## Sequence
 
-- [ ] **1. Workspace scaffolding** — pnpm workspace, TypeScript project refs,
+- [x] **1. Workspace scaffolding** — pnpm workspace, TypeScript project refs,
       Vitest; empty packages wired with correct dependency direction.
 - [ ] **2. Domain topology model** (`packages/domain`) — IDs, `EndpointRef`,
       `Installation`, graph edges, validation rules. Unit tests.

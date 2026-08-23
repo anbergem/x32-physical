@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The only package that runs on Node and may use its globals/builtins.
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+# esbuild (via Vite/Vitest) ships prebuilt platform binaries as optional
+# dependencies; its install script is not needed, so it stays unapproved.
+allowBuilds:
+  esbuild: false
