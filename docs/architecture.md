@@ -25,8 +25,8 @@ models, dependency direction, interfaces, and event flow.
 ├── packages/
 │   ├── domain/               # Pure TS. Topology graph, IDs, route resolution,
 │   │                         # route index. Zero infrastructure imports.
-│   ├── mixer-contracts/      # MixerClient interface, MixerSnapshot, MixerEvent,
-│   │                         # MixerSourceRef + MockMixerClient (pure TS).
+│   ├── mixer-contracts/      # MixerClient interface, MixerSnapshot, MixerEvent
+│   │                         # + MockMixerClient (pure TS).
 │   ├── installation/         # Zod schema + YAML loader → domain topology.
 │   └── protocol/             # WebSocket message types shared bridge ↔ web.
 │
@@ -126,10 +126,12 @@ The installation loader derives the stagebox→AES50 edges from `aes50.offset`
 (box input *n* → bus channel *offset + n*), so YAML only declares the
 panel→stagebox cabling explicitly.
 
-### Mixer state model (`packages/mixer-contracts`, consumed by domain)
+### Mixer routing model (`packages/domain`)
 
-The domain resolves routes from a normalized mixer routing state — it never
-sees OSC:
+`MixerSourceRef` and `MixerChannelState` are **domain types** (the spec's
+"mixer-routing model" responsibility): `buildRouteIndex` consumes them, and
+`mixer-contracts` imports them from domain — never the reverse. The domain
+resolves routes from this normalized state and never sees OSC:
 
 ```ts
 /** Where a mixer input slot or channel ultimately pulls signal from. */
@@ -150,11 +152,6 @@ interface MixerChannelState {
   /** Fully resolved source (input-block + user-in indirection already applied
       by the adapter/mock — see docs/x32-protocol.md §Resolution). */
   source: MixerSourceRef;
-}
-
-interface MixerSnapshot {
-  channels: MixerChannelState[];       // exactly 32
-  selectedChannel: MixerChannelId | null;
 }
 ```
 
@@ -209,6 +206,11 @@ input has at most one feeding panel socket; AES50 ranges (`offset`,
 
 ```ts
 type MixerConnectionState = "connecting" | "connected" | "disconnected";
+
+interface MixerSnapshot {
+  channels: MixerChannelState[];       // exactly 32; channel types from domain
+  selectedChannel: MixerChannelId | null;
+}
 
 type MixerEvent =
   | { type: "selected-channel-changed"; channel: MixerChannelId | null }
