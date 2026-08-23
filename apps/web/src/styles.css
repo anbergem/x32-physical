@@ -1,0 +1,369 @@
+/*
+ * Dark schematic styling — this runs at FOH or in a tech booth, in the dark,
+ * often on a laptop wedged next to a console. Priorities in order: legible
+ * numbers, obvious grouping, no chrome competing with the signal path.
+ *
+ * Plain CSS, no framework, no build step beyond Vite's own.
+ * Highlight colours for hover/selection (plan steps 7–8) belong with the
+ * tokens below.
+ */
+
+:root {
+  --bg: #0b0e13;
+  --surface: #141922;
+  --surface-raised: #1b212c;
+  --line: #2b3444;
+  --line-soft: #212936;
+  --text: #d9dee8;
+  --text-dim: #7f8b9e;
+  --ok: #4ec9b0;
+  --pending: #e0a458;
+  --bad: #d4664f;
+  --mock: #e0a458;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- frame ------------------------------------------------------------- */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.app__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.schematic {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding: 28px 20px 36px;
+}
+
+/* --- stage areas ------------------------------------------------------- */
+
+.stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+}
+
+.stage-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(20, 25, 34, 0.5);
+}
+
+.stage-area__title {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The panel → stagebox cabling, drawn as one line: which socket goes where
+   is answered by highlighting a route, not by drawing 16 wires. */
+.cable {
+  width: 2px;
+  height: 16px;
+  background: linear-gradient(var(--line-soft), var(--line));
+}
+
+/* --- devices ----------------------------------------------------------- */
+
+.device {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.device--missing {
+  border-style: dashed;
+  border-color: var(--bad);
+}
+
+.device__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 9px;
+}
+
+.device__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.device__meta {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Eight across: a 16-in stagebox reads as two rows of eight, like the box. */
+.device__ports {
+  display: grid;
+  grid-template-columns: repeat(8, auto);
+  gap: 6px;
+}
+
+/* --- sockets ----------------------------------------------------------- */
+
+.port {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 40px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-variant-numeric: tabular-nums;
+}
+
+.port--dual {
+  height: 42px;
+}
+
+.port__number {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
+}
+
+/* The AES50 channel: what the console's routing screens call this socket. */
+.port__aes50 {
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* --- AES50 bus rail ---------------------------------------------------- */
+
+.bus {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 1120px);
+}
+
+.bus::before,
+.bus::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.bus__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+
+/* --- mixer ------------------------------------------------------------- */
+
+/* Two rows of 16 is the console's own layout and never reflows; on a narrow
+   screen the strips scroll inside the mixer instead of dragging the whole
+   schematic sideways. */
+.mixer {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mixer__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.mixer__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mixer__meta {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.mixer__row {
+  display: flex;
+  gap: 4px;
+}
+
+.mixer__row + .mixer__row {
+  margin-top: 4px;
+}
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Wide enough that the longest X32 name word ("Playback", "Handheld") fits
+     on one line — a name broken mid-word is unreadable at a glance. */
+  width: 64px;
+  height: 56px;
+  padding: 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.strip__number {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Break at spaces first — "Handheld 1" should read as two words, not as a
+   hyphen-less split. Only a single word too wide for the strip is broken. */
+.strip__name {
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.strip--unknown .strip__name {
+  color: var(--text-dim);
+}
+
+/* --- connection status ------------------------------------------------- */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad);
+}
+
+.status__dot--connected {
+  background: var(--ok);
+}
+
+.status__dot--connecting {
+  background: var(--pending);
+}
+
+.status__dot--disconnected {
+  background: var(--bad);
+}
+
+/* Loud on purpose: nobody should debug a patch against simulated data by
+   accident. */
+.status__mock {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--mock);
+  color: #1a1206;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+/* --- startup failure --------------------------------------------------- */
+
+.startup-error {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.startup-error__title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  color: var(--bad);
+}
+
+.startup-error__detail {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.startup-error__hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.startup-error__hint code {
+  color: var(--text);
+}

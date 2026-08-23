@@ -21,7 +21,7 @@ adapter swap at the end.
       (incl. one dual-consumer source, one Card-sourced channel, one OFF).
 - [x] **5. Route resolution** (`packages/domain`) — `buildRouteIndex`,
       `SignalRoute`, bidirectional trace. Unit tests (see below).
-- [ ] **6. Static web layout** (`apps/web`) — hard-coded schematic: panel
+- [x] **6. Static web layout** (`apps/web`) — hard-coded schematic: panel
       areas, two stagebox areas (dual-labeled AES50-A numbering), 32 channel
       strips in two rows, connection status. Zustand store slices per
       docs/architecture.md §5; local mock gateway.
