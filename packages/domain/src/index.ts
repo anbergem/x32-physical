@@ -3,7 +3,7 @@
  *
  * Plan step 2 provides the static model: identifiers, endpoints, topology,
  * edge derivation, validation, and the mixer routing types the route index
- * will consume. Route resolution (`buildRouteIndex`) follows in step 5.
+ * consumes. Step 5 adds route resolution (`buildRouteIndex`) on top.
  */
 
 export type { Aes50Bus, DeviceId, EndpointId, MixerChannelId } from "./ids";
@@ -40,6 +40,9 @@ export type {
 export { deriveStaticEdges } from "./topology";
 
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
+
+export type { RouteIndex, SignalRoute } from "./routing";
+export { buildRouteIndex } from "./routing";
 
 export type {
   InstallationValidationError,

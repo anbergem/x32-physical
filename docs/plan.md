@@ -19,7 +19,7 @@ adapter swap at the end.
       types come from domain);
       `MockMixerClient` with simulation API and realistic default snapshot
       (incl. one dual-consumer source, one Card-sourced channel, one OFF).
-- [ ] **5. Route resolution** (`packages/domain`) — `buildRouteIndex`,
+- [x] **5. Route resolution** (`packages/domain`) — `buildRouteIndex`,
       `SignalRoute`, bidirectional trace. Unit tests (see below).
 - [ ] **6. Static web layout** (`apps/web`) — hard-coded schematic: panel
       areas, two stagebox areas (dual-labeled AES50-A numbering), 32 channel
