@@ -68,8 +68,9 @@ Rules, enforced by workspace dependencies and review:
   JSON shapes between bridge and web.
 - `apps/x32-bridge` depends on all packages; only its `src/x32/` module may
   contain OSC/UDP code.
-- `apps/web` depends on `domain`, `mixer-contracts`, `protocol`,
-  `installation` (schema types only). It must never import bridge code.
+- `apps/web` depends on `domain`, `mixer-contracts`, `protocol`, and
+  `installation` (the browser-safe parse entry point only — never the `/node`
+  subpath). It must never import bridge code.
 
 ## 3. Domain model (`packages/domain`)
 
