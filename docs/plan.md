@@ -25,7 +25,7 @@ adapter swap at the end.
       areas, two stagebox areas (dual-labeled AES50-A numbering), 32 channel
       strips in two rows, connection status. Zustand store slices per
       docs/architecture.md §5; local mock gateway.
-- [ ] **7. Hover highlighting** — hover any endpoint → full route highlight in
+- [x] **7. Hover highlighting** — hover any endpoint → full route highlight in
       both directions, including multi-consumer fan-out; tooltip with
       CH name/source/physical path; unmapped sources render "no mapped
       physical input".

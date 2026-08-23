@@ -21,6 +21,13 @@
   --bad: #d4664f;
   --mock: #e0a458;
 
+  /* Highlight layers. Hover is the transient one and works on borders and
+     text; plan step 8's selection is persistent and works on fill, so the two
+     compose on one element instead of fighting over the same property. */
+  --hover: #4ea6c9;
+  --hover-strong: #7fd4f2;
+  --hover-glow: rgba(78, 166, 201, 0.35);
+
   color-scheme: dark;
 }
 
@@ -159,6 +166,7 @@ body {
 /* --- sockets ----------------------------------------------------------- */
 
 .port {
+  position: relative; /* anchors this socket's tooltip */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -190,6 +198,65 @@ body {
   color: var(--text-dim);
 }
 
+/* --- highlight layers -------------------------------------------------- */
+
+/* On the hovered route: the whole path lights, both directions at once. */
+.port--on-hovered-route,
+.strip--on-hovered-route {
+  border-color: var(--hover);
+}
+
+.port--on-hovered-route .port__number,
+.strip--on-hovered-route .strip__name {
+  color: var(--hover-strong);
+}
+
+/* The endpoint actually under the pointer: same colour, more of it. */
+.port--hovered,
+.strip--hovered {
+  border-color: var(--hover-strong);
+  box-shadow: 0 0 0 3px var(--hover-glow);
+}
+
+.port--hovered .port__number,
+.strip--hovered .strip__name {
+  color: var(--hover-strong);
+}
+
+/* --- tooltip ----------------------------------------------------------- */
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid var(--hover);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  text-align: left;
+  /* Never intercept the pointer: the socket underneath must keep its hover
+     until the pointer genuinely leaves it. */
+  pointer-events: none;
+}
+
+.tooltip__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tooltip__line {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* --- AES50 bus rail ---------------------------------------------------- */
 
 .bus {
@@ -216,12 +283,10 @@ body {
 
 /* --- mixer ------------------------------------------------------------- */
 
-/* Two rows of 16 is the console's own layout and never reflows; on a narrow
-   screen the strips scroll inside the mixer instead of dragging the whole
-   schematic sideways. */
+/* Two rows of 16 is the console's own layout and never reflows. Nothing here
+   clips: an `overflow` on the mixer or the strips would cut off the tooltips
+   anchored inside them, so a narrow window scrolls the page instead. */
 .mixer {
-  max-width: 100%;
-  overflow-x: auto;
   padding: 12px 14px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -257,6 +322,7 @@ body {
 }
 
 .strip {
+  position: relative; /* anchors this strip's tooltip */
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -268,7 +334,6 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--surface-raised);
-  overflow: hidden;
 }
 
 .strip__number {
@@ -279,8 +344,11 @@ body {
 }
 
 /* Break at spaces first — "Handheld 1" should read as two words, not as a
-   hyphen-less split. Only a single word too wide for the strip is broken. */
+   hyphen-less split. Only a single word too wide for the strip is broken.
+   Clipping lives on the name, not on the strip, so tooltips stay visible. */
 .strip__name {
+  max-height: 26px;
+  overflow: hidden;
   font-size: 10.5px;
   line-height: 1.2;
   color: var(--text);

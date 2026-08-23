@@ -100,6 +100,12 @@ describe("runtime slice", () => {
     expect(after.selectedChannel).toBe(before.selectedChannel);
     expect(after.routeIndex).toBe(before.routeIndex);
     expect(after.channels).toBe(before.channels);
+
+    // Moving between endpoints — what a pointer sweeping the schematic does
+    // dozens of times a second — must stay just as cheap.
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    expect(store.getState().routeIndex).toBe(before.routeIndex);
+    expect(store.getState().channels).toBe(before.channels);
   });
 
   it("connection change mutates runtime state only", () => {
