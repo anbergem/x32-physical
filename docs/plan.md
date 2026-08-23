@@ -32,7 +32,7 @@ adapter swap at the end.
 - [x] **8. Selected-channel highlighting** — persistent, visually distinct
       from hover; driven via mock control surface (select, rename, re-route,
       disconnect). *MVP criteria 1–6 verifiable here.*
-- [ ] **9. Bridge + WS protocol** (`apps/x32-bridge`, `packages/protocol`) —
+- [x] **9. Bridge + WS protocol** (`apps/x32-bridge`, `packages/protocol`) —
       WS server, snapshot-on-connect, event fan-out, resync;
       `WebSocketMixerGateway` in the web app; bridge initially hosts the mock.
 - [ ] **10. X32 adapter** (`apps/x32-bridge/src/x32/`) — OSC codec (fixture

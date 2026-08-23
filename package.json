@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "build": "pnpm --filter @x32/web run build",
-    "dev": "pnpm --filter @x32/web run dev"
+    "dev": "pnpm --filter @x32/web run dev",
+    "bridge": "pnpm --filter @x32/x32-bridge run dev"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

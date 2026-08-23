@@ -1,13 +1,9 @@
-import { PACKAGE_NAME as DOMAIN } from "@x32/domain";
-import { PACKAGE_NAME as MIXER_CONTRACTS } from "@x32/mixer-contracts";
-
 /**
- * WebSocket message types shared between bridge and web app. No hand-duplicated
- * JSON shapes — the wire types reuse domain and mixer-contracts types.
- *
- * Scaffolding placeholder — replaced in plan step 9.
+ * WebSocket message types shared between bridge and web (architecture.md §7).
+ * No hand-duplicated JSON shapes: the wire types reuse domain and
+ * mixer-contracts types directly, and every inbound message passes through
+ * the guards below before anything downstream trusts it.
  */
-export const PACKAGE_NAME = "@x32/protocol" as const;
 
-/** Proves the workspace dependency edges resolve at typecheck time. */
-export const UPSTREAM_PACKAGES = [DOMAIN, MIXER_CONTRACTS] as const;
+export type { ClientMessage, ServerMessage } from "./messages";
+export { parseClientMessage, parseServerMessage } from "./parse";

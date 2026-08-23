@@ -10,6 +10,7 @@ import { createAppStore } from "../state/store";
 import { createGateway } from "./createGateway";
 import { LocalMockGateway } from "./localMockGateway";
 import { resolveGatewayMode } from "./mixerGateway";
+import { WebSocketMixerGateway } from "./webSocketMixerGateway";
 
 describe("resolveGatewayMode", () => {
   it("defaults to mock so the app always starts without an X32", () => {
@@ -34,9 +35,17 @@ describe("createGateway", () => {
     expect(createGateway(store, "mock")).toBeInstanceOf(LocalMockGateway);
   });
 
-  it("refuses live mode until the WebSocket gateway exists", () => {
+  it("builds a WebSocket gateway in live mode, without opening a socket", () => {
     const store = createAppStore(venueInstallation());
 
-    expect(() => createGateway(store, "live")).toThrow(/step 9/);
+    const gateway = createGateway(store, "live", "ws://example.test:1234");
+
+    expect(gateway).toBeInstanceOf(WebSocketMixerGateway);
+  });
+
+  it("falls back to the default bridge URL when live mode is requested bare", () => {
+    const store = createAppStore(venueInstallation());
+
+    expect(createGateway(store, "live")).toBeInstanceOf(WebSocketMixerGateway);
   });
 });

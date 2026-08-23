@@ -26,6 +26,7 @@ import { createGateway } from "./gateway/createGateway";
 import { LocalMockGateway } from "./gateway/localMockGateway";
 import type { MixerGateway } from "./gateway/mixerGateway";
 import { resolveGatewayMode } from "./gateway/mixerGateway";
+import { resolveBridgeUrl } from "./gateway/webSocketMixerGateway";
 import {
   INSTALLATION_ERROR_HINT,
   loadInstallation,
@@ -62,10 +63,11 @@ function start(): void {
 
   const store = createAppStore(installation);
   const mode = resolveGatewayMode(window.location.search);
+  const bridgeUrl = resolveBridgeUrl(window.location);
 
   let gateway: MixerGateway;
   try {
-    gateway = createGateway(store, mode);
+    gateway = createGateway(store, mode, bridgeUrl);
   } catch (error) {
     // Not a YAML problem: the message names the mode and says what to do.
     renderStartupFailure(error);
