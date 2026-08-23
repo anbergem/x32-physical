@@ -1,7 +1,54 @@
 /**
  * Pure topology/routing domain. Imports nothing from infrastructure.
  *
- * Scaffolding placeholder — replaced by the topology model in plan step 2
- * and route resolution in step 5.
+ * Plan step 2 provides the static model: identifiers, endpoints, topology,
+ * edge derivation, validation, and the mixer routing types the route index
+ * will consume. Route resolution (`buildRouteIndex`) follows in step 5.
+ */
+
+export type { Aes50Bus, DeviceId, EndpointId, MixerChannelId } from "./ids";
+export {
+  AES50_CHANNEL_COUNT,
+  MIXER_CHANNEL_COUNT,
+  aes50Bus,
+  deviceId,
+  mixerChannelId,
+} from "./ids";
+
+export type {
+  Aes50ChannelRef,
+  EndpointRef,
+  MixerChannelRef,
+  PanelInputRef,
+  StageboxInputRef,
+} from "./endpoints";
+export {
+  aes50Channel,
+  endpointId,
+  mixerChannel,
+  panelInput,
+  parseEndpointId,
+  stageboxInput,
+} from "./endpoints";
+
+export type {
+  Device,
+  DeviceKind,
+  Installation,
+  TopologyEdge,
+} from "./topology";
+export { deriveStaticEdges } from "./topology";
+
+export type { MixerChannelState, MixerSourceRef } from "./mixer";
+
+export type {
+  InstallationValidationError,
+  InstallationValidationErrorCode,
+} from "./validation";
+export { assertValidInstallation, validateInstallation } from "./validation";
+
+/**
+ * Scaffolding marker still imported by the placeholder sources in
+ * `installation`, `mixer-contracts` and `protocol` (plan steps 3, 4 and 9).
  */
 export const PACKAGE_NAME = "@x32/domain" as const;

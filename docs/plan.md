@@ -9,7 +9,7 @@ adapter swap at the end.
 - [x] **1. Workspace scaffolding** — pnpm workspace, shared strict tsconfig
       with by-source workspace consumption, Vitest; empty packages wired with
       correct dependency direction.
-- [ ] **2. Domain topology model** (`packages/domain`) — IDs, `EndpointRef`,
+- [x] **2. Domain topology model** (`packages/domain`) — IDs, `EndpointRef`,
       `Installation`, graph edges, validation rules. Unit tests.
 - [ ] **3. Installation loader** (`packages/installation`) — Zod schema, YAML
       parse, derived stagebox→AES50 edges, fail-fast errors. Placeholder
