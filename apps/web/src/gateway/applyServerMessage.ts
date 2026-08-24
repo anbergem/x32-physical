@@ -50,8 +50,9 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
       applyBaseline(store, message.baseline);
       return;
     case "baseline-save-rejected":
-      // No UI surface yet (plan step 14); at least visible in devtools.
-      console.warn("WebSocketMixerGateway: baseline save rejected —", message.reason);
+      // Surfaced inline near the "Save as correct" button (plan step 14,
+      // `DiagnosticsControl`) via the runtime `baselineSaveError` slice.
+      store.getState().setBaselineSaveError(message.reason);
       return;
   }
 }

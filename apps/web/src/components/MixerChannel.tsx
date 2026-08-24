@@ -12,6 +12,7 @@ import type { MixerChannelId } from "@x32/domain";
 
 import {
   selectChannelState,
+  selectDiagnosticStatus,
   selectHoverStatus,
   selectSelectionStatus,
   selectSetHoveredEndpoint,
@@ -19,24 +20,28 @@ import {
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { hoverModifier, selectionModifier } from "./highlight";
+import { diagnosticModifier, hoverModifier, selectionModifier } from "./highlight";
 
 export function MixerChannel({ channel }: { channel: MixerChannelId }) {
   const endpoint = endpointId(mixerChannel(channel));
   const state = useAppStore(selectChannelState(channel));
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
+  const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
   const setHovered = useAppStore(selectSetHoveredEndpoint);
 
-  // Single composition point for the class list — see `InputPort`. Hover and
-  // selection are independent layers: a strip can be on both at once (e.g.
-  // the operator hovers the channel they just SELECTed) and shows both.
+  // Single composition point for the class list — see `InputPort`. Hover,
+  // selection and diagnostics are independent layers: a strip can be on all
+  // three at once (e.g. the operator hovers the channel they just SELECTed,
+  // which also disagrees with the baseline) and shows all three.
   const classNames = ["strip"];
   if (state === undefined) classNames.push("strip--unknown");
   const hoverClass = hoverModifier("strip", hoverStatus);
   if (hoverClass !== null) classNames.push(hoverClass);
   const selectionClass = selectionModifier("strip", selectionStatus);
   if (selectionClass !== null) classNames.push(selectionClass);
+  const diagnosticClass = diagnosticModifier("strip", diagnosticStatus);
+  if (diagnosticClass !== null) classNames.push(diagnosticClass);
 
   return (
     <div

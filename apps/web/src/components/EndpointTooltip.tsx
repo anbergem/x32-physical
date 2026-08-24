@@ -16,6 +16,7 @@ import type { EndpointId } from "@x32/domain";
 import { describeEndpoint } from "../format/tooltip";
 import {
   selectChannels,
+  selectDiscrepancies,
   selectInstallation,
   selectRouteIndex,
 } from "../state/selectors";
@@ -25,11 +26,13 @@ export function EndpointTooltip({ endpoint }: { endpoint: EndpointId }) {
   const installation = useAppStore(selectInstallation);
   const routeIndex = useAppStore(selectRouteIndex);
   const channels = useAppStore(selectChannels);
+  const discrepancies = useAppStore(selectDiscrepancies);
 
   const { title, lines } = describeEndpoint(endpoint, {
     installation,
     routeIndex,
     channels,
+    discrepancies,
   });
 
   return (

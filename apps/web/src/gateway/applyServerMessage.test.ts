@@ -7,7 +7,7 @@
 
 import { mixerChannelId, panelInput } from "@x32/domain";
 import type { ServerMessage } from "@x32/protocol";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { venueInstallation } from "../__fixtures__/venue";
 import type { AppStore } from "../state/store";
@@ -168,9 +168,7 @@ describe("applyServerMessage: baseline (architecture.md §7)", () => {
     expect(after.discrepancies.some((d) => d.kind === "name-mismatch")).toBe(true);
   });
 
-  it("logs baseline-save-rejected as a console warning rather than crashing", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
+  it("routes baseline-save-rejected to the runtime baselineSaveError slice", () => {
     expect(() =>
       applyServerMessage(store, {
         type: "baseline-save-rejected",
@@ -178,11 +176,7 @@ describe("applyServerMessage: baseline (architecture.md §7)", () => {
       }),
     ).not.toThrow();
 
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("baseline"),
-      expect.stringContaining("not connected"),
-    );
-    warn.mockRestore();
+    expect(store.getState().baselineSaveError).toBe("The mixer is not connected.");
   });
 });
 

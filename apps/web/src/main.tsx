@@ -83,7 +83,7 @@ function start(): void {
   root.render(
     <StrictMode>
       <StoreProvider store={store}>
-        <App mode={mode} />
+        <App mode={mode} gateway={gateway} />
         {devMock !== null && <DevControlSurface mock={devMock} />}
       </StoreProvider>
     </StrictMode>,

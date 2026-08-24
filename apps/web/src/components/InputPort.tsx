@@ -12,6 +12,7 @@
 import type { EndpointId } from "@x32/domain";
 
 import {
+  selectDiagnosticStatus,
   selectHoverStatus,
   selectSelectionStatus,
   selectSetHoveredEndpoint,
@@ -19,7 +20,7 @@ import {
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { hoverModifier, selectionModifier } from "./highlight";
+import { diagnosticModifier, hoverModifier, selectionModifier } from "./highlight";
 
 export interface InputPortProps {
   /** Domain identity of this socket; the handle for hover and highlighting. */
@@ -36,17 +37,20 @@ export interface InputPortProps {
 export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
+  const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
   const setHovered = useAppStore(selectSetHoveredEndpoint);
 
   // Single composition point for the class list: one class per highlight
-  // layer, so hover and selection join independently without touching the
-  // markup below.
+  // layer, so hover, selection and diagnostics join independently without
+  // touching the markup below.
   const classNames = ["port"];
   if (aes50Label !== undefined) classNames.push("port--dual");
   const hoverClass = hoverModifier("port", hoverStatus);
   if (hoverClass !== null) classNames.push(hoverClass);
   const selectionClass = selectionModifier("port", selectionStatus);
   if (selectionClass !== null) classNames.push(selectionClass);
+  const diagnosticClass = diagnosticModifier("port", diagnosticStatus);
+  if (diagnosticClass !== null) classNames.push(diagnosticClass);
 
   return (
     <div

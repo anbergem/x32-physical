@@ -4,12 +4,17 @@
  * Highlighting is built as independent layers, one class per layer, each
  * painting *different* CSS properties: hover (`hoverModifier`) works on
  * border and text colour; selection (`selectionModifier`, plan step 8) works
- * on fill/background. An endpoint that is on the selected route and on the
- * hovered route at once therefore shows both at once — no combined
- * "selected-and-hovered" states to enumerate.
+ * on fill/background; diagnostics (`diagnosticModifier`, plan step 14) paints
+ * a small corner badge, deliberately not another fill wash, so an endpoint
+ * that is hovered, selected, *and* flagged by the baseline diff shows all
+ * three at once with nothing overwriting anything else.
  */
 
-import type { HoverStatus, SelectionStatus } from "../state/selectors";
+import type {
+  DiagnosticStatus,
+  HoverStatus,
+  SelectionStatus,
+} from "../state/selectors";
 
 /**
  * @param base the block class of the element, `port` or `strip`.
@@ -42,6 +47,29 @@ export function selectionModifier(
       return `${base}--selected`;
     case "on-selected-route":
       return `${base}--on-selected-route`;
+    case "none":
+      return null;
+  }
+}
+
+/**
+ * @param base the block class of the element, `port` or `strip`.
+ * @returns the modifier to add, or `null` for an unflagged element. In
+ *   practice `source-mismatch`/`shared-source` only ever reach a `strip` and
+ *   `expected-source` only ever reaches a `port` (`selectDiagnosticStatus`
+ *   never mixes them), but the function stays generic like the two above.
+ */
+export function diagnosticModifier(
+  base: string,
+  status: DiagnosticStatus,
+): string | null {
+  switch (status) {
+    case "source-mismatch":
+      return `${base}--source-mismatch`;
+    case "shared-source":
+      return `${base}--shared-source`;
+    case "expected-source":
+      return `${base}--expected-source`;
     case "none":
       return null;
   }

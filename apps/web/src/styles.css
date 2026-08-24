@@ -38,6 +38,14 @@
   --selected-wash: rgba(217, 130, 43, 0.16);
   --selected-wash-strong: rgba(217, 130, 43, 0.34);
 
+  /* Diagnostics (plan step 14): a third layer, badges rather than fills, so
+     it never fights hover's border/text or selection's background/outline.
+     A different colour family from both — rose for an actual routing error,
+     violet for "shares a source it shouldn't" (informational but still a
+     badge), never confusable with hover's cyan or selection's orange. */
+  --diag-error: #e0435f;
+  --diag-warn: #b07de0;
+
   color-scheme: dark;
 }
 
@@ -83,6 +91,12 @@ body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+.app__bar-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .schematic {
@@ -264,6 +278,55 @@ body {
   outline-offset: 1px;
 }
 
+/* Diagnostics (plan step 14): a small corner badge, deliberately not a fill,
+   so it composes with hover's border/text and selection's fill/outline
+   instead of competing with either for the same pixels. */
+
+/* Error: this strip's live source disagrees with the baseline — a corner
+   triangle, distinct in *shape* as well as colour from the shared-source
+   dot below, since both can appear on different strips at once. */
+.strip.strip--source-mismatch::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 10px 10px 0;
+  border-color: transparent var(--diag-error) transparent transparent;
+  border-radius: 0 4px 0 0;
+}
+
+/* Informational: this strip is part of a sharing the baseline did not have. */
+.strip.strip--shared-source::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--diag-warn);
+  box-shadow: 0 0 0 2px var(--surface-raised);
+}
+
+/* Subtle: the physical socket the baseline expected for a mismatched
+   channel — a smaller, dimmer dot, since the strip badge above is the
+   primary surface for this discrepancy. */
+.port.port--expected-source::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--diag-error);
+  opacity: 0.6;
+  box-shadow: 0 0 0 2px var(--surface-raised);
+}
+
 /* --- tooltip ----------------------------------------------------------- */
 
 .tooltip {
@@ -398,6 +461,49 @@ body {
 
 .strip--unknown .strip__name {
   color: var(--text-dim);
+}
+
+/* --- diagnostics header (plan step 14) ---------------------------------- */
+
+.diagnostics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.diagnostics__count {
+  color: var(--diag-error);
+  font-weight: 600;
+}
+
+.diagnostics__error {
+  max-width: 240px;
+  color: var(--diag-error);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagnostics__save {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.diagnostics__save:hover:not(:disabled) {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.diagnostics__save:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* --- connection status ------------------------------------------------- */

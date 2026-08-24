@@ -61,7 +61,7 @@ re-saving after step 11 is one button press.
       message carries the current baseline. Save rejected while the mixer is
       disconnected or the snapshot incomplete. Mock mode persists via
       localStorage behind a small `BaselineStore` seam.
-- [ ] **14. Diagnostics UI** — discrepancy badges on affected strips/sockets
+- [x] **14. Diagnostics UI** — discrepancy badges on affected strips/sockets
       (mapped to endpoints via the route index) + unobtrusive header count;
       one "Save as correct" action (disabled unless connected and synced;
       confirm before overwrite). Name mismatches surface in tooltips only.

@@ -22,9 +22,10 @@ import type {
   MixerChannelId,
   MixerChannelState,
   RouteIndex,
+  RoutingDiscrepancy,
 } from "@x32/domain";
-import { endpointId, mixerChannel } from "@x32/domain";
-import type { MixerConnectionState } from "@x32/mixer-contracts";
+import { endpointId, mixerChannel, mixerSourceRefEquals, parseEndpointId } from "@x32/domain";
+import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 
 import type { AppState, AppStoreState } from "./store";
 
@@ -130,6 +131,97 @@ export function selectSelectionStatus(
       ? "on-selected-route"
       : "none";
   };
+}
+
+// --- diagnostics (plan step 14) ---------------------------------------------
+
+/**
+ * How an endpoint relates to the baseline diff (architecture.md §3 "Routing
+ * diff"), a third highlight layer independent of hover and selection:
+ *
+ * - `source-mismatch` — a mixer-channel strip whose live source disagrees
+ *   with the baseline (error).
+ * - `shared-source` — a mixer-channel strip listed in an
+ *   `unexpected-shared-source` discrepancy (its own source may still match
+ *   the baseline; it is the *sharing* that is new).
+ * - `expected-source` — a physical/AES50 socket that is the baseline's
+ *   source for some `source-mismatch` channel — a subtle marker, never on a
+ *   strip.
+ * - `none` — unrelated, or there is no baseline / no discrepancies.
+ *
+ * `name-mismatch` never produces a status here (informational-only, tooltip
+ * text only, no badge — architecture.md §3).
+ */
+export type DiagnosticStatus =
+  | "none"
+  | "source-mismatch"
+  | "shared-source"
+  | "expected-source";
+
+/**
+ * A primitive per endpoint, for the same rerender-discipline reason as
+ * `selectHoverStatus`/`selectSelectionStatus`. Mixer-channel endpoints look
+ * themselves up directly in `discrepancies`; physical/AES50 endpoints reuse
+ * the precomputed `routeIndex` (never a fresh topology walk) to find the
+ * expected physical socket of a `source-mismatch`: the channel, if any,
+ * whose *actual* source equals the discrepancy's `expected` source.
+ */
+export function selectDiagnosticStatus(
+  endpoint: EndpointId,
+): (state: AppState) => DiagnosticStatus {
+  return (state) => {
+    if (state.discrepancies.length === 0) return "none";
+    const ref = parseEndpointId(endpoint);
+
+    if (ref.kind === "mixer-channel") {
+      const channel = ref.channel;
+      for (const discrepancy of state.discrepancies) {
+        if (discrepancy.kind === "source-mismatch" && discrepancy.channel === channel) {
+          return "source-mismatch";
+        }
+      }
+      for (const discrepancy of state.discrepancies) {
+        if (
+          discrepancy.kind === "unexpected-shared-source" &&
+          discrepancy.channels.includes(channel)
+        ) {
+          return "shared-source";
+        }
+      }
+      return "none";
+    }
+
+    for (const discrepancy of state.discrepancies) {
+      if (discrepancy.kind !== "source-mismatch") continue;
+      for (const candidate of state.channels) {
+        if (!mixerSourceRefEquals(candidate.source, discrepancy.expected)) continue;
+        const route = state.routeIndex.byMixerChannel.get(candidate.channel);
+        if (route !== undefined && route.endpoints.includes(endpoint)) {
+          return "expected-source";
+        }
+      }
+    }
+    return "none";
+  };
+}
+
+export function selectDiscrepancies(state: AppState): RoutingDiscrepancy[] {
+  return state.discrepancies;
+}
+
+export function selectBaseline(state: AppState): MixerSnapshot | null {
+  return state.baseline;
+}
+
+export function selectBaselineSaveError(state: AppState): string | null {
+  return state.baselineSaveError;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetBaselineSaveError(
+  state: AppStoreState,
+): (reason: string | null) => void {
+  return state.setBaselineSaveError;
 }
 
 // --- whole slices (stable identities, for the tooltip) ---------------------

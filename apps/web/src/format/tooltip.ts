@@ -15,6 +15,7 @@ import type {
   MixerChannelId,
   MixerChannelState,
   RouteIndex,
+  RoutingDiscrepancy,
   SignalRoute,
 } from "@x32/domain";
 import { parseEndpointId } from "@x32/domain";
@@ -25,6 +26,8 @@ export interface TooltipContext {
   installation: Installation;
   routeIndex: RouteIndex;
   channels: MixerChannelState[];
+  /** Baseline diff (architecture.md §3), `[]` without a baseline (step 14). */
+  discrepancies: RoutingDiscrepancy[];
 }
 
 export interface EndpointDescription {
@@ -99,7 +102,7 @@ export function describeEndpoint(
 /** "Which socket does this channel come from?" */
 function describeChannel(
   channel: MixerChannelId,
-  { installation, routeIndex, channels }: TooltipContext,
+  { installation, routeIndex, channels, discrepancies }: TooltipContext,
 ): EndpointDescription {
   const title = channelTitle(channel, channels);
   const state = channels.find((candidate) => candidate.channel === channel);
@@ -120,8 +123,44 @@ function describeChannel(
         : physical
             .map((input) => formatEndpoint(input, installation))
             .join(", "),
+      ...discrepancyLines(channel, discrepancies),
     ],
   };
+}
+
+/**
+ * The diagnostic tail of a channel's tooltip (architecture.md §3, plan step
+ * 14): `source-mismatch` and `unexpected-shared-source` explain the badge
+ * already on the strip; `name-mismatch` is informational-only — it never
+ * badges the strip, so this line is the only place it appears at all.
+ */
+function discrepancyLines(
+  channel: MixerChannelId,
+  discrepancies: RoutingDiscrepancy[],
+): string[] {
+  const lines: string[] = [];
+
+  for (const discrepancy of discrepancies) {
+    if (discrepancy.kind === "source-mismatch" && discrepancy.channel === channel) {
+      lines.push(
+        `Expected: ${formatMixerSource(discrepancy.expected)} / Actual: ${formatMixerSource(discrepancy.actual)}`,
+      );
+    }
+    if (discrepancy.kind === "name-mismatch" && discrepancy.channel === channel) {
+      lines.push(`Baseline name: ${discrepancy.expected}`);
+    }
+    if (
+      discrepancy.kind === "unexpected-shared-source" &&
+      discrepancy.channels.includes(channel)
+    ) {
+      const others = discrepancy.channels.filter((candidate) => candidate !== channel);
+      lines.push(
+        `Unexpectedly shares its source with ${others.map((c) => `CH${c}`).join(", ")}`,
+      );
+    }
+  }
+
+  return lines;
 }
 
 /** "Which channel(s) consume this socket?" */

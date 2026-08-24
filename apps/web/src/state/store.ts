@@ -58,6 +58,11 @@ export interface AppState {
   connection: MixerConnectionState;
   selectedChannel: MixerChannelId | null; // from the physical console
   hoveredEndpoint: EndpointId | null; // browser-local
+
+  // Runtime: transient UI feedback for a rejected `save-baseline` (step 14).
+  // Never touches `baseline`/`discrepancies` — a rejected save changed
+  // nothing about either.
+  baselineSaveError: string | null;
 }
 
 /**
@@ -83,6 +88,7 @@ export interface AppActions {
   setConnection(connection: MixerConnectionState): void;
   setSelectedChannel(channel: MixerChannelId | null): void;
   setHoveredEndpoint(endpoint: EndpointId | null): void;
+  setBaselineSaveError(reason: string | null): void;
 }
 
 export type AppStoreState = AppState & AppActions;
@@ -181,6 +187,7 @@ export function createAppStore(
     connection: "disconnected",
     selectedChannel: null,
     hoveredEndpoint: null,
+    baselineSaveError: null,
 
     applySnapshot(snapshot, connection) {
       const state = get();
@@ -238,6 +245,10 @@ export function createAppStore(
 
     setHoveredEndpoint(endpoint) {
       if (get().hoveredEndpoint !== endpoint) set({ hoveredEndpoint: endpoint });
+    },
+
+    setBaselineSaveError(reason) {
+      if (get().baselineSaveError !== reason) set({ baselineSaveError: reason });
     },
   }));
 }

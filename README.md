@@ -55,6 +55,21 @@ Notes for first bring-up:
   placeholder below the stagebox level — put the real panel→stagebox cabling
   in and restart; it's a YAML-only edit, validated on load.
 
+## Diagnostics
+
+Once the desk is patched correctly, press **Save as correct** in the header
+(it's greyed out until the app is connected). That blesses the current
+routing as the baseline. From then on, if the desk's actual routing ever
+drifts from that blessed state — a channel repatched to the wrong source, two
+channels ending up sharing a source they shouldn't — the affected channel
+strips pick up a small badge, and the header shows a routing-issue count.
+Hover a badged strip for details: what the baseline expected versus what's
+actually there now. Renaming a channel never triggers a badge (only visible
+in the strip's tooltip) — routing is what this tool guards, not naming.
+Fix the patch, or press **Save as correct** again (it asks you to confirm
+before replacing an existing baseline) to bless the new state, and the
+badges clear.
+
 ## Layout
 
 pnpm workspace: `packages/domain` (pure routing model — no infrastructure),
