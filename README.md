@@ -76,48 +76,67 @@ badges clear.
 
 ## Deploying to the venue (Windows)
 
-The venue machine runs a self-contained release — no Node.js or console
-config needed on the machine itself. Releases are built by CI
-(`.github/workflows/release.yml`) and published to the repo's GitHub
-Releases page whenever a `v*` tag is pushed.
+The venue machine runs a real Windows **service** installed from a single
+MSI — no Node.js, no console IP configuration, nothing to patch by hand.
+Releases are built and verified by CI (`.github/workflows/release.yml`) on a
+`windows-latest` runner and attached to the repo's GitHub Releases page
+whenever a release is published there.
 
 **First install:**
 
-1. Download `x32-visualizer-win64-v<version>.zip` from the [Releases
-   page](../../releases) and extract it.
-2. Right-click `install.ps1` inside the extracted folder → **Run with
-   PowerShell**, and allow it to run as Administrator when asked.
-3. When prompted, enter the X32 console's IP address (or type `mock` for a
-   no-console test install).
+1. Download `X32RoutingVisualizer-<version>.msi` from the [Releases
+   page](../../releases).
+2. Double-click it. That's it — no prompts to answer (there's no console IP
+   to ask for: the bridge finds the X32 on the LAN itself, plan step 18).
 
-That's it — the app registers itself as a hidden background task that starts
-at logon, starts immediately, and is reachable at `http://localhost:8765`
-(a desktop shortcut, "X32 Routing.url", opens it directly).
+The installer registers "X32 Routing Visualizer" as a Windows service
+(auto-start at boot, no one needs to be logged in) and drops an "X32
+Routing" shortcut on the Start Menu and Desktop pointing at
+`http://localhost:8765`. Silent installs work too: `msiexec /i
+X32RoutingVisualizer-<version>.msi /quiet`.
 
-**Updating:** double-click the **Update X32 Visualizer** desktop shortcut
-(or run `update.ps1` from `C:\X32Visualizer` directly). No admin rights are
-needed — it checks GitHub for a newer release and swaps `app\` and `node\`
-in place, or reports "already up to date". `settings.env` and `data\` are
-never touched by an update.
+**Updating:** download the newer `.msi` and double-click it. The MSI's fixed
+`UpgradeCode` (see `deploy/msi/Product.wxs`) makes this an in-place upgrade —
+the old version is removed and the new one installed, service included; the
+blessed baseline and any `settings.env` override survive untouched (see
+below). There is no separate update mechanism to run.
 
-**Where things live**, all under `C:\X32Visualizer`:
+**Uninstalling:** use *Add or Remove Programs*, or `msiexec /x
+X32RoutingVisualizer-<version>.msi /quiet`. The service is stopped and
+removed and the install directory deleted; the `%ProgramData%` state
+directory is deliberately left behind (see below).
 
-- `settings.env` — console IP, update source; survives updates, editable by
-  hand (Notepad) if the console's IP changes.
-- `data\baseline.json` — the "known correct routing" saved via **Save as
-  correct**; survives every update.
-- `data\bridge.log` — background service log, rotated at ~5 MB; survives
-  every update.
-- `app\`, `node\` — replaced wholesale by every update.
+**Where things live:**
+
+- `%ProgramFiles%\X32 Routing Visualizer\` — the app itself (`server.mjs`,
+  `web\`, `config\`, portable `node.exe`, the WinSW service host). Replaced
+  wholesale by every upgrade; removed by uninstall.
+- `%ProgramData%\X32RoutingVisualizer\` — venue state: `baseline.json` (the
+  "known correct routing" saved via **Save as correct**), the service's
+  rotated logs, and an *optional* `settings.env`. **The MSI never removes or
+  overwrites this directory**, on upgrade or uninstall — the blessed
+  baseline is venue data captured by hand on-site, not program data that
+  ships with a release.
+
+**Overriding auto-discovery:** if the console is on an unusual network (or
+there are several X32s and the wrong one gets picked), create
+`%ProgramData%\X32RoutingVisualizer\settings.env` by hand (Notepad; the
+`Users` group has write access, no admin needed) with lines like:
+
+```
+X32_HOST=192.168.1.10
+X32_BRIDGE_PORT=8765
+```
+
+Restart the "X32 Routing Visualizer" service (Services app, or `net stop` /
+`net start`) for it to take effect. Any variable actually set in the
+service's own environment always wins over this file — it only fills gaps.
 
 **Changing the physical wiring:** `config/installation.yaml` is baked into
-the app at build time (see the caveat in `scripts/release-build.mjs`) — it
-is **not** a file to hand-edit on the venue machine. A cabling change means
-editing `config/installation.yaml` in this repo, tagging a new release, and
-updating the venue machine as above; there is nothing to patch locally.
-
-Full script behavior and troubleshooting: `deploy/windows/VENUE-README.txt`
-(also included in the release zip).
+the web app at build time (see the caveat in `scripts/release-build.mjs`) —
+it is **not** a file to hand-edit on the venue machine. A cabling change
+means editing `config/installation.yaml` in this repo and cutting a new
+release; there is nothing to patch locally.
 
 ## Layout
 
@@ -125,6 +144,8 @@ pnpm workspace: `packages/domain` (pure routing model — no infrastructure),
 `packages/installation` (YAML → validated topology), `packages/mixer-contracts`
 (`MixerClient` + mock), `packages/protocol` (bridge↔browser messages),
 `apps/web` (React schematic), `apps/x32-bridge` (OSC adapter + WS server —
-the only OSC-aware module is `src/x32/`). `deploy/windows/` holds the venue
-install/update/launch scripts; `scripts/release-build.mjs` and
-`scripts/assemble-win-release.mjs` stage and package a release.
+the only OSC-aware module is `src/x32/`). `scripts/release-build.mjs` stages
+a production release; `deploy/msi/` holds the WiX v5 MSI authoring
+(`Product.wxs`, the WinSW service config) and `scripts/build-msi.mjs` +
+`scripts/generate-msi-harvest.mjs` build the installer from that staged
+release on Windows CI (`.github/workflows/release.yml`).

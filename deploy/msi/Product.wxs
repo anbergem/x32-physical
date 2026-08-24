@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  X32 Routing Visualizer — MSI installer (WiX v5, docs/plan.md step 19).
+
+  Built by scripts/build-msi.mjs on windows-latest CI (macOS cannot run
+  `wix build` or `msiexec` — this authoring is verified end-to-end only by
+  the `.github/workflows/release.yml` `verify` job). Preprocessor variables
+  supplied via `wix build -d Name=Value`:
+
+    ProductVersion   x.y.z, from the release tag / workflow_dispatch input
+    AppSourceDir     absolute path to the harvested payload
+                      (dist/release/app — server.mjs, web/, config/, VERSION)
+    NodeExePath      absolute path to the portable node.exe to bundle
+    WinSwExePath     absolute path to the WinSW executable to bundle
+    HarvestFragment  absolute path to the generated AppFiles.wxs fragment
+                      (referenced only via `wix build`'s extra source list,
+                      not from inside this file — see build-msi.mjs)
+
+  Install layout, all under one INSTALLFOLDER
+  (%ProgramFiles%\X32 Routing Visualizer\ — no directory-picker UI, so this
+  path is fixed and known ahead of time; see the comment in
+  deploy/msi/winsw/X32RoutingVisualizer.xml):
+
+    server.mjs, VERSION, config\, web\   <- harvested (AppFiles.wxs, generated)
+    node.exe                             <- portable Node runtime
+    X32RoutingVisualizer.exe             <- WinSW, renamed; the actual Windows
+                                             service binary (node.exe cannot
+                                             speak SCP directly)
+    X32RoutingVisualizer.xml             <- WinSW's own config: launches
+                                             `node.exe server.mjs` as WinSW's
+                                             supervised child
+
+  State lives in %ProgramData%\X32RoutingVisualizer\ (baseline.json, WinSW's
+  logs, optional settings.env) — created once, permanently, and NEVER removed
+  by an upgrade or uninstall: it is venue data (the blessed baseline), not
+  program data. See the AppDataFolder component below for why.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="X32 Routing Visualizer"
+           Manufacturer="Betania"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="ea17cced-15a2-4d35-873c-9fa2ffbdb759"
+           Language="1033"
+           Scope="perMachine"
+           Compressed="yes">
+    <!--
+      UpgradeCode above is FIXED — generated once (2026-08-24) and hardcoded
+      forever. It is the only thing that lets a newer MSI recognize and
+      upgrade an older install; regenerating it would turn every future
+      release into a side-by-side install instead of an in-place upgrade.
+      DO NOT REGENERATE.
+    -->
+
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of X32 Routing Visualizer is already installed. Uninstall it first if you need to downgrade."
+      Schedule="afterInstallValidate" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ============================== Directories ============================== -->
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="X32 Routing Visualizer">
+
+        <!-- Portable Node.js runtime — not harvested (a single well-known
+             file, downloaded and SHA256-verified by the release workflow). -->
+        <Component Id="NodeExeComponent" Guid="*">
+          <File Id="NodeExeFile" Source="$(var.NodeExePath)" Name="node.exe" KeyPath="yes" />
+        </Component>
+
+        <!-- WinSW, renamed to match its paired XML config, PLUS the
+             ServiceInstall/ServiceControl that register and manage the
+             actual Windows service. WiX derives the service's binary path
+             from this component's own File automatically. -->
+        <Component Id="ServiceComponent" Guid="*">
+          <File Id="WinSwExeFile" Source="$(var.WinSwExePath)" Name="X32RoutingVisualizer.exe" KeyPath="yes" />
+          <File Id="WinSwConfigFile" Source="winsw\X32RoutingVisualizer.xml" Name="X32RoutingVisualizer.xml" />
+
+          <ServiceInstall
+            Id="ServiceInstall"
+            Type="ownProcess"
+            Vital="yes"
+            Name="X32RoutingVisualizer"
+            DisplayName="X32 Routing Visualizer"
+            Description="Serves the X32 physical routing visualizer web UI and bridges to the console (read-only; never writes to the mixer)."
+            Start="auto"
+            ErrorControl="normal"
+            Account="LocalSystem" />
+
+          <ServiceControl
+            Id="ServiceControl"
+            Name="X32RoutingVisualizer"
+            Start="install"
+            Stop="both"
+            Remove="uninstall"
+            Wait="yes" />
+        </Component>
+
+        <!-- AppFiles.wxs (generated by scripts/generate-msi-harvest.mjs at
+             build time, passed to `wix build` as an extra source file — see
+             scripts/build-msi.mjs) supplies the harvested server.mjs,
+             VERSION, config\, and web\ directly under this INSTALLFOLDER
+             DirectoryRef, plus the AppFiles ComponentGroup referenced by the
+             Feature below. -->
+      </Directory>
+    </StandardDirectory>
+
+    <!--
+      Venue state — baseline.json, WinSW's logs, and an optional
+      settings.env override (X32_HOST / X32_BRIDGE_PORT for an unusual
+      network — see apps/x32-bridge/src/config.ts's
+      parseSettingsFileContents/applySettingsFileOverrides and
+      deploy/msi/winsw/X32RoutingVisualizer.xml's X32_SETTINGS_FILE).
+
+      `Permanent="yes"` + `RemoveFolder On="never"` mean neither an upgrade
+      nor a full uninstall ever deletes this directory or its contents: the
+      blessed baseline is venue data, captured by hand on-site, and must
+      outlive the program that produced it. `util:PermissionEx` grants the
+      built-in Users group Modify rights so the LocalSystem-run service (and
+      a venue tech editing settings.env by hand) can both write here without
+      further ACL surgery.
+    -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="APPDATAFOLDER" Name="X32RoutingVisualizer">
+        <Component Id="AppDataFolderComponent" Guid="*" Permanent="yes" NeverOverwrite="yes">
+          <CreateFolder>
+            <util:PermissionEx User="Users" GenericAll="yes" />
+          </CreateFolder>
+          <RemoveFolder Id="RemoveAppDataFolder" On="never" />
+          <RegistryValue
+            Root="HKLM"
+            Key="Software\Betania\X32RoutingVisualizer"
+            Name="DataDirCreated"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Shortcuts: Start Menu + Desktop, both a plain internet shortcut to
+         the app's one-and-only URL (no console IP to configure — step 18). -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="X32 Routing Visualizer">
+        <Component Id="StartMenuShortcutComponent" Guid="*">
+          <util:InternetShortcut
+            Id="StartMenuShortcut"
+            Name="X32 Routing"
+            Target="http://localhost:8765"
+            Type="url" />
+          <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+          <RegistryValue
+            Root="HKCU"
+            Key="Software\Betania\X32RoutingVisualizer"
+            Name="StartMenuShortcutInstalled"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcutComponent" Guid="*">
+        <util:InternetShortcut
+          Id="DesktopShortcut"
+          Name="X32 Routing"
+          Target="http://localhost:8765"
+          Type="url" />
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Betania\X32RoutingVisualizer"
+          Name="DesktopShortcutInstalled"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- ============================== Feature ============================== -->
+
+    <Feature Id="MainFeature" Title="X32 Routing Visualizer" Level="1">
+      <ComponentRef Id="NodeExeComponent" />
+      <ComponentRef Id="ServiceComponent" />
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="AppDataFolderComponent" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+      <ComponentRef Id="DesktopShortcutComponent" />
+    </Feature>
+
+    <!-- Minimal UI: license notice + progress, no custom dialogs, no IP
+         prompt (step 18 makes console configuration unnecessary). `/quiet`
+         skips all of this and just runs the sequence silently. -->
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+  </Package>
+</Wix>

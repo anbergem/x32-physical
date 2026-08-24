@@ -103,7 +103,7 @@ re-saving after step 11 is one button press.
       tested. Removes IP configuration from the venue install entirely, and
       the console's model/firmware from the reply feeds the status line.
       Record the discovery mechanism in x32-protocol.md.
-- [ ] **19. MSI installer (WiX)** — replaces step 17's scripts entirely
+- [x] **19. MSI installer (WiX)** — replaces step 17's scripts entirely
       (delete `deploy/windows/`, `scripts/assemble-win-release.mjs`, and the
       zip job). WiX v5 `.wxs` authoring an MSI that: installs to
       `%ProgramFiles%\X32 Routing Visualizer\` (bundled `server.mjs`, web

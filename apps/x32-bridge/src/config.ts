@@ -12,6 +12,7 @@
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
  * | `X32_BASELINE_FILE`| disk path for the persisted baseline (architecture.md §7) | `data/baseline.json` |
  * | `X32_WEB_DIST`      | static root for the built web app (plan step 16); unset = WS only | unset |
+ * | `X32_SETTINGS_FILE` | optional `KEY=VALUE` file (plan step 19's MSI venue override path) merged in *underneath* real env vars — see `parseSettingsFileContents`/`applySettingsFileOverrides` | unset |
  */
 
 import type { MixerClient } from "@x32/mixer-contracts";
@@ -78,6 +79,55 @@ export function resolveBaselineFilePath(env: NodeJS.ProcessEnv): string {
 export function resolveWebDistPath(env: NodeJS.ProcessEnv): string | undefined {
   const raw = env.X32_WEB_DIST;
   return raw !== undefined && raw.trim() !== "" ? raw : undefined;
+}
+
+/**
+ * Parses a `settings.env`-style file's contents (plan step 19): one
+ * `KEY=VALUE` pair per line, blank lines and `#`-comment lines ignored,
+ * surrounding whitespace on both key and value trimmed. Deliberately not a
+ * general dotenv implementation (no quoting, no escapes, no multiline
+ * values) — the MSI's own doc comment (deploy/msi/winsw/*.xml) only ever
+ * asks venue staff to set `X32_HOST=` / `X32_BRIDGE_PORT=` by hand in
+ * Notepad, so this stays intentionally minimal and easy to reason about.
+ * Pure — no filesystem access, so it's testable without touching disk.
+ */
+export function parseSettingsFileContents(contents: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    if (key === "") continue;
+
+    result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Merges `settings.env` overrides *underneath* the real process environment
+ * — a key already present (even as an empty string) in `env` always wins, so
+ * the file only ever fills gaps, never shadows an explicitly-set env var.
+ * Returns a new object; `env` is never mutated. Pure — the file read itself
+ * happens in `main.ts`, which is the only place allowed to touch `fs` for
+ * this purpose (keeps this module unit-testable without disk I/O).
+ */
+export function applySettingsFileOverrides(
+  env: NodeJS.ProcessEnv,
+  fileVars: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...env };
+  for (const [key, value] of Object.entries(fileVars)) {
+    if (merged[key] === undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 /**

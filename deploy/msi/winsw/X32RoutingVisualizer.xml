@@ -1,0 +1,49 @@
+<!--
+  WinSW (https://github.com/winsw/winsw) service configuration.
+
+  node.exe cannot speak the Windows Service Control Protocol directly, so
+  WinSW is the service binary the SCM actually launches (registered by the
+  MSI's ServiceInstall — see deploy/msi/Product.wxs); WinSW in turn spawns
+  and supervises `node.exe server.mjs` as its child process.
+
+  This file must sit next to the renamed WinSW executable
+  (X32RoutingVisualizer.exe) with the SAME basename — that is how WinSW
+  finds its config, there is no path passed on the command line.
+
+  All paths below are static/hardcoded because the MSI never offers a custom
+  install-directory UI (WixUI_Minimal, no directory picker): the install
+  location is always "%ProgramFiles%\X32 Routing Visualizer" and the state
+  directory is always "%ProgramData%\X32RoutingVisualizer" (both standard,
+  version-independent Windows folders). If a future step adds a directory
+  picker, this file must become build-time-generated instead of static.
+
+  %BASE% is resolved by WinSW itself to the directory containing this file
+  (and the renamed exe) — i.e. the MSI's INSTALLFOLDER — so node.exe and
+  server.mjs are found there without hardcoding the install path here.
+-->
+<service>
+  <id>X32RoutingVisualizer</id>
+  <name>X32 Routing Visualizer</name>
+  <description>Serves the X32 physical routing visualizer web UI and bridges to the console (read-only; never writes to the mixer).</description>
+
+  <executable>%BASE%\node.exe</executable>
+  <arguments>server.mjs</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <!-- No X32_HOST: the bridge auto-discovers the console on the LAN
+       (plan step 18). Venue-specific overrides (X32_HOST, X32_BRIDGE_PORT)
+       live in the OPTIONAL settings.env below, not here — hand-editing this
+       file is not the supported override path. -->
+  <env name="X32_MIXER" value="x32"/>
+  <env name="X32_WEB_DIST" value="%BASE%\web"/>
+  <env name="X32_BASELINE_FILE" value="C:\ProgramData\X32RoutingVisualizer\baseline.json"/>
+  <env name="X32_SETTINGS_FILE" value="C:\ProgramData\X32RoutingVisualizer\settings.env"/>
+
+  <logpath>C:\ProgramData\X32RoutingVisualizer</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>5120</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+
+  <onfailure action="restart" delay="5 sec"/>
+</service>

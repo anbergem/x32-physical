@@ -20,30 +20,61 @@
  *   X32_WEB_DIST         static root for the built web app (plan step 16);
  *                        unset serves WebSocket only, matching today's dev
  *                        behaviour.
+ *   X32_SETTINGS_FILE    optional path to a venue-editable `KEY=VALUE` file
+ *                        (plan step 19's MSI override path — WinSW's own
+ *                        config sets this to `%ProgramData%\...\settings.env`
+ *                        on the venue machine); read once at startup, and
+ *                        only fills in env vars not already set. Missing
+ *                        file is silent and normal (most installs never
+ *                        need an override); a read/parse error is logged and
+ *                        otherwise ignored — it must never block startup.
  */
+
+import { readFileSync } from "node:fs";
 
 import { MockMixerClient } from "@x32/mixer-contracts";
 
-import { DiskBaselineStore } from "./baselineStore";
 import {
+  applySettingsFileOverrides,
   createMixerClient,
+  parseSettingsFileContents,
   resolveBaselineFilePath,
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
   resolveWebDistPath,
 } from "./config";
+import { DiskBaselineStore } from "./baselineStore";
 import { startDemoMode } from "./demo";
 import { startBridgeServer } from "./server/bridgeServer";
 
-async function main(): Promise<void> {
-  const mode = resolveMixerMode(process.env);
-  const port = resolvePort(process.env);
-  const demo = resolveDemoMode(process.env);
-  const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(process.env));
-  const webDist = resolveWebDistPath(process.env);
+function loadEnv(): NodeJS.ProcessEnv {
+  const settingsFile = process.env.X32_SETTINGS_FILE;
+  if (settingsFile === undefined || settingsFile.trim() === "") return process.env;
 
-  const mixerClient = createMixerClient(mode, process.env);
+  try {
+    const contents = readFileSync(settingsFile, "utf8");
+    const overrides = parseSettingsFileContents(contents);
+    console.log(`x32-bridge: loaded overrides from ${settingsFile}: ${Object.keys(overrides).join(", ") || "(none)"}`);
+    return applySettingsFileOverrides(process.env, overrides);
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      console.warn(`x32-bridge: could not read X32_SETTINGS_FILE (${settingsFile}): ${(error as Error).message}`);
+    }
+    return process.env;
+  }
+}
+
+async function main(): Promise<void> {
+  const env = loadEnv();
+  const mode = resolveMixerMode(env);
+  const port = resolvePort(env);
+  const demo = resolveDemoMode(env);
+  const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(env));
+  const webDist = resolveWebDistPath(env);
+
+  const mixerClient = createMixerClient(mode, env);
   const bridge = await startBridgeServer({ mixerClient, port, baselineStore, webDist });
 
   console.log(

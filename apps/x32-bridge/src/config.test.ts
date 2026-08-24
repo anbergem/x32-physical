@@ -2,9 +2,11 @@ import { MockMixerClient } from "@x32/mixer-contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applySettingsFileOverrides,
   createMixerClient,
   DEFAULT_BASELINE_FILE,
   DEFAULT_X32_PORT,
+  parseSettingsFileContents,
   pickDiscoveredHost,
   resolveBaselineFilePath,
   resolveDemoMode,
@@ -166,5 +168,57 @@ describe("createMixerClient", () => {
   it("x32 mode without X32_HOST or any discovery response still constructs a client (starts disconnected)", () => {
     const discover = vi.fn().mockResolvedValue([]);
     expect(() => createMixerClient("x32", {}, discover)).not.toThrow();
+  });
+});
+
+describe("parseSettingsFileContents (plan step 19 — MSI settings.env override)", () => {
+  it("parses KEY=VALUE lines", () => {
+    expect(parseSettingsFileContents("X32_HOST=192.168.1.10\nX32_BRIDGE_PORT=9000\n")).toEqual({
+      X32_HOST: "192.168.1.10",
+      X32_BRIDGE_PORT: "9000",
+    });
+  });
+
+  it("ignores blank lines and #-comments, trims whitespace, tolerates CRLF", () => {
+    const contents = [
+      "# venue override file",
+      "",
+      "  X32_HOST = 192.168.1.10  ",
+      "# X32_BRIDGE_PORT=9999 (disabled)",
+    ].join("\r\n");
+    expect(parseSettingsFileContents(contents)).toEqual({ X32_HOST: "192.168.1.10" });
+  });
+
+  it("ignores lines with no '='", () => {
+    expect(parseSettingsFileContents("not a valid line\nX32_HOST=1.2.3.4")).toEqual({
+      X32_HOST: "1.2.3.4",
+    });
+  });
+
+  it("empty/whitespace-only contents yields no overrides", () => {
+    expect(parseSettingsFileContents("")).toEqual({});
+    expect(parseSettingsFileContents("   \n  \n")).toEqual({});
+  });
+});
+
+describe("applySettingsFileOverrides", () => {
+  it("fills in keys absent from env", () => {
+    const merged = applySettingsFileOverrides({}, { X32_HOST: "192.168.1.10" });
+    expect(merged.X32_HOST).toBe("192.168.1.10");
+  });
+
+  it("never overrides a key already present in env, even an empty string", () => {
+    const merged = applySettingsFileOverrides(
+      { X32_HOST: "10.0.0.1", X32_BRIDGE_PORT: "" },
+      { X32_HOST: "192.168.1.10", X32_BRIDGE_PORT: "9000" },
+    );
+    expect(merged.X32_HOST).toBe("10.0.0.1");
+    expect(merged.X32_BRIDGE_PORT).toBe("");
+  });
+
+  it("does not mutate the input env", () => {
+    const env = {};
+    applySettingsFileOverrides(env, { X32_HOST: "1.2.3.4" });
+    expect(env).toEqual({});
   });
 });

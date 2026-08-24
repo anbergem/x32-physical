@@ -1,29 +1,45 @@
 name: Release
 
-# Builds and publishes the Windows venue-distribution zip (docs/plan.md step
-# 17). Triggered by pushing a tag like `v1.2.3` — the tag's version (minus
-# the leading `v`) becomes both the GitHub Release tag/name and the version
-# baked into the zip filename and app/VERSION (via `pnpm release:build`,
-# step 16).
+# Builds the MSI installer (docs/plan.md step 19), proves it installs and
+# uninstalls cleanly on real Windows, and attaches it to the GitHub Release
+# that triggered the run. Triggered by *publishing* a release (not a tag
+# push) — the owner wants "publish a release" to be the moment that kicks
+# off the build. `workflow_dispatch` is kept for manual test runs (e.g.
+# verifying the pipeline before cutting a real release), taking the version
+# as an input since there's no release event to derive it from.
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (x.y.z, no leading 'v') — manual test runs only"
+        required: true
+        type: string
 
-# The portable Node.js runtime bundled into the Windows zip. Pinned to a
-# specific version (not just a major line) so the SHA256 check below is
-# meaningful and the release is reproducible. Bump deliberately, alongside
-# the SHA below, when a newer LTS is wanted — check
-# https://nodejs.org/dist/index.json for current LTS releases.
+# The portable Node.js runtime bundled into the MSI. Pinned to a specific
+# version (not just a major line) so the SHA256 check below is meaningful
+# and the build is reproducible. Bump deliberately, alongside the SHA below,
+# when a newer LTS is wanted — check https://nodejs.org/dist/index.json.
+#
+# WinSW (https://github.com/winsw/winsw) is the Windows service host that
+# actually speaks the Service Control Protocol on node.exe's behalf (see
+# deploy/msi/Product.wxs and deploy/msi/winsw/X32RoutingVisualizer.xml).
+# Pinned to v2.12.0 — GitHub Releases doesn't publish a digest for this
+# project's assets, so WINSW_SHA256 below was computed by hand from that
+# exact release asset at pin time (2026-08-24) and is verified on every run;
+# bump both together deliberately.
 env:
-  BUNDLED_NODE_VERSION: "22.11.0"
+  BUNDLED_NODE_VERSION: "24.19.0"
+  WINSW_VERSION: "2.12.0"
+  WINSW_SHA256: "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da"
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,14 +58,25 @@ jobs:
 
       - run: pnpm release:build
 
-      - name: Derive version from tag
+      - name: Derive version
         id: version
+        shell: bash
         run: |
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            raw="${{ github.event.release.tag_name }}"
+          else
+            raw="${{ inputs.version }}"
+          fi
+          version="${raw#v}"
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '${version}' (from '${raw}') is not a plain x.y.z — MSI ProductVersion requires a numeric dotted version." >&2
+            exit 1
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Download and verify the portable Node.js runtime (win-x64)
+        shell: bash
         run: |
           set -euo pipefail
           version="${BUNDLED_NODE_VERSION}"
@@ -59,32 +86,178 @@ jobs:
           curl -fsSLO "${base_url}/${zip_name}"
           curl -fsSLO "${base_url}/SHASUMS256.txt"
 
-          # Only check the one line for our zip, not the whole file — the
-          # SHASUMS file lists every platform's artifact.
           grep " ${zip_name}\$" SHASUMS256.txt > node.sha256
           sha256sum -c node.sha256
 
           unzip -q "${zip_name}"
-          mkdir -p /tmp/win-node
-          cp "node-v${version}-win-x64/node.exe" /tmp/win-node/node.exe
+          mkdir -p node-runtime
+          cp "node-v${version}-win-x64/node.exe" node-runtime/node.exe
 
-      - name: Assemble Windows release zip
+      - name: Download and verify WinSW
+        shell: bash
         run: |
-          node scripts/assemble-win-release.mjs \
+          set -euo pipefail
+          url="https://github.com/winsw/winsw/releases/download/v${WINSW_VERSION}/WinSW-x64.exe"
+          mkdir -p winsw-bin
+          curl -fsSL -o winsw-bin/WinSW-x64.exe "${url}"
+          echo "${WINSW_SHA256}  winsw-bin/WinSW-x64.exe" | sha256sum -c -
+
+      - name: Install WiX v5 CLI + the Util extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pinned to the latest 5.x at authoring time (5.0.2) — this repo's
+          # authoring (deploy/msi/Product.wxs) targets WiX v5 specifically
+          # (StandardDirectory, the merged Package element, etc.); bump
+          # deliberately, together with re-verifying the .wxs still builds.
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add WixToolset.Util.wixext/5.0.2 --global
+
+      - name: Build the MSI
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-msi.mjs \
             --app dist/release/app \
-            --node /tmp/win-node/node.exe \
+            --node "$(pwd)/node-runtime/node.exe" \
+            --winsw "$(pwd)/winsw-bin/WinSW-x64.exe" \
             --version "${{ steps.version.outputs.version }}" \
-            --repo "${{ github.repository }}" \
             --out dist/release
 
-      - name: Create GitHub Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msi
+          path: dist/release/X32RoutingVisualizer-*.msi
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: msi
+          path: msi
+
+      - name: Locate the MSI
+        id: msi
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path msi -Filter "X32RoutingVisualizer-*.msi" | Select-Object -First 1
+          if ($null -eq $msi) {
+            Write-Error "No MSI found in the downloaded artifact."
+            exit 1
+          }
+          echo "path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Install silently
+        shell: pwsh
+        run: |
+          $msi = "${{ steps.msi.outputs.path }}"
+          $log = "install.log"
+          $proc = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /quiet /l*v `"$log`"" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "msiexec install failed with exit code $($proc.ExitCode) — see install.log"
+            Get-Content $log -Tail 100
+            exit 1
+          }
+
+      - name: Wait for the service to serve the app
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddSeconds(60)
+          $ok = $false
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://localhost:8765/" -UseBasicParsing -TimeoutSec 5
+              if ($response.StatusCode -eq 200 -and $response.Content -match "X32 Routing Visualizer") {
+                Write-Host "App responded 200 with expected title after $((Get-Date) - ($deadline.AddSeconds(-60)))."
+                $ok = $true
+                break
+              }
+              Write-Host "Got status $($response.StatusCode) without expected title yet, retrying..."
+            } catch {
+              Write-Host "Not up yet ($($_.Exception.Message)), retrying..."
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ok) {
+            Write-Error "http://localhost:8765/ never returned 200 with the expected title within 60s."
+            exit 1
+          }
+
+      - name: Assert the service is registered and running
+        shell: pwsh
+        run: |
+          $svc = Get-Service -Name "X32RoutingVisualizer" -ErrorAction SilentlyContinue
+          if ($null -eq $svc) {
+            Write-Error "Service 'X32RoutingVisualizer' was not found after install."
+            exit 1
+          }
+          if ($svc.Status -ne "Running") {
+            Write-Error "Service 'X32RoutingVisualizer' is not Running (status: $($svc.Status))."
+            exit 1
+          }
+          Write-Host "Service is registered and Running (display name: $($svc.DisplayName))."
+
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $msi = "${{ steps.msi.outputs.path }}"
+          $log = "uninstall.log"
+          $proc = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /quiet /l*v `"$log`"" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "msiexec uninstall failed with exit code $($proc.ExitCode) — see uninstall.log"
+            Get-Content $log -Tail 100
+            exit 1
+          }
+
+      - name: Assert the service and install dir are gone
+        shell: pwsh
+        run: |
+          Start-Sleep -Seconds 3
+          $svc = Get-Service -Name "X32RoutingVisualizer" -ErrorAction SilentlyContinue
+          if ($null -ne $svc) {
+            Write-Error "Service 'X32RoutingVisualizer' still exists after uninstall (status: $($svc.Status))."
+            exit 1
+          }
+          $installDir = "C:\Program Files\X32 Routing Visualizer"
+          if (Test-Path $installDir) {
+            Write-Error "Install directory '$installDir' still exists after uninstall."
+            exit 1
+          }
+          Write-Host "Service removed and install directory gone, as expected."
+          # ProgramData is deliberately NOT checked for absence here — the MSI
+          # never removes it (see the AppDataFolderComponent comment in
+          # deploy/msi/Product.wxs): it holds the blessed baseline, which
+          # must survive an uninstall exactly like an upgrade.
+
+      - name: Upload install log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-logs
+          path: |
+            install.log
+            uninstall.log
+          if-no-files-found: ignore
+
+  publish:
+    needs: [build, verify]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: msi
+          path: msi
+
+      - name: Attach the MSI to the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          zip_path="dist/release/x32-visualizer-win64-v${version}.zip"
-          gh release create "${GITHUB_REF_NAME}" \
-            "${zip_path}" \
-            --title "v${version}" \
-            --generate-notes
+          msi_path="$(ls msi/X32RoutingVisualizer-*.msi)"
+          gh release upload "${{ github.event.release.tag_name }}" "${msi_path}" --clobber --repo "${{ github.repository }}"
