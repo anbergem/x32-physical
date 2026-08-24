@@ -12,7 +12,8 @@
 import { aes50ChannelForInput, endpointId, stageboxInput } from "@x32/domain";
 import type { Device, DeviceId } from "@x32/domain";
 
-import { selectDevice } from "../state/selectors";
+import { aes50LabelsFor } from "../installation/aes50Labels";
+import { selectDevice, selectInstallation } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { DeviceFrame, MissingDevice, socketNumbers } from "./DeviceFrame";
@@ -28,17 +29,20 @@ function metaOf(device: Device): string {
 
 export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
+  const installation = useAppStore(selectInstallation);
+  const aes50Labels = aes50LabelsFor(installation);
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
   return (
     <DeviceFrame kind="stagebox" label={device.label} meta={metaOf(device)}>
       {socketNumbers(device.inputs).map((socket) => {
-        const busChannel = aes50ChannelForInput(device, socket);
+        const endpoint = endpointId(stageboxInput(device.id, socket));
+        const busChannel = aes50Labels.get(endpoint);
         return (
           <InputPort
             key={socket}
-            endpoint={endpointId(stageboxInput(device.id, socket))}
+            endpoint={endpoint}
             label={String(socket)}
             aes50Label={
               busChannel === undefined

@@ -11,11 +11,13 @@
 
 import type { EndpointId } from "@x32/domain";
 
+import { isMeterHot, meterBarHeightPercent } from "../format/meter";
 import {
   selectDiagnosticStatus,
   selectHoverStatus,
   selectSelectionStatus,
   selectSetHoveredEndpoint,
+  selectSocketMeterLevel,
 } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
@@ -39,6 +41,10 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
   const setHovered = useAppStore(selectSetHoveredEndpoint);
+  // The fourth, fastest state path (architecture.md §5): this socket's own
+  // level and nothing else, so a meter tick rerenders only the sockets some
+  // channel actually consumes, never the whole schematic.
+  const meterLevel = useAppStore(selectSocketMeterLevel(endpoint));
 
   // Single composition point for the class list: one class per highlight
   // layer, so hover, selection and diagnostics join independently without
@@ -66,6 +72,24 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
         <span className="port__aes50">{aes50Label}</span>
       )}
       {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {/* No data (null) -> no bar at all, zero layout change either way —
+          the bar is absolutely positioned so it never shifts the socket's
+          own content regardless of whether it's present. */}
+      {meterLevel !== null && <PortMeterBar level={meterLevel} />}
     </div>
+  );
+}
+
+function PortMeterBar({ level }: { level: number }) {
+  const heightPercent = meterBarHeightPercent(level);
+  const classNames = ["port__meter"];
+  if (isMeterHot(heightPercent)) classNames.push("port__meter--hot");
+
+  return (
+    <span
+      className={classNames.join(" ")}
+      style={{ height: `${heightPercent}%` }}
+      aria-hidden="true"
+    />
   );
 }

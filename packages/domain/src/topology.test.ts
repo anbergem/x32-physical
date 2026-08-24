@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { venueInstallation } from "./__fixtures__/venue";
 import type { EndpointRef } from "./endpoints";
-import { aes50Channel, endpointId, stageboxInput } from "./endpoints";
+import { aes50Channel, endpointId, panelInput, stageboxInput } from "./endpoints";
 import { deviceId } from "./ids";
-import { aes50ChannelForInput, deriveStaticEdges } from "./topology";
+import {
+  aes50ChannelForInput,
+  aes50ChannelsByEndpoint,
+  deriveStaticEdges,
+} from "./topology";
 import type { Device, Installation, TopologyEdge } from "./topology";
 
 function edgeFrom(edges: TopologyEdge[], from: EndpointRef): TopologyEdge {
@@ -125,5 +129,122 @@ describe("aes50ChannelForInput", () => {
       aes50: { bus: "A", offset: 40 },
     };
     expect(() => aes50ChannelForInput(overflowing, 9)).toThrow(/AES50 channel/);
+  });
+});
+
+/**
+ * Mirrors `config/installation.yaml` exactly (docs/installation.md "Real
+ * panel wiring"), not the simplified `venueInstallation()` fixture above:
+ * the venue's right side is cabled offset by one, which is precisely the
+ * case `aes50ChannelsByEndpoint` exists to get right.
+ */
+function realVenueInstallation(): Installation {
+  return {
+    devices: [
+      {
+        id: deviceId("stagebox-1"),
+        kind: "stagebox",
+        label: "Stagebox V",
+        inputs: 16,
+        aes50: { bus: "A", offset: 0 },
+      },
+      {
+        id: deviceId("stagebox-2"),
+        kind: "stagebox",
+        label: "Stagebox H",
+        inputs: 16,
+        aes50: { bus: "A", offset: 16 },
+      },
+      {
+        id: deviceId("front-left"),
+        kind: "passive-panel",
+        label: "MK Front V",
+        inputs: 8,
+      },
+      {
+        id: deviceId("front-right"),
+        kind: "passive-panel",
+        label: "MK Front H",
+        inputs: 7,
+      },
+    ],
+    connections: [
+      ...[1, 2, 3, 4, 5, 6, 7, 8].map((socket) => ({
+        from: panelInput("front-left", socket),
+        to: stageboxInput("stagebox-1", socket),
+      })),
+      // MK Front H is cabled offset by one: panel socket n -> Stagebox H
+      // input n+1 (Stagebox H input 1, "H 01"/A17, is a direct stage socket).
+      ...[1, 2, 3, 4, 5, 6, 7].map((socket) => ({
+        from: panelInput("front-right", socket),
+        to: stageboxInput("stagebox-2", socket + 1),
+      })),
+    ],
+  };
+}
+
+describe("aes50ChannelsByEndpoint", () => {
+  const installation = realVenueInstallation();
+  const map = aes50ChannelsByEndpoint(installation);
+
+  it("maps the left panel 1:1 through its stagebox", () => {
+    expect(map.get(endpointId(panelInput("front-left", 1)))).toEqual(
+      aes50Channel("A", 1),
+    );
+  });
+
+  it("maps the right panel's offset-by-one cabling correctly", () => {
+    // MK Front H socket 1 -> Stagebox H input 2 -> A18, not A17.
+    expect(map.get(endpointId(panelInput("front-right", 1)))).toEqual(
+      aes50Channel("A", 18),
+    );
+    expect(map.get(endpointId(panelInput("front-right", 7)))).toEqual(
+      aes50Channel("A", 24),
+    );
+  });
+
+  it("maps direct stage sockets (uncabled stagebox inputs) too", () => {
+    expect(map.get(endpointId(stageboxInput("stagebox-2", 1)))).toEqual(
+      aes50Channel("A", 17),
+    );
+    expect(map.get(endpointId(stageboxInput("stagebox-2", 7)))).toEqual(
+      aes50Channel("A", 23),
+    );
+    expect(map.get(endpointId(stageboxInput("stagebox-1", 16)))).toEqual(
+      aes50Channel("A", 16),
+    );
+  });
+
+  it("omits a panel socket cabled to nothing", () => {
+    const withUncabledSocket: Installation = {
+      devices: [
+        {
+          id: deviceId("front-left"),
+          kind: "passive-panel",
+          label: "Front Left",
+          inputs: 2,
+        },
+        {
+          id: deviceId("stagebox-1"),
+          kind: "stagebox",
+          label: "Stagebox 1",
+          inputs: 4,
+          aes50: { bus: "A", offset: 0 },
+        },
+      ],
+      // Only socket 1 is cabled; socket 2 reaches nothing.
+      connections: [
+        { from: panelInput("front-left", 1), to: stageboxInput("stagebox-1", 1) },
+      ],
+    };
+
+    const uncabledMap = aes50ChannelsByEndpoint(withUncabledSocket);
+
+    expect(uncabledMap.get(endpointId(panelInput("front-left", 1)))).toEqual(
+      aes50Channel("A", 1),
+    );
+    expect(uncabledMap.has(endpointId(panelInput("front-left", 2)))).toBe(
+      false,
+    );
   });
 });

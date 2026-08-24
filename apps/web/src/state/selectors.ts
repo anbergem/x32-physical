@@ -275,6 +275,38 @@ export function selectMeterLevel(
   return (state) => state.meterLevels?.[channel - 1] ?? null;
 }
 
+/**
+ * One physical/AES50 socket's own level: the console cannot meter a point
+ * upstream of its own input stage, so this is the *maximum* level among the
+ * mixer channels consuming the socket (routeIndex.byEndpoint -> its route(s)
+ * -> mixerChannels -> meterLevels) — an honest approximation, not a true
+ * socket measurement, since what's actually read is the consuming channel's
+ * post-preamp meter. A socket no channel consumes returns `null` rather than
+ * a zero bar: the console cannot meter a socket nobody listens to, and a zero
+ * bar would wrongly imply silence rather than "not monitored". Primitive per
+ * endpoint, for the same rerender-discipline reason as `selectMeterLevel`.
+ */
+export function selectSocketMeterLevel(
+  endpoint: EndpointId,
+): (state: AppState) => number | null {
+  return (state) => {
+    if (state.meterLevels === null) return null;
+    const levels = state.meterLevels;
+    const routes = state.routeIndex.byEndpoint.get(endpoint);
+    if (routes === undefined) return null;
+
+    let max: number | null = null;
+    for (const route of routes) {
+      for (const channel of route.mixerChannels) {
+        const level = levels[channel - 1];
+        if (level === undefined) continue;
+        if (max === null || level > max) max = level;
+      }
+    }
+    return max;
+  };
+}
+
 // --- configuration slice ---------------------------------------------------
 
 /**

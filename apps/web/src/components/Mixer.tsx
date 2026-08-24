@@ -1,6 +1,7 @@
 /**
- * The console's 32 input channels, in two rows of 16 — the way they sit under
- * the X32's own layer buttons.
+ * The console's 32 input channels, in four rows of 8 — the console's own
+ * layout (its physical faders come in banks of 8), and a narrower footprint
+ * than two rows of 16.
  */
 
 import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
@@ -13,11 +14,11 @@ const CHANNELS: MixerChannelId[] = Array.from(
   (_, index) => mixerChannelId(index + 1),
 );
 
-const ROW_LENGTH = 16;
-const ROWS: MixerChannelId[][] = [
-  CHANNELS.slice(0, ROW_LENGTH),
-  CHANNELS.slice(ROW_LENGTH),
-];
+const ROW_LENGTH = 8;
+const ROWS: MixerChannelId[][] = Array.from(
+  { length: MIXER_CHANNEL_COUNT / ROW_LENGTH },
+  (_, index) => CHANNELS.slice(index * ROW_LENGTH, (index + 1) * ROW_LENGTH),
+);
 
 export function Mixer() {
   return (
