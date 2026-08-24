@@ -1,48 +1,60 @@
 # The venue's physical input topology (docs/installation.md).
+# Source of truth: "Betania Lydsystem - Inputs" patch sheet (captured
+# 2026-08-24). Venue labels are Norwegian: V = venstre (left), H = høyre
+# (right); direct stagebox sockets are labelled "V 09".."V 16" and
+# "H 01", "H 09".."H 16" on stage, matching the box input numbers.
 #
 # No coordinates, ever: connectivity and visual layout are separate concerns
 # (CLAUDE.md invariant 6). Stagebox -> AES50 edges are *derived* from
 # `aes50.offset` by the domain and must never be written here.
+#
+# Channel names/assignments from the patch sheet (Vokal V1 -> C5, ...) are
+# live mixer configuration — they come from the console at runtime and are
+# deliberately NOT recorded here. The desk's own local inputs (IN 1-3 at the
+# console: Bøyle, Håndholdt 1/2) are outside the stage topology and surface
+# in the UI as "Local N" sources.
 
 version: 1
 
 devices:
-  # Confirmed: two 16-in boxes daisy-chained on AES50-A. stagebox-1 is patched
-  # to the console's AES50-A port (bus channels 1-16); stagebox-2 cascades
-  # through stagebox-1 (bus channels 17-32). AES50-B is unused.
+  # Confirmed: two 16-in boxes daisy-chained on AES50-A. stagebox-1 (left/V)
+  # is patched to the console's AES50-A port (bus channels 1-16); stagebox-2
+  # (right/H) cascades through stagebox-1 (bus channels 17-32). AES50-B is
+  # unused.
   #
   # Chain-order caveat: AES50 slots are positional. Re-ordering the boxes or
   # adding a third one is an `offset` edit here and nothing else.
   stagebox-1:
     kind: stagebox
-    label: "Stagebox 1"
+    label: "Stagebox V"
     inputs: 16
     aes50: { bus: A, offset: 0 }
 
   stagebox-2:
     kind: stagebox
-    label: "Stagebox 2"
+    label: "Stagebox H"
     inputs: 16
     aes50: { bus: A, offset: 16 }
 
-  # PLACEHOLDER PANELS - not the real inventory.
-  # The passive panel inventory has not been captured yet
-  # (docs/installation.md, "Still to be captured"). These two plausible panels
-  # exist so mock-driven development can proceed; replacing them with the real
-  # wiring is a YAML-only edit.
+  # Front mic panels ("MK Front"). Left has 8 sockets; right has only 7 —
+  # and they are offset by one on the box side (see connections below).
   front-left:
     kind: passive-panel
-    label: "Front Left"
+    label: "MK Front V"
     inputs: 8
 
   front-right:
     kind: passive-panel
-    label: "Front Right"
-    inputs: 8
+    label: "MK Front H"
+    inputs: 7
 
-# PLACEHOLDER CABLING - panel socket -> stagebox input, in signal direction.
-# Stagebox inputs 9-16 of both boxes intentionally have no connection: they are
-# direct stage sockets, which is valid.
+# Panel socket -> stagebox input, in signal direction, per the patch sheet.
+#
+# Left:  MK Front V sockets 1-8 -> Stagebox V inputs 1-8 (A1-A8).
+#        Stagebox V inputs 9-16 are direct stage sockets "V 09".."V 16".
+# Right: Stagebox H input 1 is the direct socket "H 01" (A17).
+#        MK Front H sockets 1-7 -> Stagebox H inputs 2-8 (A18-A24).
+#        Stagebox H inputs 9-16 are direct stage sockets "H 09".."H 16".
 connections:
   - from: { device: front-left, input: 1 }
     to: { device: stagebox-1, input: 1 }
@@ -62,18 +74,16 @@ connections:
     to: { device: stagebox-1, input: 8 }
 
   - from: { device: front-right, input: 1 }
-    to: { device: stagebox-2, input: 1 }
-  - from: { device: front-right, input: 2 }
     to: { device: stagebox-2, input: 2 }
-  - from: { device: front-right, input: 3 }
+  - from: { device: front-right, input: 2 }
     to: { device: stagebox-2, input: 3 }
-  - from: { device: front-right, input: 4 }
+  - from: { device: front-right, input: 3 }
     to: { device: stagebox-2, input: 4 }
-  - from: { device: front-right, input: 5 }
+  - from: { device: front-right, input: 4 }
     to: { device: stagebox-2, input: 5 }
-  - from: { device: front-right, input: 6 }
+  - from: { device: front-right, input: 5 }
     to: { device: stagebox-2, input: 6 }
-  - from: { device: front-right, input: 7 }
+  - from: { device: front-right, input: 6 }
     to: { device: stagebox-2, input: 7 }
-  - from: { device: front-right, input: 8 }
+  - from: { device: front-right, input: 7 }
     to: { device: stagebox-2, input: 8 }

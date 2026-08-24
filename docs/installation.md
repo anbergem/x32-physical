@@ -19,12 +19,26 @@ Chain-order caveat: AES50 input slots are positional in a cascade. If the
 boxes are ever physically re-ordered or a third box is added, only the
 `offset` values in `installation.yaml` need to change.
 
-## Still to be captured (placeholder until then)
+## Real panel wiring (captured 2026-08-24)
 
-The passive panel inventory and the permanent panel→stagebox cabling have not
-been provided yet. `installation.yaml` starts with plausible placeholder
-panels/wiring so mock-driven development can proceed; replacing them with the
-real wiring is a YAML-only edit.
+From the venue patch sheet "Betania Lydsystem - Inputs". Venue labels are
+Norwegian: **V** = venstre (left), **H** = høyre (right).
+
+- **Left**: passive panel "MK Front V" (8 sockets) → Stagebox V inputs 1–8
+  (AES50-A 1–8). Stagebox V inputs 9–16 are direct stage sockets labelled
+  "V 09"–"V 16" (A9–A16).
+- **Right**: Stagebox H input 1 is the direct socket "H 01" (A17). Passive
+  panel "MK Front H" has only **7 sockets**, cabled **offset by one**:
+  panel sockets 1–7 → Stagebox H inputs 2–8 (A18–A24). Inputs 9–16 are
+  direct sockets "H 09"–"H 16" (A25–A32).
+- The direct-socket stage labels match the box input numbers ("H 12" =
+  Stagebox H input 12 = A28), which is what the UI's dual labels display.
+- The desk also has three local inputs in use at FOH (IN 1–3: Bøyle,
+  Håndholdt 1/2). Console-local sockets are outside the stage topology and
+  surface in the UI as "Local N" sources; modeling the desk as a device is a
+  possible future schema extension.
+- Channel assignments on the sheet (Vokal V1 → C5, …) are live mixer
+  configuration, read from the console at runtime — never recorded in YAML.
 
 ## `installation.yaml` schema (v1)
 
