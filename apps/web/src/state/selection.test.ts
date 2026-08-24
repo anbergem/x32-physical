@@ -14,9 +14,14 @@
  *    or the console is doing at the same time.
  * 3. **No throw on an unmapped source** — a selected channel with no
  *    physical mapping highlights only its own strip.
+ *
+ * The mock's default snapshot (mixer-contracts) is faithful to the real patch
+ * sheet and has no dual-consumer or unmapped-source channel by default, so
+ * the tests that need those edge cases build their own local fixture
+ * snapshot by overriding the default rather than leaning on it.
  */
 
-import type { EndpointId } from "@x32/domain";
+import type { EndpointId, MixerChannelState } from "@x32/domain";
 import {
   aes50Channel,
   endpointId,
@@ -36,19 +41,34 @@ import { createAppStore } from "./store";
 
 const installation = venueInstallation();
 
+const CH23 = mixerChannelId(23);
+const CH28 = mixerChannelId(28);
+
+/**
+ * A local fixture: CH23 and CH28 both forced onto AES50-A 10 (stagebox-1
+ * input 10, unconsumed by default), the fan-out case the real default
+ * snapshot no longer contains.
+ */
+function dualConsumerChannels(): MixerChannelState[] {
+  const { channels } = createDefaultMockSnapshot();
+  return channels.map((channel) =>
+    channel.channel === CH23 || channel.channel === CH28
+      ? { ...channel, source: { kind: "aes50", bus: "A", channel: 10 } }
+      : channel,
+  );
+}
+
 function selectionStore(): AppStore {
-  return createAppStore(installation, createDefaultMockSnapshot().channels);
+  return createAppStore(installation, dualConsumerChannels());
 }
 
 function statusOf(store: AppStore, endpoint: EndpointId) {
   return selectSelectionStatus(endpoint)(store.getState());
 }
 
-// The mock's default snapshot's dual-consumer case (default-snapshot.ts):
-// AES50-A 23 (stagebox-2 input 7) feeds both CH23 and CH28.
-const SOCKET = endpointId(stageboxInput("stagebox-2", 7));
-const CH23 = mixerChannelId(23);
-const CH28 = mixerChannelId(28);
+// The local fixture's dual-consumer case (dualConsumerChannels above):
+// AES50-A 10 (stagebox-1 input 10) feeds both CH23 and CH28.
+const SOCKET = endpointId(stageboxInput("stagebox-1", 10));
 const CH23_ENDPOINT = endpointId(mixerChannel(CH23));
 const CH28_ENDPOINT = endpointId(mixerChannel(CH28));
 
@@ -71,7 +91,7 @@ describe("selectSelectionStatus", () => {
 
     expect(statusOf(store, CH28_ENDPOINT)).toBe("on-selected-route");
     expect(statusOf(store, SOCKET)).toBe("on-selected-route");
-    expect(statusOf(store, endpointId(aes50Channel("A", 23)))).toBe(
+    expect(statusOf(store, endpointId(aes50Channel("A", 10)))).toBe(
       "on-selected-route",
     );
   });
@@ -88,8 +108,14 @@ describe("selectSelectionStatus", () => {
   });
 
   it("highlights only the strip itself for a selected channel with an unmapped source, without throwing", () => {
-    const store = selectionStore();
-    const card = endpointId(mixerChannel(mixerChannelId(29))); // Playback L, Card 1
+    const { channels } = createDefaultMockSnapshot();
+    const withCard: MixerChannelState[] = channels.map((channel) =>
+      channel.channel === mixerChannelId(29)
+        ? { ...channel, source: { kind: "card", input: 1 } }
+        : channel,
+    );
+    const store = createAppStore(installation, withCard);
+    const card = endpointId(mixerChannel(mixerChannelId(29))); // forced Card 1
 
     expect(() => store.getState().setSelectedChannel(mixerChannelId(29))).not.toThrow();
     expect(statusOf(store, card)).toBe("selected");

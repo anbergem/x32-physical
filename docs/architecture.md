@@ -292,8 +292,10 @@ API (dev-only): `simulateSelect(ch | null)`, `simulateRename(ch, name)`,
 `simulateSourceChange(ch, source)`, `simulateConnecting()`,
 `simulateConnectionLoss()`, `simulateReconnect()`. Each mutates the mock's internal snapshot and emits the
 corresponding `MixerEvent`, so mock and real adapter exercise identical
-consumer code. Defaults include: one source feeding two channels, one channel
-on an unmapped source (Card), and one channel OFF.
+consumer code. The default snapshot matches the venue's real patch sheet
+exactly (docs/installation.md) — no synthetic edge cases; a shared source, an
+unmapped (Card) source, or an OFF channel are produced via `simulate*` or a
+test-local snapshot, not baked into the default.
 
 ## 5. State boundaries (web app)
 

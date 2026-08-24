@@ -8,9 +8,14 @@
  * 2. **Rerender discipline** — statuses are primitives, and a hover changes the
  *    status of only the endpoints on that route. The probe below counts the
  *    changed ones, which is what would rerender in the browser.
+ *
+ * The mock's default snapshot (mixer-contracts) is faithful to the real patch
+ * sheet and has no dual-consumer or unmapped-source channel, so the tests that
+ * need those edge cases build their own local fixture snapshot by overriding
+ * the default rather than leaning on it.
  */
 
-import type { EndpointId, Installation } from "@x32/domain";
+import type { EndpointId, Installation, MixerChannelState } from "@x32/domain";
 import {
   aes50Channel,
   endpointId,
@@ -54,8 +59,43 @@ function renderedEndpoints(installation: Installation): EndpointId[] {
 const installation = venueInstallation();
 const ALL = renderedEndpoints(installation);
 
+const CH23 = mixerChannelId(23);
+const CH28 = mixerChannelId(28);
+
+/**
+ * A local fixture: CH23 and CH28 both forced onto AES50-A 10 (stagebox-1
+ * input 10, unconsumed by default), the fan-out case the real default
+ * snapshot no longer contains.
+ */
+function dualConsumerChannels(): MixerChannelState[] {
+  const { channels } = createDefaultMockSnapshot();
+  return channels.map((channel) =>
+    channel.channel === CH23 || channel.channel === CH28
+      ? { ...channel, source: { kind: "aes50", bus: "A", channel: 10 } }
+      : channel,
+  );
+}
+
+/** A local fixture: CH29 forced onto an unmapped (Card) source. */
+function cardChannels(): MixerChannelState[] {
+  const { channels } = createDefaultMockSnapshot();
+  return channels.map((channel) =>
+    channel.channel === mixerChannelId(29)
+      ? { ...channel, source: { kind: "card", input: 1 } }
+      : channel,
+  );
+}
+
+function storeWith(channels: MixerChannelState[]): AppStore {
+  return createAppStore(installation, channels);
+}
+
 function hoverStore(): AppStore {
-  return createAppStore(installation, createDefaultMockSnapshot().channels);
+  return storeWith(createDefaultMockSnapshot().channels);
+}
+
+function dualConsumerStore(): AppStore {
+  return storeWith(dualConsumerChannels());
 }
 
 function statusOf(store: AppStore, endpoint: EndpointId) {
@@ -68,35 +108,35 @@ function highlighted(store: AppStore, hovered: EndpointId): EndpointId[] {
   return ALL.filter((endpoint) => statusOf(store, endpoint) !== "none");
 }
 
-const SOCKET = endpointId(stageboxInput("stagebox-2", 7)); // AES50-A 23
-const CH23 = endpointId(mixerChannel(23));
-const CH28 = endpointId(mixerChannel(28));
+const SOCKET = endpointId(stageboxInput("stagebox-1", 10)); // AES50-A 10
+const CH23_ENDPOINT = endpointId(mixerChannel(CH23));
+const CH28_ENDPOINT = endpointId(mixerChannel(CH28));
 
 describe("selectHoverStatus", () => {
   it("lights the whole route from a socket, including every consumer", () => {
-    const store = hoverStore();
+    const store = dualConsumerStore();
     store.getState().setHoveredEndpoint(SOCKET);
 
     expect(statusOf(store, SOCKET)).toBe("hovered");
-    // One socket, two channels: the fan-out the mock's snapshot exists for.
-    expect(statusOf(store, CH23)).toBe("on-route");
-    expect(statusOf(store, CH28)).toBe("on-route");
+    // One socket, two channels: the fan-out the local fixture exists for.
+    expect(statusOf(store, CH23_ENDPOINT)).toBe("on-route");
+    expect(statusOf(store, CH28_ENDPOINT)).toBe("on-route");
     // The AES50 hop is on the route too, though no element renders it.
-    expect(statusOf(store, endpointId(aes50Channel("A", 23)))).toBe("on-route");
+    expect(statusOf(store, endpointId(aes50Channel("A", 10)))).toBe("on-route");
     // A channel on an unrelated route stays dark.
     expect(statusOf(store, endpointId(mixerChannel(12)))).toBe("none");
   });
 
   it("lights the same route when hovered from the far end", () => {
-    const store = hoverStore();
+    const store = dualConsumerStore();
 
     const fromSocket = highlighted(store, SOCKET);
-    const fromChannel = highlighted(store, CH28);
+    const fromChannel = highlighted(store, CH28_ENDPOINT);
 
     expect(fromChannel).toEqual(fromSocket);
     expect(fromSocket).toContain(SOCKET);
-    expect(fromSocket).toContain(CH23);
-    expect(fromSocket).toContain(CH28);
+    expect(fromSocket).toContain(CH23_ENDPOINT);
+    expect(fromSocket).toContain(CH28_ENDPOINT);
   });
 
   it("traces a panel socket through its stagebox to the channel", () => {
@@ -108,18 +148,19 @@ describe("selectHoverStatus", () => {
     expect(statusOf(store, endpointId(stageboxInput("stagebox-1", 3)))).toBe(
       "on-route",
     );
-    expect(statusOf(store, endpointId(mixerChannel(3)))).toBe("on-route");
+    // front-left input 3 -> stagebox-1 input 3 -> AES50-A 3 -> CH7 "Vokal V3".
+    expect(statusOf(store, endpointId(mixerChannel(7)))).toBe("on-route");
   });
 
   it("lights only the strip itself for an unmapped channel", () => {
-    const store = hoverStore();
-    const card = endpointId(mixerChannel(29)); // Card 1
+    const store = storeWith(cardChannels());
+    const card = endpointId(mixerChannel(29)); // forced Card 1
 
     expect(highlighted(store, card)).toEqual([card]);
   });
 
   it("lights nothing when the pointer leaves", () => {
-    const store = hoverStore();
+    const store = dualConsumerStore();
     store.getState().setHoveredEndpoint(SOCKET);
 
     store.getState().setHoveredEndpoint(null);
@@ -136,7 +177,7 @@ describe("rerender discipline", () => {
   }
 
   it("changes the status of only the endpoints on the hovered route", () => {
-    const store = hoverStore();
+    const store = dualConsumerStore();
     const before = statusMap(store);
 
     store.getState().setHoveredEndpoint(SOCKET);
@@ -148,17 +189,17 @@ describe("rerender discipline", () => {
 
     // The socket plus its two consumers — 3 of 72 rendered elements rerender,
     // not the whole schematic.
-    expect(changed).toEqual([SOCKET, CH23, CH28]);
+    expect(changed).toEqual([SOCKET, CH23_ENDPOINT, CH28_ENDPOINT]);
   });
 
   it("returns a primitive status, stable across unrelated store writes", () => {
-    const store = hoverStore();
+    const store = dualConsumerStore();
     store.getState().setHoveredEndpoint(SOCKET);
-    const before = statusOf(store, CH23);
+    const before = statusOf(store, CH23_ENDPOINT);
 
     store.getState().setChannelName(mixerChannelId(1), "Renamed");
 
     expect(typeof before).toBe("string");
-    expect(statusOf(store, CH23)).toBe(before);
+    expect(statusOf(store, CH23_ENDPOINT)).toBe(before);
   });
 });

@@ -106,6 +106,13 @@ importers:
       '@x32/domain':
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
+      '@x32/installation':
+        specifier: workspace:*
+        version: link:../installation
 
   packages/protocol:
     dependencies:

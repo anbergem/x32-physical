@@ -1,4 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Only `src/default-snapshot.test.ts` uses Node builtins, to load the
+    // real `config/installation.yaml` for a sanity-anchor test. This setting
+    // applies package-wide, but the package's production sources
+    // (default-snapshot.ts, mock.ts, client.ts, …) stay Node/browser-neutral
+    // by convention — they import nothing from `node:*`.
+    "types": ["node"]
+  },
   "include": ["src"]
 }

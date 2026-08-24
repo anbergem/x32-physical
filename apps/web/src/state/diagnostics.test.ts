@@ -13,9 +13,14 @@
  * 3. **Independence** — diagnostics is a separate slice from hover and
  *    selection: changing one never moves the others, and all three can be
  *    simultaneously non-`"none"` on the same endpoint.
+ *
+ * The mock's default snapshot (mixer-contracts) is faithful to the real patch
+ * sheet and has no dual-consumer channel by default, so this file builds its
+ * own local fixture (`liveChannels`, below) with CH23/CH28 forced onto the
+ * same source to exercise `unexpected-shared-source`.
  */
 
-import type { EndpointId } from "@x32/domain";
+import type { EndpointId, MixerChannelState } from "@x32/domain";
 import { endpointId, mixerChannel, mixerChannelId } from "@x32/domain";
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
@@ -33,8 +38,6 @@ import { createAppStore } from "./store";
 
 const installation = venueInstallation();
 
-// The mock's default snapshot's dual-consumer case (default-snapshot.ts):
-// AES50-A 23 (stagebox-2 input 7) feeds both CH23 and CH28.
 const CH1 = mixerChannelId(1);
 const CH2 = mixerChannelId(2);
 const CH23 = mixerChannelId(23);
@@ -44,8 +47,23 @@ const CH2_ENDPOINT = endpointId(mixerChannel(CH2));
 const CH23_ENDPOINT = endpointId(mixerChannel(CH23));
 const CH28_ENDPOINT = endpointId(mixerChannel(CH28));
 
+/**
+ * The "live" snapshot this file's tests run against: the real default, with
+ * CH23 and CH28 forced onto the same source (AES50-A 10, stagebox-1 input 10,
+ * unconsumed by default) — the dual-consumer case the real default snapshot
+ * no longer contains by itself.
+ */
+function liveChannels(): MixerChannelState[] {
+  const { channels } = createDefaultMockSnapshot();
+  return channels.map((channel) =>
+    channel.channel === CH23 || channel.channel === CH28
+      ? { ...channel, source: { kind: "aes50", bus: "A", channel: 10 } }
+      : channel,
+  );
+}
+
 function diagnosticsStore(): AppStore {
-  return createAppStore(installation, createDefaultMockSnapshot().channels);
+  return createAppStore(installation, liveChannels());
 }
 
 function statusOf(store: AppStore, endpoint: EndpointId) {
@@ -53,25 +71,25 @@ function statusOf(store: AppStore, endpoint: EndpointId) {
 }
 
 /**
- * A baseline that disagrees with the default mock snapshot in exactly the
- * ways this file's tests need:
+ * A baseline that disagrees with `liveChannels()` in exactly the ways this
+ * file's tests need:
  *
- * - CH1's baseline source is `local 9`; live is `aes50A(1)` → source-mismatch.
- * - CH2's baseline *name* is "Old Name"; live is "Snare", source unchanged →
- *   name-mismatch only, no badge.
+ * - CH1's baseline source is `local 9`; live is `local 1` → source-mismatch.
+ * - CH2's baseline *name* is "Old Name"; live is "Håndholdt 1", source
+ *   unchanged → name-mismatch only, no badge.
  * - CH23's baseline source is `local 9` too (so it no longer matches live's
- *   `aes50A(23)`, which is *also* a source-mismatch); CH28's baseline source
- *   stays `aes50A(23)`, matching live exactly. Live still has both CH23 and
- *   CH28 on `aes50A(23)` (the fixture's dual consumer) — the baseline no
+ *   `aes50A(7)`, which is *also* a source-mismatch); CH28's baseline source
+ *   stays `aes50A(7)`, matching live exactly. Live still has both CH23 and
+ *   CH28 on `aes50A(7)` (this file's dual consumer) — the baseline no
  *   longer agrees they should share it (only CH28 stays on it there), so
  *   `compareRouting` flags `unexpected-shared-source` for [23, 28]: CH23
  *   badges `source-mismatch` (worse issue wins), CH28 — untouched by any
  *   per-channel diff — badges `shared-source` alone.
  */
 function driftedBaseline(): MixerSnapshot {
-  const { channels, selectedChannel } = createDefaultMockSnapshot();
+  const channels = liveChannels();
   return {
-    selectedChannel,
+    selectedChannel: null,
     channels: channels.map((channel) => {
       if (channel.channel === CH1) {
         return { ...channel, source: { kind: "local", input: 9 } };
@@ -98,7 +116,7 @@ describe("selectDiagnosticStatus · no baseline / no drift", () => {
 
   it("is 'none' everywhere when the baseline matches live state exactly", () => {
     const store = diagnosticsStore();
-    const matching = createDefaultMockSnapshot();
+    const matching: MixerSnapshot = { channels: liveChannels(), selectedChannel: null };
 
     store.getState().setBaseline(matching);
 

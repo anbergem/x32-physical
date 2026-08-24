@@ -1,7 +1,21 @@
-import { MIXER_CHANNEL_COUNT } from "@x32/domain";
+import { fileURLToPath } from "node:url";
+
+import type { MixerSourceRef } from "@x32/domain";
+import {
+  buildRouteIndex,
+  MIXER_CHANNEL_COUNT,
+  mixerChannelId,
+  panelInput,
+} from "@x32/domain";
+import { loadInstallationFile } from "@x32/installation/node";
 import { describe, expect, it } from "vitest";
 
 import { createDefaultMockSnapshot } from "./default-snapshot";
+
+/** The repo's real `config/installation.yaml`, not a fixture copy. */
+const VENUE_CONFIG = fileURLToPath(
+  new URL("../../../config/installation.yaml", import.meta.url),
+);
 
 describe("createDefaultMockSnapshot", () => {
   it("has exactly 32 channels, ids 1–32 in order", () => {
@@ -32,40 +46,57 @@ describe("createDefaultMockSnapshot", () => {
       busChannels.push(channel.source.channel);
     }
 
-    // Stagebox 1 is AES50-A 1–16, stagebox 2 (cascaded) is 17–32.
+    // Stagebox V is AES50-A 1–16, stagebox H (cascaded) is 17–32.
     expect(busChannels.some((channel) => channel >= 1 && channel <= 16)).toBe(
       true,
     );
     expect(busChannels.some((channel) => channel >= 17 && channel <= 32)).toBe(
       true,
     );
-    expect(busChannels.every((channel) => channel >= 1 && channel <= 48)).toBe(
+    expect(busChannels.every((channel) => channel >= 1 && channel <= 32)).toBe(
       true,
     );
   });
 
-  it("includes one AES50 source consumed by two channels", () => {
-    const consumers = new Map<number, number>();
-    for (const channel of createDefaultMockSnapshot().channels) {
-      if (channel.source.kind !== "aes50") continue;
-      const busChannel = channel.source.channel;
-      consumers.set(busChannel, (consumers.get(busChannel) ?? 0) + 1);
-    }
-
-    const shared = [...consumers.entries()].filter(([, count]) => count > 1);
-    expect(shared).toHaveLength(1);
-    expect(shared[0]?.[1]).toBe(2);
-  });
-
-  it("includes an unmapped card source and an OFF channel", () => {
+  it("matches the patch sheet: console local inputs 1–3 feed CH1–CH3, no other local/card/off sources", () => {
     const { channels } = createDefaultMockSnapshot();
 
-    expect(channels.some((channel) => channel.source.kind === "card")).toBe(
-      true,
+    const local: MixerSourceRef[] = [];
+    for (const channel of channels) {
+      if (channel.source.kind === "local") local.push(channel.source);
+      // The real sheet has no card/off channels at all.
+      expect(channel.source.kind).not.toBe("card");
+      expect(channel.source.kind).not.toBe("off");
+    }
+
+    expect(local).toEqual([
+      { kind: "local", input: 1 },
+      { kind: "local", input: 2 },
+      { kind: "local", input: 3 },
+    ]);
+  });
+
+  it("has no source consumed by more than one channel (unlike the old synthetic default)", () => {
+    const consumers = new Map<string, number>();
+    for (const channel of createDefaultMockSnapshot().channels) {
+      const key = JSON.stringify(channel.source);
+      consumers.set(key, (consumers.get(key) ?? 0) + 1);
+    }
+
+    expect([...consumers.values()].every((count) => count === 1)).toBe(true);
+  });
+
+  it("leaves AES50-A 7, 10 and 11 unconsumed, per the patch sheet", () => {
+    const consumedBusChannels = new Set(
+      createDefaultMockSnapshot()
+        .channels.map((channel) => channel.source)
+        .filter((source): source is Extract<MixerSourceRef, { kind: "aes50" }> => source.kind === "aes50")
+        .map((source) => source.channel),
     );
-    expect(channels.some((channel) => channel.source.kind === "off")).toBe(
-      true,
-    );
+
+    expect(consumedBusChannels.has(7)).toBe(false);
+    expect(consumedBusChannels.has(10)).toBe(false);
+    expect(consumedBusChannels.has(11)).toBe(false);
   });
 
   it("returns an independent snapshot per call", () => {
@@ -76,5 +107,25 @@ describe("createDefaultMockSnapshot", () => {
     expect(first.channels[0]).not.toBe(second.channels[0]);
     expect(first.channels[0]?.source).not.toBe(second.channels[0]?.source);
     expect(first).toEqual(second);
+  });
+
+  describe("sanity anchor against the real installation", () => {
+    it("traces CH11 Vokal H1 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 1", () => {
+      const installation = loadInstallationFile(VENUE_CONFIG);
+      const { channels } = createDefaultMockSnapshot();
+      const routeIndex = buildRouteIndex(installation, channels);
+
+      const route = routeIndex.byMixerChannel.get(mixerChannelId(11));
+      expect(route?.physicalInputs).toEqual([panelInput("front-right", 1)]);
+    });
+
+    it("traces CH5 Vokal V1 (AES50-A 1) to MK Front V socket 1", () => {
+      const installation = loadInstallationFile(VENUE_CONFIG);
+      const { channels } = createDefaultMockSnapshot();
+      const routeIndex = buildRouteIndex(installation, channels);
+
+      const route = routeIndex.byMixerChannel.get(mixerChannelId(5));
+      expect(route?.physicalInputs).toEqual([panelInput("front-left", 1)]);
+    });
   });
 });

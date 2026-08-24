@@ -12,5 +12,9 @@
   },
   "dependencies": {
     "@x32/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@x32/installation": "workspace:*"
   }
 }

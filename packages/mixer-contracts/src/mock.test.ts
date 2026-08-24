@@ -131,7 +131,7 @@ describe("MockMixerClient simulation API", () => {
     expect(snapshot.channels[11]).toEqual({
       channel: 12,
       name: "Grand Pno",
-      source: { kind: "aes50", bus: "A", channel: 12 },
+      source: { kind: "aes50", bus: "A", channel: 19 },
     });
     expect(events).toEqual([
       { type: "channel-name-changed", channel: 12, name: "Grand Pno" },
@@ -328,7 +328,9 @@ describe("MockMixerClient meters (plan step 15)", () => {
 
   it("delivers 32 levels on a ~250ms cadence once started, zero for OFF channels", () => {
     vi.useFakeTimers();
-    const client = new MockMixerClient(); // default snapshot: CH32 is OFF
+    const client = new MockMixerClient();
+    // The real patch sheet has no OFF channel by default; force one locally.
+    client.simulateSourceChange(mixerChannelId(32), { kind: "off" });
     const levelsSeen: number[][] = [];
     client.subscribeMeters((levels) => levelsSeen.push(levels));
 
@@ -340,7 +342,7 @@ describe("MockMixerClient meters (plan step 15)", () => {
     const [first] = levelsSeen;
     expect(first).toHaveLength(MIXER_CHANNEL_COUNT);
     expect(first?.every((level) => level >= 0 && level <= 1)).toBe(true);
-    expect(first?.[31]).toBe(0); // CH32 is OFF in the default snapshot
+    expect(first?.[31]).toBe(0); // CH32 forced OFF above
 
     vi.advanceTimersByTime(250 * 3);
     expect(levelsSeen).toHaveLength(4);
@@ -423,7 +425,7 @@ describe("MockMixerClient snapshot isolation", () => {
     initial.selectedChannel = CH12;
 
     const snapshot = await client.getSnapshot();
-    expect(snapshot.channels[0]?.name).toBe("Kick In");
+    expect(snapshot.channels[0]?.name).toBe("Bøyle");
     expect(snapshot.selectedChannel).toBeNull();
   });
 });
