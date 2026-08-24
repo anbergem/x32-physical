@@ -111,3 +111,22 @@ The subset needs only: encode/decode of address + `,i`/`,s`/`,f` argument
 lists with 4-byte alignment. A small hand-rolled codec (~100 lines) with
 byte-level fixture tests is preferred over pulling in an OSC dependency;
 revisit if needs grow.
+
+## Scenes and stored state (investigated 2026-08-24)
+
+The console stores **scenes** (full console state, 100 internal slots, saved
+as ~2,105-line `.scn` text files, exportable to USB) and **snippets**
+(partial). Verified against the Maillot document: OSC exposes only scene
+*metadata* (`/showdump`, `/-show/showfile/scene/NNN/name`, safes flags) — a
+stored slot's **contents** cannot be read remotely. The only way to get a
+stored scene into OSC-readable state is `/load scene N`, which recalls it
+into the audio engine and **mutates the live desk** — off-limits for this
+read-only tool (Maillot's own `X32GetScene` builds `.scn` files from the
+*live* state for the same reason).
+
+Consequence: the diagnostics baseline (architecture.md §7) is **captured from
+the live state** and stored by the bridge, not read from a scene slot.
+Parsing a `.scn` USB/X32-Edit export as an alternative expected-state source
+is possible (the file contains exactly our node subset as text lines) but
+deferred — it reintroduces a manual file-handling step the capture workflow
+exists to avoid.

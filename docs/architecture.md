@@ -198,6 +198,30 @@ function buildRouteIndex(installation: Installation,
 - Traversal is generic over directed edges, not hardcoded to the
   panel→stagebox→aes50→mixer shape, so output routing can reuse it later.
 
+### Routing diff (steps 12–14)
+
+Diagnostics compare a **baseline** (the blessed known-good snapshot, see §7)
+against the live state, entirely in the domain:
+
+```ts
+type RoutingDiscrepancy =
+  | { kind: "source-mismatch"; channel: MixerChannelId;
+      expected: MixerSourceRef; actual: MixerSourceRef }            // error
+  | { kind: "name-mismatch"; channel: MixerChannelId;
+      expected: string; actual: string }                            // informational
+  | { kind: "unexpected-shared-source"; source: MixerSourceRef;
+      channels: MixerChannelId[] };  // shared in actual but not in expected
+
+function compareRouting(expected: MixerChannelState[],
+                        actual: MixerChannelState[]): RoutingDiscrepancy[];
+```
+
+Pure, order-stable, never throws. Name mismatches are informational only —
+renames are routine; routing is what the tool guards. The UI maps
+discrepancies to endpoints via the route index and renders badges; the diff is
+computed client-side (works identically in mock mode; the bridge only stores
+and serves the baseline).
+
 ### Validation (in `installation` package, rules in domain)
 
 Fail fast at load with actionable messages: unique device ids; connection
@@ -262,8 +286,13 @@ interface AppState {
   // (source changes; renames don't invalidate routes).
   channels: MixerChannelState[];
 
+  // Blessed known-good snapshot (config lifecycle; null until first save).
+  baseline: MixerSnapshot | null;
+
   // Derived (recomputed only when installation/channels change):
   routeIndex: RouteIndex;
+  // Derived (recomputed only when channels/baseline change; [] w/o baseline):
+  discrepancies: RoutingDiscrepancy[];
 
   // Runtime: fast-changing, never triggers index rebuilds.
   connection: MixerConnectionState;
@@ -299,10 +328,14 @@ WebSocket, JSON messages, discriminated unions shared as TS types:
 
 ```ts
 type ServerMessage =
-  | { type: "snapshot"; snapshot: MixerSnapshot; mixerConnection: MixerConnectionState }
-  | { type: "event"; event: MixerEvent };   // re-uses mixer-contracts types
+  | { type: "snapshot"; snapshot: MixerSnapshot; mixerConnection: MixerConnectionState;
+      baseline: MixerSnapshot | null }       // baseline added in step 13
+  | { type: "event"; event: MixerEvent }     // re-uses mixer-contracts types
+  | { type: "baseline-changed"; baseline: MixerSnapshot };
 
-type ClientMessage = { type: "resync" };     // explicit full-snapshot request
+type ClientMessage =
+  | { type: "resync" }                       // explicit full-snapshot request
+  | { type: "save-baseline" };               // bless the current live snapshot
 ```
 
 On WS connect the bridge sends `snapshot` immediately (from its cached state,
@@ -310,6 +343,20 @@ even if the X32 is currently unreachable — the topology and last-known config
 still render, with `connection: "disconnected"`). All subsequent changes are
 `event` messages. If the bridge itself resyncs with the X32 (reconnection), it
 pushes a fresh `snapshot` to all clients.
+
+### Baseline persistence (step 13)
+
+`save-baseline` is the only client message with a side effect, and the side
+effect is confined to the bridge's own disk — it **never** writes to the
+mixer (invariant 5 untouched). The bridge persists the current resolved
+snapshot as JSON (`X32_BASELINE_FILE`, default `data/baseline.json`,
+gitignored), reloads it on startup, and answers a successful save with a
+`baseline-changed` broadcast to every client. Saves are rejected while the
+mixer is disconnected or the snapshot incomplete — nobody blesses a half-read
+state. Mock mode (no bridge) persists via localStorage behind a small
+`BaselineStore` seam in the web gateway module. A golden-scene alternative
+(parsing a console `.scn` export) was considered and deferred — see
+docs/x32-protocol.md "Scenes and stored state".
 
 ## 8. End-to-end event flow (live mode)
 
@@ -334,8 +381,9 @@ recomputes `routeIndex`; hover state changes touch only `hoveredEndpoint`.
 - `InstallationRepository` / `LayoutRepository` interfaces can later replace
   the static YAML load and hard-coded JSX layout; components already identify
   themselves by domain IDs only.
-- Diagnostics (expected vs. actual routing) compares two `RouteIndex` /
-  `MixerChannelState[]` values — no model change needed.
+- Diagnostics: implemented as the baseline diff (§3 "Routing diff", §7
+  "Baseline persistence"). Possible later extension: parse a console `.scn`
+  scene export as an alternative expected-state source (deferred).
 - Output routing adds new `EndpointRef` kinds and edges to the same graph.
 - Write support adds command methods to `MixerClient` — kept conceptually
   separate from the read path.

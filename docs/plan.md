@@ -42,6 +42,31 @@ adapter swap at the end.
 - [ ] **11. Test against the real console** — MVP criteria 7–10; verify
       User-In-mapped channels resolve correctly on real hardware.
 
+Post-MVP: routing diagnostics (baseline diff — design in architecture.md §3
+"Routing diff", §5, §7; background in x32-protocol.md "Scenes and stored
+state"). Steps 12–14 do not depend on step 11 — everything is verifiable in
+mock mode. The one ordering rule: do not bless a **production** baseline until
+step 11 has validated resolution on real hardware (a baseline captured through
+an unvalidated adapter would enshrine any bug on both sides of the diff);
+re-saving after step 11 is one button press.
+
+- [ ] **12. Routing diff (domain)** — `compareRouting(expected, actual)` →
+      typed discrepancies: `source-mismatch` (error), `name-mismatch`
+      (informational), `unexpected-shared-source` (shared in actual but not
+      expected). Pure, unit-tested, order-stable.
+- [ ] **13. Baseline capture + persistence** — bridge stores the blessed
+      snapshot: `save-baseline` client message → resolved snapshot written as
+      JSON on bridge disk (`X32_BASELINE_FILE`, default `data/baseline.json`,
+      gitignored) → `baseline-changed` broadcast to all clients; snapshot
+      message carries the current baseline. Save rejected while the mixer is
+      disconnected or the snapshot incomplete. Mock mode persists via
+      localStorage behind a small `BaselineStore` seam.
+- [ ] **14. Diagnostics UI** — discrepancy badges on affected strips/sockets
+      (mapped to endpoints via the route index) + unobtrusive header count;
+      one "Save as correct" action (disabled unless connected and synced;
+      confirm before overwrite). Name mismatches surface in tooltips only.
+      With no baseline, the UI is unchanged from MVP.
+
 ## Domain test checklist (step 5)
 
 - Simple route: panel 3 → stagebox 3 → AES50-A 3 → CH12, traced from both
