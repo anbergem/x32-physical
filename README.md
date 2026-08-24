@@ -56,8 +56,14 @@ Notes for first bring-up:
 - If the console is in Playback routing (`routswitch = PLAY`), the bridge
   logs a warning and keeps showing REC/IN-block routing.
 - The panel wiring in [config/installation.yaml](config/installation.yaml) is
-  placeholder below the stagebox level — put the real panel→stagebox cabling
-  in and restart; it's a YAML-only edit, validated on load.
+  the venue's real cabling, captured from the patch sheet and confirmed on
+  site (see [docs/installation.md](docs/installation.md)).
+- **Auto-discovery is currently unreliable** — it finds the console once and
+  then stops (issue #14). Until that is fixed, pass `X32_HOST` explicitly;
+  with it the bridge is rock solid.
+- Don't run X32-Edit or other OSC tools against the console at the same time
+  as the bridge: the desk only tracks a few subscribed clients, and crowding
+  that table degrades otherwise-healthy connections (issue #14).
 
 ## Diagnostics
 
