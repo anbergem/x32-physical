@@ -38,10 +38,14 @@ point elsewhere). If the bridge drops, the schematic stays rendered with a
 ## Against the real console (plan step 11)
 
 ```sh
-X32_MIXER=x32 X32_HOST=<console-ip> pnpm bridge
+X32_MIXER=x32 pnpm bridge                      # auto-discovers the console on the LAN (step 18)
+X32_MIXER=x32 X32_HOST=<console-ip> pnpm bridge # or point at it directly
 ```
 
-`X32_PORT` defaults to 10023. The bridge reads a full snapshot (names,
+Without `X32_HOST` the bridge broadcasts for the console (and re-discovers it
+on reconnect, e.g. after a DHCP lease change) instead of needing its IP
+configured; `X32_HOST`, when set, always wins. `X32_PORT` defaults to 10023.
+The bridge reads a full snapshot (names,
 sources, routing blocks, User In table, selected channel), then follows live
 changes via `/xremote`. Pressing SELECT on an input channel highlights its
 route in the browser; routing changes re-resolve without a reload.

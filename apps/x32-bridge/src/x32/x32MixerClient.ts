@@ -37,6 +37,11 @@
  * `disconnect()` is terminal: this instance is single-use. A `connect()`
  * called after `disconnect()` throws rather than silently doing nothing —
  * construct a new `X32MixerClient` (with a fresh transport) to reconnect.
+ *
+ * Host resolution (docs/plan.md step 18): this class stays host-agnostic —
+ * it knows nothing about discovery. `config.ts` wires that in via the
+ * optional `resolveTransport` constructor option, called at the top of every
+ * (re)connect attempt; see that option's doc comment.
  */
 
 import type { MixerSourceRef } from "@x32/domain";
@@ -84,6 +89,18 @@ export interface X32MixerClientOptions {
    * 50ms. Default 5 (~250ms cadence).
    */
   meterTimeFactor?: number;
+  /**
+   * Re-resolves the transport at the start of every (re)connect attempt —
+   * the initial `connect()` and each disconnected-state liveness-poll tick
+   * (docs/plan.md step 18: the venue failure mode is a DHCP lease change,
+   * not just "console was off at startup"). Returning a transport other than
+   * the one currently in use swaps to it (closing the old one first);
+   * returning `null` skips the attempt for this tick, leaving the client
+   * disconnected. Omitted entirely, the client stays host-agnostic and keeps
+   * using the transport passed to the constructor forever — today's fixed-
+   * host behaviour, and what every existing test exercises.
+   */
+  resolveTransport?: () => Promise<UdpTransport | null>;
 }
 
 /** Exported so tests can regression-proof the renewal interval against the console's 10s subscription expiry. */
@@ -93,7 +110,7 @@ export const DEFAULTS = {
   xremoteRenewalMs: 8000,
   livenessPollMs: 5000,
   meterTimeFactor: 5,
-} as const satisfies Required<X32MixerClientOptions>;
+} as const satisfies Required<Omit<X32MixerClientOptions, "resolveTransport">>;
 
 interface Subscription {
   listener: MixerEventListener;
@@ -129,12 +146,13 @@ function firstBlob(args: OscArgument[]): Buffer | undefined {
 }
 
 export class X32MixerClient implements MixerClient {
-  readonly #transport: UdpTransport;
+  #transport: UdpTransport;
   readonly #requestTimeoutMs: number;
   readonly #maxRetries: number;
   readonly #xremoteRenewalMs: number;
   readonly #livenessPollMs: number;
   readonly #meterTimeFactor: number;
+  readonly #resolveTransport: (() => Promise<UdpTransport | null>) | undefined;
 
   readonly #state = new X32State();
   readonly #subscriptions = new Set<Subscription>();
@@ -155,9 +173,35 @@ export class X32MixerClient implements MixerClient {
     this.#xremoteRenewalMs = options.xremoteRenewalMs ?? DEFAULTS.xremoteRenewalMs;
     this.#livenessPollMs = options.livenessPollMs ?? DEFAULTS.livenessPollMs;
     this.#meterTimeFactor = options.meterTimeFactor ?? DEFAULTS.meterTimeFactor;
-    this.#transport.onMessage((buffer) => {
+    this.#resolveTransport = options.resolveTransport;
+    this.#wireTransport(this.#transport);
+  }
+
+  #wireTransport(transport: UdpTransport): void {
+    transport.onMessage((buffer) => {
       this.#handleIncoming(buffer);
     });
+  }
+
+  /**
+   * Called at the top of every (re)connect attempt. In fixed-host mode
+   * (`#resolveTransport` unset) this is a no-op that always succeeds. In
+   * discovery mode it re-resolves the console's address every time — on the
+   * very first `connect()` and on every subsequent disconnected poll tick —
+   * and swaps `#transport` if a different one comes back. Returns `false`
+   * (without touching `#transport`) when discovery finds nothing this time.
+   */
+  async #acquireTransport(): Promise<boolean> {
+    if (this.#resolveTransport === undefined) return true;
+
+    const next = await this.#resolveTransport();
+    if (next === null) return false;
+    if (next !== this.#transport) {
+      this.#transport.close();
+      this.#transport = next;
+      this.#wireTransport(next);
+    }
+    return true;
   }
 
   // --- MixerClient ---------------------------------------------------------
@@ -253,6 +297,10 @@ export class X32MixerClient implements MixerClient {
   async #attemptFullSnapshot(): Promise<boolean> {
     this.#suppressEvents = true;
     try {
+      const acquired = await this.#acquireTransport();
+      if (!acquired) return false;
+      if (this.#closed) return false; // disconnect() may have run while resolving the transport
+
       for (const address of this.#snapshotReadSequence()) {
         const ok = await this.#readWithRetry(address);
         if (!ok) return false;

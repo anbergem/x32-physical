@@ -1,19 +1,32 @@
 import { MockMixerClient } from "@x32/mixer-contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createMixerClient,
   DEFAULT_BASELINE_FILE,
   DEFAULT_X32_PORT,
+  pickDiscoveredHost,
   resolveBaselineFilePath,
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
   resolveWebDistPath,
-  resolveX32Host,
+  resolveX32HostOverride,
   resolveX32Port,
 } from "./config";
+import type { X32Discovered } from "./x32/discovery";
 import { X32MixerClient } from "./x32/x32MixerClient";
+
+function discovered(host: string, overrides: Partial<X32Discovered> = {}): X32Discovered {
+  return {
+    host,
+    serverVersion: "V2.05",
+    serverName: "osc-server",
+    model: "X32C",
+    firmware: "2.08",
+    ...overrides,
+  };
+}
 
 describe("resolveMixerMode", () => {
   it("defaults to mock", () => {
@@ -30,14 +43,33 @@ describe("resolveMixerMode", () => {
   });
 });
 
-describe("resolveX32Host", () => {
-  it("requires X32_HOST", () => {
-    expect(() => resolveX32Host({})).toThrow(/X32_HOST is required/);
-    expect(() => resolveX32Host({ X32_HOST: "  " })).toThrow(/X32_HOST is required/);
+describe("resolveX32HostOverride", () => {
+  it("is undefined when unset or blank — discovery (step 18) fills in", () => {
+    expect(resolveX32HostOverride({})).toBeUndefined();
+    expect(resolveX32HostOverride({ X32_HOST: "  " })).toBeUndefined();
   });
 
-  it("returns the configured host", () => {
-    expect(resolveX32Host({ X32_HOST: "192.168.1.10" })).toBe("192.168.1.10");
+  it("returns the configured override", () => {
+    expect(resolveX32HostOverride({ X32_HOST: "192.168.1.10" })).toBe("192.168.1.10");
+  });
+});
+
+describe("pickDiscoveredHost", () => {
+  it("returns undefined for no responders", () => {
+    expect(pickDiscoveredHost([])).toBeUndefined();
+  });
+
+  it("returns the single responder", () => {
+    const only = discovered("192.168.1.10");
+    expect(pickDiscoveredHost([only])).toBe(only);
+  });
+
+  it("picks the lowest IP, deterministically, among several responders", () => {
+    const low = discovered("192.168.1.2");
+    const mid = discovered("192.168.1.10");
+    const high = discovered("192.168.1.200");
+    expect(pickDiscoveredHost([mid, high, low])).toBe(low);
+    expect(pickDiscoveredHost([high, low, mid])).toBe(low); // order-independent
   });
 });
 
@@ -102,17 +134,37 @@ describe("createMixerClient", () => {
     expect(createMixerClient("mock", {})).toBeInstanceOf(MockMixerClient);
   });
 
-  it("x32 mode requires X32_HOST", () => {
-    expect(() => createMixerClient("x32", {})).toThrow(/X32_HOST is required/);
-  });
-
-  it("x32 mode returns an X32MixerClient wired to X32_HOST/X32_PORT", async () => {
-    const client = createMixerClient("x32", { X32_HOST: "192.168.1.10", X32_PORT: "10024" });
+  it("x32 mode with X32_HOST set returns an X32MixerClient wired to it directly, no discovery", async () => {
+    const discover = vi.fn();
+    const client = createMixerClient(
+      "x32",
+      { X32_HOST: "192.168.1.10", X32_PORT: "10024" },
+      discover,
+    );
     try {
       expect(client).toBeInstanceOf(X32MixerClient);
       expect(client.getConnectionState()).toBe("disconnected");
+      expect(discover).not.toHaveBeenCalled();
     } finally {
       await client.disconnect();
     }
+  });
+
+  it("x32 mode without X32_HOST returns an X32MixerClient that discovers on connect (step 18)", async () => {
+    const discover = vi.fn().mockResolvedValue([discovered("192.168.1.10")]);
+    const client = createMixerClient("x32", {}, discover);
+    try {
+      expect(client).toBeInstanceOf(X32MixerClient);
+      expect(client.getConnectionState()).toBe("disconnected");
+      // Discovery is deferred to connect()/reconnect, not construction.
+      expect(discover).not.toHaveBeenCalled();
+    } finally {
+      await client.disconnect();
+    }
+  });
+
+  it("x32 mode without X32_HOST or any discovery response still constructs a client (starts disconnected)", () => {
+    const discover = vi.fn().mockResolvedValue([]);
+    expect(() => createMixerClient("x32", {}, discover)).not.toThrow();
   });
 });

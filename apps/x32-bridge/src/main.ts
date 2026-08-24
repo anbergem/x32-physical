@@ -7,7 +7,9 @@
  * Env:
  *   X32_MIXER=mock|x32   which MixerClient backs the bridge (default: mock)
  *   X32_BRIDGE_PORT=n    WebSocket port (default: 8765)
- *   X32_HOST=host        console IP/hostname — required when X32_MIXER=x32
+ *   X32_HOST=host        console IP/hostname override — X32_MIXER=x32 only;
+ *                        when unset the bridge auto-discovers the console on
+ *                        the LAN instead (plan step 18)
  *   X32_PORT=n           console OSC port — x32 mode only (default: 10023)
  *   X32_DEMO=1           dev-only: cycles a scripted mock sequence every ~3s
  *                        so bridge -> browser events can be watched live

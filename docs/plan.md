@@ -93,7 +93,7 @@ re-saving after step 11 is one button press.
       runner. MSI also brings real upgrade/rollback/uninstall semantics and
       an Add/Remove Programs entry instead of hand-rolled directory swaps.
 
-- [ ] **18. X32 auto-discovery** — the bridge finds the console itself:
+- [x] **18. X32 auto-discovery** — the bridge finds the console itself:
       broadcast `/info` (no args) to 255.255.255.255:10023 from an
       SO_BROADCAST socket, collect replies (`,ssss` — ip, name, model, fw),
       pick the single responder (log and pick the first, deterministically,

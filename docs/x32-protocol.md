@@ -158,6 +158,50 @@ every other event consumer pay for traffic it doesn't care about. They ride
 their own `MixerClient.subscribeMeters` capability and their own `meters` WS
 message instead.
 
+## Discovery (step 18)
+
+X32-Edit's own LAN discovery is exactly what the bridge implements: broadcast
+`/info` (no args) to `255.255.255.255:10023` from a UDP socket with
+`SO_BROADCAST` enabled, then collect whatever replies arrive within a short
+window. Each reply's *source IP* (`rinfo.address`, not anything in the
+payload) is the console's address.
+
+Reply shape — `,ssss` (4 strings), same wire shape as `/xinfo` but different
+addressee and semantics:
+
+```text
+/info ,ssss <server version> <server name> <console model> <console firmware>
+```
+
+e.g. `"V2.05", "osc-server", "X32C", "2.08"`.
+
+Implementation (`apps/x32-bridge/src/x32/discovery.ts`, `discoverX32`):
+
+- Collects replies for **1500ms** by default, then resolves with whatever was
+  found — an empty array if nothing replied. Never throws: a machine that
+  forbids broadcast (permission error enabling `SO_BROADCAST`, no usable
+  interface, etc.) must not crash the bridge, just find nothing.
+- Dedupes by source IP.
+- Selection when the bridge picks a host to connect to
+  (`apps/x32-bridge/src/config.ts`): one responder → use it; several → log
+  all of them and use the lowest IP, deterministically; none → log an
+  actionable message (`set X32_HOST=<ip>`) and still start the bridge
+  disconnected (architecture.md §7 — the schematic and last-known baseline
+  render regardless).
+- Runs both on the bridge's first connect attempt and on every later
+  reconnect attempt while disconnected (the existing `/xinfo` liveness-poll
+  cadence, docs §Subscribing) — this is what recovers from a DHCP lease
+  change on the venue's console, not just "console was off at bridge
+  startup".
+- `X32_HOST`, when set, is an explicit override and skips discovery entirely
+  (unchanged fixed-host behaviour).
+
+`UdpTransport` (the seam `X32MixerClient` reads/writes through) doesn't fit
+discovery: it's unicast to one fixed remote and never exposes a reply's
+sender address. Discovery instead defines its own narrow `DiscoverySocket`
+seam, confined to `discovery.ts` — `node:dgram` still never leaks outside
+`apps/x32-bridge/src/x32/`.
+
 ## Scenes and stored state (investigated 2026-08-24)
 
 The console stores **scenes** (full console state, 100 internal slots, saved
