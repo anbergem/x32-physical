@@ -19,7 +19,7 @@ import type {
   MixerChannelState,
   MixerSourceRef,
 } from "@x32/domain";
-import { mixerChannelId } from "@x32/domain";
+import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -226,6 +226,21 @@ function parseNullableBaseline(value: unknown, context: string): MixerSnapshot |
   return value === null ? null : parseMixerSnapshot(value, context);
 }
 
+/** `meters` messages (step 15): always exactly `MIXER_CHANNEL_COUNT` finite numbers. */
+function parseMeterLevels(value: unknown, context: string): number[] {
+  if (!Array.isArray(value)) {
+    throw malformed(context, "an array", value);
+  }
+  if (value.length !== MIXER_CHANNEL_COUNT) {
+    throw malformed(
+      context,
+      `an array of exactly ${MIXER_CHANNEL_COUNT} numbers`,
+      value,
+    );
+  }
+  return value.map((level, index) => requireNumber(level, `${context}[${index}]`));
+}
+
 /** Validates a `ServerMessage` decoded from `JSON.parse`d WebSocket data. */
 export function parseServerMessage(value: unknown): ServerMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -258,10 +273,15 @@ export function parseServerMessage(value: unknown): ServerMessage {
         type: "baseline-save-rejected",
         reason: requireString(value.reason, "server message.reason"),
       };
+    case "meters":
+      return {
+        type: "meters",
+        levels: parseMeterLevels(value.levels, "server message.levels"),
+      };
     default:
       throw malformed(
         "server message.type",
-        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected"',
+        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters"',
         value.type,
       );
   }

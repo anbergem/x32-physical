@@ -252,6 +252,23 @@ export function selectDevice(
     state.installation.devices.find((candidate) => candidate.id === device);
 }
 
+// --- meters (fourth, fastest path — step 15) --------------------------------
+
+/**
+ * One channel's own level, and nothing else — the primitive-per-endpoint
+ * discipline of `selectHoverStatus`/`selectSelectionStatus` applies here too,
+ * only more so: a strip must never rerender because some *other* channel's
+ * level ticked. `null` before the first `meters` message/mock tick, or
+ * whenever meters aren't flowing at all (mock mode with the toggle off, or a
+ * bridge whose adapter has no meters capability) — a strip with no data shows
+ * no bar (architecture.md §5).
+ */
+export function selectMeterLevel(
+  channel: MixerChannelId,
+): (state: AppState) => number | null {
+  return (state) => state.meterLevels?.[channel - 1] ?? null;
+}
+
 // --- configuration slice ---------------------------------------------------
 
 /**

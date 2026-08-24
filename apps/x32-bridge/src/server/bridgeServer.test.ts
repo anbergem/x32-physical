@@ -192,6 +192,41 @@ describe("startBridgeServer", () => {
     expect(message.snapshot.channels).toHaveLength(32);
   });
 
+  it("forwards meter levels as a rounded 'meters' message, never through 'event'", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
+
+    const client = await connectClient(bridge.port);
+    await client.next(); // initial snapshot
+
+    mock.simulateMetersStart(5); // fast interval — the test doesn't care about real-time cadence
+    const message = await client.next();
+
+    expect(message.type).toBe("meters");
+    if (message.type !== "meters") throw new Error("expected a meters message");
+    expect(message.levels).toHaveLength(32);
+    // Rounded to 3 decimals (architecture.md §7) — never more precision than that.
+    for (const level of message.levels) {
+      expect(level).toBe(Math.round(level * 1000) / 1000);
+    }
+
+    mock.simulateMetersStop();
+  });
+
+  it("skips sending meters when no client is connected", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
+
+    // No client connected yet — this must not throw or hang.
+    mock.simulateMetersStart(5);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    mock.simulateMetersStop();
+
+    const client = await connectClient(bridge.port);
+    const message = await client.next();
+    expect(message.type).toBe("snapshot"); // not a stale/queued meters message
+  });
+
   it("shuts down cleanly even with a client still connected", async () => {
     const mock = new MockMixerClient();
     bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });

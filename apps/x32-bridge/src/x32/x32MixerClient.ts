@@ -54,6 +54,8 @@ import {
   channelNameAddress,
   channelSourceAddress,
   inBlockAddress,
+  metersReplyAddress,
+  metersSubscribeAddress,
   parseAddress,
   routswitchAddress,
   selidxAddress,
@@ -61,6 +63,7 @@ import {
   xinfoAddress,
   xremoteAddress,
 } from "./addresses";
+import { decodeMeterBlob } from "./meters";
 import type { OscArgument, OscMessage } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import { sourceRefEquals, X32State } from "./resolve";
@@ -75,6 +78,12 @@ export interface X32MixerClientOptions {
   xremoteRenewalMs?: number;
   /** `/xinfo` liveness poll interval. Default 5000ms, per the doc. */
   livenessPollMs?: number;
+  /**
+   * The `/meters` subscription's `time_factor` argument (docs/x32-protocol.md
+   * §Meters): the console paces `/meters/1` replies at roughly this many ×
+   * 50ms. Default 5 (~250ms cadence).
+   */
+  meterTimeFactor?: number;
 }
 
 /** Exported so tests can regression-proof the renewal interval against the console's 10s subscription expiry. */
@@ -83,10 +92,15 @@ export const DEFAULTS = {
   maxRetries: 3,
   xremoteRenewalMs: 8000,
   livenessPollMs: 5000,
+  meterTimeFactor: 5,
 } as const satisfies Required<X32MixerClientOptions>;
 
 interface Subscription {
   listener: MixerEventListener;
+}
+
+interface MeterSubscription {
+  listener: (levels: number[]) => void;
 }
 
 interface PendingRead {
@@ -109,15 +123,22 @@ function firstString(args: OscArgument[]): string | undefined {
   return arg?.type === "s" ? arg.value : undefined;
 }
 
+function firstBlob(args: OscArgument[]): Buffer | undefined {
+  const arg = args[0];
+  return arg?.type === "b" ? arg.value : undefined;
+}
+
 export class X32MixerClient implements MixerClient {
   readonly #transport: UdpTransport;
   readonly #requestTimeoutMs: number;
   readonly #maxRetries: number;
   readonly #xremoteRenewalMs: number;
   readonly #livenessPollMs: number;
+  readonly #meterTimeFactor: number;
 
   readonly #state = new X32State();
   readonly #subscriptions = new Set<Subscription>();
+  readonly #meterSubscriptions = new Set<MeterSubscription>();
 
   #connectionState: MixerConnectionState = "disconnected";
   #closed = false;
@@ -133,6 +154,7 @@ export class X32MixerClient implements MixerClient {
     this.#maxRetries = options.maxRetries ?? DEFAULTS.maxRetries;
     this.#xremoteRenewalMs = options.xremoteRenewalMs ?? DEFAULTS.xremoteRenewalMs;
     this.#livenessPollMs = options.livenessPollMs ?? DEFAULTS.livenessPollMs;
+    this.#meterTimeFactor = options.meterTimeFactor ?? DEFAULTS.meterTimeFactor;
     this.#transport.onMessage((buffer) => {
       this.#handleIncoming(buffer);
     });
@@ -177,6 +199,21 @@ export class X32MixerClient implements MixerClient {
     this.#subscriptions.add(subscription);
     return () => {
       this.#subscriptions.delete(subscription);
+    };
+  }
+
+  /**
+   * Meters ride their own delivery path, never `MixerEvent` (architecture.md
+   * §4) — too chatty for the event fan-out. The `/meters` subscription
+   * request itself is sent by the same renewal loop as `/xremote`
+   * (`#startXremoteRenewal`) once connected; this method only registers the
+   * listener that receives decoded levels as they arrive.
+   */
+  subscribeMeters(listener: (levels: number[]) => void): Unsubscribe {
+    const subscription: MeterSubscription = { listener };
+    this.#meterSubscriptions.add(subscription);
+    return () => {
+      this.#meterSubscriptions.delete(subscription);
     };
   }
 
@@ -388,8 +425,36 @@ export class X32MixerClient implements MixerClient {
         return;
       }
 
+      case "meters": {
+        const blob = firstBlob(args);
+        if (blob === undefined) return;
+        let values: number[];
+        try {
+          values = decodeMeterBlob(blob);
+        } catch (error) {
+          console.warn(`x32-bridge: ignoring malformed /meters/1 blob: ${errorMessage(error)}`);
+          return;
+        }
+        // 96 floats come back; the first 32 are the input channel levels
+        // (docs/x32-protocol.md §Meters).
+        this.#emitMeterLevels(values.slice(0, MIXER_CHANNEL_COUNT));
+        return;
+      }
+
       case "unknown":
         return; // ignored silently, per docs/x32-protocol.md.
+    }
+  }
+
+  #emitMeterLevels(levels: number[]): void {
+    for (const subscription of [...this.#meterSubscriptions]) {
+      try {
+        subscription.listener(levels);
+      } catch (error) {
+        queueMicrotask(() => {
+          throw error;
+        });
+      }
     }
   }
 
@@ -414,12 +479,24 @@ export class X32MixerClient implements MixerClient {
 
   // --- background loops -----------------------------------------------------
 
+  /**
+   * Renews both `/xremote` and `/meters` on the same tick (docs/x32-protocol.md
+   * §Meters: "renew it on the same tick cadence as `/xremote`") — both
+   * subscriptions live ~10s on the console, and `#xremoteRenewalMs` (default
+   * 8s) already renews comfortably inside that window.
+   */
   #startXremoteRenewal(): void {
     if (this.#xremoteTimer !== null) return;
     const renew = (): void => {
       this.#transport.send(encodeOscMessage(xremoteAddress(), []));
+      this.#transport.send(
+        encodeOscMessage(metersSubscribeAddress(), [
+          { type: "s", value: metersReplyAddress() },
+          { type: "i", value: this.#meterTimeFactor },
+        ]),
+      );
     };
-    renew(); // the console's subscription lasts 10s — renew immediately, then on the interval.
+    renew(); // the console's subscriptions last 10s — renew immediately, then on the interval.
     this.#xremoteTimer = setInterval(renew, this.#xremoteRenewalMs);
   }
 

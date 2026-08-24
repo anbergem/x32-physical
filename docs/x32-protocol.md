@@ -112,6 +112,52 @@ lists with 4-byte alignment. A small hand-rolled codec (~100 lines) with
 byte-level fixture tests is preferred over pulling in an OSC dependency;
 revisit if needs grow.
 
+## Meters (step 15)
+
+Verified against the Maillot document. Subscribing:
+
+```text
+/meters ,si "/meters/1" <time_factor>
+```
+
+- The string argument is the reply address the console will push blobs to
+  (`/meters/1` — the "block 1" input-channel meters).
+- `time_factor` paces the reply rate; we use **5** (~250ms cadence — the doc's
+  range is roughly 4–5 for ~200–250ms). Set console-side, not something the
+  client throttles.
+- Like `/xremote`, the subscription lives about **10 seconds** on the
+  console and must be renewed — we renew it on the exact same tick as
+  `/xremote`'s renewal loop (comfortably inside the 10s window; see
+  `X32MixerClient`'s `#startXremoteRenewal`).
+
+Reply, unsolicited once subscribed:
+
+```text
+/meters/1 ,b <blob>
+```
+
+`<blob>` is a plain OSC 1.0 blob envelope — **int32 big-endian** byte count,
+then that many bytes, zero-padded to a 4-byte boundary (`osc.ts`'s generic `,b`
+support). Its *contents* are a separate, smaller format with the **opposite**
+endianness from the rest of this protocol:
+
+```text
+int32  <float count>   -- LITTLE-endian (unlike every other int on the wire)
+float  x <count>        -- LITTLE-endian (unlike every other float on the wire)
+```
+
+The block 1 reply carries **96 floats**; the adapter takes only the **first
+32** as the input channel levels (1-based: index 0 = channel 1), decoded by
+`decodeMeterBlob` in `apps/x32-bridge/src/x32/meters.ts` — kept separate from
+the generic OSC blob envelope in `osc.ts` precisely because of that
+endianness flip.
+
+Meters intentionally never touch `MixerEvent`/the WebSocket `event` message
+(architecture.md §4/§7): they update several times a second, which would make
+every other event consumer pay for traffic it doesn't care about. They ride
+their own `MixerClient.subscribeMeters` capability and their own `meters` WS
+message instead.
+
 ## Scenes and stored state (investigated 2026-08-24)
 
 The console stores **scenes** (full console state, 100 internal slots, saved

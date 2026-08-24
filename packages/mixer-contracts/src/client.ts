@@ -57,4 +57,18 @@ export interface MixerClient {
   getSnapshot(): Promise<MixerSnapshot>;
   subscribe(listener: MixerEventListener): Unsubscribe;
   getConnectionState(): MixerConnectionState;
+  /**
+   * Live per-channel meter levels (architecture.md §4 "Meters"), an optional
+   * capability deliberately kept off the `MixerEvent` union: it is far too
+   * chatty (updates several times a second) to ride the same fan-out as
+   * occasional routing/selection changes. `X32MixerClient` and
+   * `MockMixerClient` both implement it; a `MixerClient` consumer that
+   * doesn't care about meters (or is talking to some future implementation
+   * that has none) can simply not call it — hence optional.
+   *
+   * `levels` is exactly 32 entries, one per input channel (1-based index 0 =
+   * channel 1) — the console's raw linear meter floats, verbatim, no dB
+   * conversion or smoothing applied by the adapter.
+   */
+  subscribeMeters?(listener: (levels: number[]) => void): Unsubscribe;
 }

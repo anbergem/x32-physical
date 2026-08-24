@@ -12,7 +12,7 @@ import { parseServerMessage } from "@x32/protocol";
 
 import type { AppStore } from "../state/store";
 
-import { applyBaseline, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import { applyBaseline, applyMeterLevels, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
 
 /**
  * @param data `MessageEvent.data` from the socket in production (a JSON
@@ -53,6 +53,9 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
       // Surfaced inline near the "Save as correct" button (plan step 14,
       // `DiagnosticsControl`) via the runtime `baselineSaveError` slice.
       store.getState().setBaselineSaveError(message.reason);
+      return;
+    case "meters":
+      applyMeterLevels(store, message.levels);
       return;
   }
 }

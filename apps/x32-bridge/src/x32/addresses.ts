@@ -49,6 +49,16 @@ export function selidxAddress(): string {
   return "/-stat/selidx";
 }
 
+/** The outgoing subscribe address (docs/x32-protocol.md §Meters): `/meters ,si <replyAddress> <timeFactor>`. */
+export function metersSubscribeAddress(): string {
+  return "/meters";
+}
+
+/** The address the console pushes meter blob replies to — also the `,si` request's string argument. */
+export function metersReplyAddress(): string {
+  return "/meters/1";
+}
+
 export type ParsedAddress =
   | { kind: "xinfo" }
   | { kind: "routswitch" }
@@ -57,6 +67,7 @@ export type ParsedAddress =
   | { kind: "channel-name"; channel: number }
   | { kind: "channel-source"; channel: number }
   | { kind: "selidx" }
+  | { kind: "meters" }
   | { kind: "unknown" };
 
 const USER_ROUT_PATTERN = /^\/config\/userrout\/in\/(\d{2})$/;
@@ -67,6 +78,7 @@ export function parseAddress(address: string): ParsedAddress {
   if (address === "/xinfo") return { kind: "xinfo" };
   if (address === "/config/routing/routswitch") return { kind: "routswitch" };
   if (address === "/-stat/selidx") return { kind: "selidx" };
+  if (address === "/meters/1") return { kind: "meters" };
 
   const inBlockPrefix = "/config/routing/IN/";
   if (address.startsWith(inBlockPrefix)) {

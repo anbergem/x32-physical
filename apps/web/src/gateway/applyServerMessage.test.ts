@@ -140,6 +140,40 @@ describe("applyServerMessage: event -> slice mapping", () => {
   });
 });
 
+describe("applyServerMessage: meters (step 15)", () => {
+  beforeEach(() => {
+    applyServerMessage(store, snapshotMessage());
+  });
+
+  it("routes 'meters' to the meterLevels slice only, touching nothing else", () => {
+    const before = store.getState();
+    const levels = Array.from({ length: 32 }, (_, i) => i / 100);
+
+    applyServerMessage(store, { type: "meters", levels });
+
+    const after = store.getState();
+    expect(after.meterLevels).toEqual(levels);
+    expect(after.channels).toBe(before.channels);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+    expect(after.baseline).toBe(before.baseline);
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+    expect(after.hoveredEndpoint).toBe(before.hoveredEndpoint);
+  });
+
+  it("a non-meters message never touches meterLevels", () => {
+    applyServerMessage(store, { type: "meters", levels: new Array(32).fill(0.1) });
+    const before = store.getState();
+
+    applyServerMessage(store, {
+      type: "event",
+      event: { type: "selected-channel-changed", channel: CH12 },
+    });
+
+    expect(store.getState().meterLevels).toBe(before.meterLevels);
+  });
+});
+
 describe("applyServerMessage: baseline (architecture.md §7)", () => {
   it("applies a snapshot message's baseline field to the baseline slice", () => {
     const message = snapshotMessage();

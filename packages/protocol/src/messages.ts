@@ -31,6 +31,15 @@ import type {
  * `baseline-save-rejected` answers a `save-baseline` that could not be
  * honoured (mixer not connected, or its cached snapshot incomplete) — sent
  * only to the requesting client, never broadcast.
+ *
+ * `meters` (step 15) is the fourth, fastest state path (architecture.md §5):
+ * live per-channel levels, forwarded as-is from the adapter's
+ * `subscribeMeters` capability several times a second. It deliberately does
+ * not reuse `event`/`MixerEvent` — that fan-out is for occasional
+ * routing/selection changes, and folding meters into it would make every
+ * other consumer of `event` pay for traffic it doesn't care about. `levels`
+ * is always exactly 32 entries (one per input channel, 1-based index 0 =
+ * channel 1), rounded to 3 decimals bridge-side to keep frames small.
  */
 export type ServerMessage =
   | {
@@ -41,7 +50,8 @@ export type ServerMessage =
     }
   | { type: "event"; event: MixerEvent }
   | { type: "baseline-changed"; baseline: MixerSnapshot }
-  | { type: "baseline-save-rejected"; reason: string };
+  | { type: "baseline-save-rejected"; reason: string }
+  | { type: "meters"; levels: number[] };
 
 /**
  * Web → bridge. `resync` asks for a fresh snapshot; `save-baseline` (step 13)

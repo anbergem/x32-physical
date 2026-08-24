@@ -178,6 +178,23 @@ export async function startBridgeServer(
     broadcast({ type: "baseline-changed", baseline: cloneSnapshot(cachedBaseline) });
   }
 
+  /**
+   * Meters (architecture.md §5/§7, step 15): forwarded as their own `meters`
+   * message, never through `event` — too chatty for that fan-out. Rounded to
+   * 3 decimals to keep frames small; skipped entirely when nobody is
+   * listening rather than serializing and discarding on every tick.
+   * `subscribeMeters` is an optional `MixerClient` capability — the mock
+   * hosted directly by the bridge implements it too, but a hypothetical
+   * future implementation that doesn't is tolerated here.
+   */
+  const unsubscribeMeters = mixerClient.subscribeMeters?.((levels) => {
+    if (wss.clients.size === 0) return;
+    broadcast({
+      type: "meters",
+      levels: levels.map((level) => Math.round(level * 1000) / 1000),
+    });
+  });
+
   const unsubscribe = mixerClient.subscribe((event) => {
     if (event.type === "connection-state-changed") {
       if (event.state === "connected") {
@@ -262,6 +279,7 @@ export async function startBridgeServer(
     port: boundPort,
     async close() {
       unsubscribe();
+      unsubscribeMeters?.();
       for (const socket of wss.clients) socket.terminate();
       await new Promise<void>((resolve, reject) => {
         wss.close((error) => (error ? reject(error) : resolve()));

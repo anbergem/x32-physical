@@ -4,6 +4,8 @@ import {
   channelNameAddress,
   channelSourceAddress,
   inBlockAddress,
+  metersReplyAddress,
+  metersSubscribeAddress,
   parseAddress,
   routswitchAddress,
   selidxAddress,
@@ -18,6 +20,8 @@ describe("address builders", () => {
     expect(xremoteAddress()).toBe("/xremote");
     expect(routswitchAddress()).toBe("/config/routing/routswitch");
     expect(selidxAddress()).toBe("/-stat/selidx");
+    expect(metersSubscribeAddress()).toBe("/meters");
+    expect(metersReplyAddress()).toBe("/meters/1");
   });
 
   it("builds the 4 IN block addresses", () => {
@@ -40,6 +44,7 @@ describe("parseAddress", () => {
     expect(parseAddress("/xinfo")).toEqual({ kind: "xinfo" });
     expect(parseAddress("/config/routing/routswitch")).toEqual({ kind: "routswitch" });
     expect(parseAddress("/-stat/selidx")).toEqual({ kind: "selidx" });
+    expect(parseAddress("/meters/1")).toEqual({ kind: "meters" });
   });
 
   it("classifies IN block addresses with their 0-based index", () => {
@@ -65,6 +70,7 @@ describe("parseAddress", () => {
     expect(parseAddress(xinfoAddress())).toEqual({ kind: "xinfo" });
     expect(parseAddress(routswitchAddress())).toEqual({ kind: "routswitch" });
     expect(parseAddress(selidxAddress())).toEqual({ kind: "selidx" });
+    expect(parseAddress(metersReplyAddress())).toEqual({ kind: "meters" });
     for (let i = 0; i < 4; i += 1) {
       expect(parseAddress(inBlockAddress(i as 0 | 1 | 2 | 3))).toEqual({
         kind: "in-block",

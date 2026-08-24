@@ -9,7 +9,7 @@ import type { MockMixerClient, Unsubscribe } from "@x32/mixer-contracts";
 
 import type { AppStore } from "../state/store";
 
-import { applyBaseline, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import { applyBaseline, applyMeterLevels, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
 import type { BaselineStore } from "./baselineStore";
 import { LocalStorageBaselineStore } from "./baselineStore";
 import type { MixerGateway } from "./mixerGateway";
@@ -18,6 +18,7 @@ export class LocalMockGateway implements MixerGateway {
   readonly #store: AppStore;
   readonly #baselineStore: BaselineStore;
   #unsubscribe: Unsubscribe | null = null;
+  #unsubscribeMeters: Unsubscribe | null = null;
 
   /**
    * The mock is public on purpose: it is this gateway's entire reason to
@@ -43,6 +44,12 @@ export class LocalMockGateway implements MixerGateway {
     this.#unsubscribe ??= this.mock.subscribe((event) => {
       applyMixerEvent(this.#store, event);
     });
+    // Meters (step 15) ride their own path, not `MixerEvent` — same
+    // subscribe-before-connect discipline, so no level tick can slip through
+    // the gap once `simulateMetersStart()` is toggled on.
+    this.#unsubscribeMeters ??= this.mock.subscribeMeters((levels) => {
+      applyMeterLevels(this.#store, levels);
+    });
 
     this.#store.getState().setConnection("connecting");
     await this.mock.connect();
@@ -58,6 +65,8 @@ export class LocalMockGateway implements MixerGateway {
   async disconnect(): Promise<void> {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
+    this.#unsubscribeMeters?.();
+    this.#unsubscribeMeters = null;
     await this.mock.disconnect();
     this.#store.getState().setConnection("disconnected");
   }

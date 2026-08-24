@@ -262,6 +262,28 @@ absent; the mock exposes mutation via its own wider interface
 (`MockMixerClient extends MixerClient` with `simulate*` methods), which
 production code never sees.
 
+### Meters (step 15)
+
+Live per-channel levels are an optional `MixerClient` capability, deliberately
+kept off the `MixerEvent` union:
+
+```ts
+interface MixerClient {
+  // ...
+  subscribeMeters?(listener: (levels: number[]) => void): Unsubscribe;
+}
+```
+
+`levels` is always exactly 32 entries (1-based index 0 = channel 1). This is
+its own delivery path because it is far too chatty (several updates a second)
+for the same fan-out as occasional routing/selection changes — folding it
+into `MixerEvent` would make every other event consumer pay for traffic it
+never asked for. `X32MixerClient` implements it over `/meters` (see
+docs/x32-protocol.md "Meters"); `MockMixerClient` implements it with its own
+dev-only `simulateMetersStart()`/`simulateMetersStop()` generator. Optional
+because a `MixerClient` consumer that doesn't care about meters simply never
+calls it.
+
 ### `MockMixerClient` behavior
 
 Pure TS, runs in Node and browser. Constructed from an initial
@@ -298,6 +320,11 @@ interface AppState {
   connection: MixerConnectionState;
   selectedChannel: MixerChannelId | null;   // from the physical console
   hoveredEndpoint: EndpointId | null;       // browser-local
+
+  // Fourth path (step 15): fastest of all, updates several times a second.
+  // `null` until the first tick. Its own slice — a meters update never
+  // touches any of the above, and none of the above ever touch it.
+  meterLevels: number[] | null;
 }
 ```
 
@@ -306,6 +333,13 @@ the physically-selected route, and both can be active at once with distinct
 visual treatments. Components subscribe via selectors keyed by their own
 domain ID (e.g. a channel strip selects a precomputed highlight status for
 `mixer:12`), so a rename of CH7 does not rerender CH12.
+
+`meterLevels` (step 15) is deliberately a fourth path rather than folded into
+the runtime slice above: it changes far faster than selection/hover/
+connection ever do, and every strip subscribes to it through its own
+primitive selector (one channel's own level, `state.meterLevels?.[ch - 1] ??
+null`) so a meter tick only rerenders the 32 strips, never anything that
+reads `routeIndex`/`channels`/`discrepancies`/`baseline`.
 
 ## 6. Gateway: how the web app gets mixer data
 
@@ -332,7 +366,8 @@ type ServerMessage =
       baseline: MixerSnapshot | null }       // baseline added in step 13
   | { type: "event"; event: MixerEvent }     // re-uses mixer-contracts types
   | { type: "baseline-changed"; baseline: MixerSnapshot }
-  | { type: "baseline-save-rejected"; reason: string };  // save couldn't be honoured
+  | { type: "baseline-save-rejected"; reason: string }   // save couldn't be honoured
+  | { type: "meters"; levels: number[] };                // step 15, see below
 
 type ClientMessage =
   | { type: "resync" }                       // explicit full-snapshot request
@@ -358,6 +393,17 @@ state. Mock mode (no bridge) persists via localStorage behind a small
 `BaselineStore` seam in the web gateway module. A golden-scene alternative
 (parsing a console `.scn` export) was considered and deferred — see
 docs/x32-protocol.md "Scenes and stored state".
+
+### Meters (step 15)
+
+`meters` is forwarded straight from the adapter's `subscribeMeters` callback
+(no extra throttling — the console's `time_factor` already paces it, see
+docs/x32-protocol.md "Meters") to every connected client, rounded to 3
+decimals to keep frames small; the bridge skips sending entirely when no
+client is connected. Like `save-baseline`'s side effect, this stays confined
+to relaying already-read-only data — no mixer write is involved. In mock mode
+`LocalMockGateway` wires `MockMixerClient.subscribeMeters` the same way,
+straight to the store's `meterLevels` slice.
 
 ## 8. End-to-end event flow (live mode)
 

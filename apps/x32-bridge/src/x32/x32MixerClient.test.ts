@@ -11,10 +11,19 @@
 import type { MixerEvent } from "@x32/mixer-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { metersReplyAddress, metersSubscribeAddress } from "./addresses";
 import type { OscArgument } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import type { UdpTransport } from "./transport";
 import { DEFAULTS, X32MixerClient } from "./x32MixerClient";
+
+/** Builds a `/meters/1`-shaped blob: int32 LE float count, then LE floats. */
+function meterBlob(values: number[]): Buffer {
+  const buffer = Buffer.alloc(4 + values.length * 4);
+  buffer.writeInt32LE(values.length, 0);
+  values.forEach((value, index) => buffer.writeFloatLE(value, 4 + index * 4));
+  return buffer;
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -167,18 +176,18 @@ describe("connect()", () => {
   });
 });
 
+async function connectedClient(): Promise<{ transport: FakeTransport; events: MixerEvent[] }> {
+  const transport = new FakeTransport();
+  transport.autoReply = defaultAutoReply();
+  client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+  await client.connect();
+
+  const events: MixerEvent[] = [];
+  client.subscribe((event) => events.push(event));
+  return { transport, events };
+}
+
 describe("live pushes", () => {
-  async function connectedClient(): Promise<{ transport: FakeTransport; events: MixerEvent[] }> {
-    const transport = new FakeTransport();
-    transport.autoReply = defaultAutoReply();
-    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
-    await client.connect();
-
-    const events: MixerEvent[] = [];
-    client.subscribe((event) => events.push(event));
-    return { transport, events };
-  }
-
   it("/-stat/selidx 11 -> selected-channel-changed CH12", async () => {
     const { transport, events } = await connectedClient();
 
@@ -306,6 +315,96 @@ describe("live pushes", () => {
     );
     expect(playbackWarnings).toHaveLength(1);
 
+    warn.mockRestore();
+  });
+});
+
+describe("meters (plan step 15)", () => {
+  it("subscribes /meters ,si \"/meters/1\" <time_factor> on the same tick as the initial /xremote renewal", async () => {
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+
+    const afterSnapshot = transport.sent.slice(EXPECTED_READ_SEQUENCE.length);
+    expect(afterSnapshot[0]).toEqual({ address: "/xremote", args: [] });
+    expect(afterSnapshot[1]).toEqual({
+      address: metersSubscribeAddress(),
+      args: [
+        { type: "s", value: metersReplyAddress() },
+        { type: "i", value: DEFAULTS.meterTimeFactor },
+      ],
+    });
+  });
+
+  it("renews the /meters subscription on the same cadence as /xremote — comfortably inside the console's ~10s expiry", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, {
+      requestTimeoutMs: 20,
+      maxRetries: 1,
+      xremoteRenewalMs: 1000,
+      livenessPollMs: 1_000_000, // stays out of the way for this test
+    });
+
+    const connectPromise = client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    await connectPromise;
+
+    const metersRequestsAfterConnect = transport.sent.filter(
+      (r) => r.address === metersSubscribeAddress(),
+    ).length;
+    expect(metersRequestsAfterConnect).toBe(1); // the immediate renewal on connect
+
+    await vi.advanceTimersByTimeAsync(1000 * 3 + 10);
+
+    const metersRequestsAfterTicks = transport.sent.filter(
+      (r) => r.address === metersSubscribeAddress(),
+    ).length;
+    expect(metersRequestsAfterTicks).toBe(4); // 1 immediate + 3 renewals
+    expect(DEFAULTS.xremoteRenewalMs).toBeLessThan(10_000);
+  });
+
+  it("delivers the first 32 of a 96-float /meters/1 blob to subscribers", async () => {
+    const { transport } = await connectedClient();
+    const levelsSeen: number[][] = [];
+    client!.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    // Rounded through `Math.fround`: the wire format is 32-bit float, so the
+    // decoded value is only guaranteed to match the float32-rounded input,
+    // not full JS double precision.
+    const values = Array.from({ length: 96 }, (_, i) => Math.fround(i / 100));
+    transport.push(metersReplyAddress(), [{ type: "b", value: meterBlob(values) }]);
+
+    expect(levelsSeen).toEqual([values.slice(0, 32)]);
+  });
+
+  it("stops delivery after unsubscribe", async () => {
+    const { transport } = await connectedClient();
+    const levelsSeen: number[][] = [];
+    const stop = client!.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    stop();
+    transport.push(metersReplyAddress(), [{ type: "b", value: meterBlob([0.5]) }]);
+
+    expect(levelsSeen).toEqual([]);
+  });
+
+  it("ignores a malformed /meters/1 blob without crashing or delivering", async () => {
+    const { transport } = await connectedClient();
+    const levelsSeen: number[][] = [];
+    client!.subscribeMeters((levels) => levelsSeen.push(levels));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Declares 5 floats but carries none — malformed (see meters.test.ts).
+    transport.push(metersReplyAddress(), [
+      { type: "b", value: Buffer.from([0x05, 0x00, 0x00, 0x00]) },
+    ]);
+
+    expect(levelsSeen).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("malformed /meters/1 blob"));
     warn.mockRestore();
   });
 });

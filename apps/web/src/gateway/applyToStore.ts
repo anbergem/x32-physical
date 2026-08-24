@@ -41,6 +41,15 @@ export function applyBaseline(store: AppStore, baseline: MixerSnapshot | null): 
   store.getState().setBaseline(baseline);
 }
 
+/**
+ * The `meters` slice's own entry point (step 15) — deliberately not a
+ * `MixerEvent` variant (architecture.md §4/§5): the fourth, fastest state
+ * path, wired straight to `setMeterLevels` and nothing else.
+ */
+export function applyMeterLevels(store: AppStore, levels: number[]): void {
+  store.getState().setMeterLevels(levels);
+}
+
 export function applyMixerEvent(store: AppStore, event: MixerEvent): void {
   const state = store.getState();
 

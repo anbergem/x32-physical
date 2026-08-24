@@ -16,6 +16,7 @@ import type {
   MixerChannelState,
   MixerSourceRef,
 } from "@x32/domain";
+import { MIXER_CHANNEL_COUNT } from "@x32/domain";
 
 import type {
   MixerClient,
@@ -28,12 +29,14 @@ import type {
 import { createDefaultMockSnapshot } from "./default-snapshot";
 
 /**
- * A host global both Node and browsers provide, but which the ES lib this
- * workspace compiles against does not declare. Declaring the one signature used
- * here keeps the package free of `@types/node` and of the DOM lib — it must run
- * unchanged in both.
+ * Host globals both Node and browsers provide, but which the ES lib this
+ * workspace compiles against does not declare. Declaring the exact signatures
+ * used here keeps the package free of `@types/node` and of the DOM lib — it
+ * must run unchanged in both.
  */
 declare function queueMicrotask(callback: () => void): void;
+declare function setInterval(callback: () => void, ms: number): unknown;
+declare function clearInterval(handle: unknown): void;
 
 /**
  * One `subscribe` call. A record per call rather than a bare listener so that
@@ -41,6 +44,10 @@ declare function queueMicrotask(callback: () => void): void;
  */
 interface Subscription {
   listener: MixerEventListener;
+}
+
+interface MeterSubscription {
+  listener: (levels: number[]) => void;
 }
 
 function cloneChannel(channel: MixerChannelState): MixerChannelState {
@@ -62,6 +69,10 @@ export class MockMixerClient implements MixerClient {
   #snapshot: MixerSnapshot;
   #connectionState: MixerConnectionState = "disconnected";
   readonly #subscriptions = new Set<Subscription>();
+  readonly #meterSubscriptions = new Set<MeterSubscription>();
+  /** Non-`null` only while `simulateMetersStart()` is running — the mock is otherwise timer-free by design. */
+  #meterTimer: unknown = null;
+  #meterTick = 0;
 
   /**
    * The snapshot is copied, so the caller's object is never aliased by the
@@ -97,6 +108,20 @@ export class MockMixerClient implements MixerClient {
 
   getConnectionState(): MixerConnectionState {
     return this.#connectionState;
+  }
+
+  /**
+   * Meters deliberately don't ride `MixerEvent` (architecture.md §4) — the
+   * real adapter's are far too chatty for that fan-out. This is the mock's
+   * matching capability; `simulateMetersStart()`/`simulateMetersStop()`
+   * below are what actually produce levels for it to deliver.
+   */
+  subscribeMeters(listener: (levels: number[]) => void): Unsubscribe {
+    const subscription: MeterSubscription = { listener };
+    this.#meterSubscriptions.add(subscription);
+    return () => {
+      this.#meterSubscriptions.delete(subscription);
+    };
   }
 
   // --- Simulation API (dev-only) -----------------------------------------
@@ -146,6 +171,28 @@ export class MockMixerClient implements MixerClient {
     this.#setConnectionState("connected");
   }
 
+  /**
+   * Starts a dev-only level generator on a ~250ms interval (docs/plan.md
+   * step 15) — plausible, smoothly moving levels for every channel whose
+   * source isn't `off`, zero for the ones that are. This is the *only* timer
+   * the mock ever runs, and only between this call and `simulateMetersStop()`
+   * (or never, if the control surface's "Meters" toggle is never flipped) —
+   * everything else about `MockMixerClient` stays timer-free.
+   */
+  simulateMetersStart(intervalMs = 250): void {
+    if (this.#meterTimer !== null) return;
+    this.#meterTimer = setInterval(() => {
+      this.#meterTick += 1;
+      this.#emitMeterLevels(this.#generateLevels());
+    }, intervalMs);
+  }
+
+  simulateMetersStop(): void {
+    if (this.#meterTimer === null) return;
+    clearInterval(this.#meterTimer);
+    this.#meterTimer = null;
+  }
+
   // --- internals ----------------------------------------------------------
 
   #requireChannel(channel: MixerChannelId): MixerChannelState {
@@ -166,6 +213,41 @@ export class MockMixerClient implements MixerClient {
 
     this.#connectionState = state;
     this.#emit({ type: "connection-state-changed", state });
+  }
+
+  /**
+   * One synthetic level per input channel: a slow per-channel sine (so
+   * channels don't all pulse in lockstep) plus a little noise, clamped to
+   * `[0, 1]`. There is no real audio behind this — it only has to read as
+   * "alive" on the strip meters. A channel currently `off` always reads 0,
+   * matching what a real desk's meter for a disconnected input shows.
+   */
+  #generateLevels(): number[] {
+    const levels: number[] = [];
+    for (let channelNumber = 1; channelNumber <= MIXER_CHANNEL_COUNT; channelNumber += 1) {
+      const state = this.#snapshot.channels.find((c) => c.channel === channelNumber);
+      if (state === undefined || state.source.kind === "off") {
+        levels.push(0);
+        continue;
+      }
+      const phase = channelNumber * 0.7;
+      const wave = 0.35 + 0.3 * Math.sin(this.#meterTick / 6 + phase);
+      const noise = (Math.random() - 0.5) * 0.08;
+      levels.push(Math.min(1, Math.max(0, wave + noise)));
+    }
+    return levels;
+  }
+
+  #emitMeterLevels(levels: number[]): void {
+    for (const subscription of [...this.#meterSubscriptions]) {
+      try {
+        subscription.listener(levels);
+      } catch (error) {
+        queueMicrotask(() => {
+          throw error;
+        });
+      }
+    }
   }
 
   #emit(event: MixerEvent): void {

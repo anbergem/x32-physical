@@ -2,9 +2,17 @@
  * Hand-rolled OSC 1.0 codec (docs/x32-protocol.md §OSC codec).
  *
  * Only the subset the bridge needs: one address, one type-tag string made of
- * `i`/`s`/`f` characters, and their arguments — everything 4-byte aligned. No
- * bundles, no other argument types. The doc explicitly prefers this ~100-line
- * codec over pulling in a general OSC dependency; this module is it.
+ * `i`/`s`/`f`/`b` characters, and their arguments — everything 4-byte
+ * aligned. No bundles, no other argument types. The doc explicitly prefers
+ * this ~100-line codec over pulling in a general OSC dependency; this module
+ * is it.
+ *
+ * `b` (blob) is used only for the `/meters/1` reply (docs/x32-protocol.md
+ * §Meters): a plain OSC 1.0 blob — int32 **big-endian** byte count, then that
+ * many bytes, then zero-padding to a 4-byte boundary. The blob's *contents*
+ * (a meter-specific mini-format with a little-endian float count and
+ * little-endian floats) are decoded separately in `./meters.ts` — this
+ * module only knows the generic OSC blob envelope.
  *
  * Every OSC message — including a bare "read" request with zero arguments —
  * carries a type-tag string per OSC 1.0 (a zero-argument message's tag is
@@ -17,7 +25,13 @@
 export type OscArgument =
   | { type: "i"; value: number }
   | { type: "f"; value: number }
-  | { type: "s"; value: string };
+  | { type: "s"; value: string }
+  | { type: "b"; value: Buffer };
+
+/** A blob's total wire footprint: 4-byte size prefix + data, padded to 4 bytes. */
+function oscBlobByteLength(data: Buffer): number {
+  return 4 + Math.ceil(data.length / 4) * 4;
+}
 
 export interface OscMessage {
   address: string;
@@ -102,6 +116,8 @@ export function encodeOscMessage(address: string, args: OscArgument[] = []): Buf
         );
       }
       argsByteLength += oscStringByteLength(arg.value);
+    } else if (arg.type === "b") {
+      argsByteLength += oscBlobByteLength(arg.value);
     } else {
       if (!Number.isFinite(arg.value)) {
         throw new Error(
@@ -127,6 +143,12 @@ export function encodeOscMessage(address: string, args: OscArgument[] = []): Buf
     } else if (arg.type === "f") {
       buffer.writeFloatBE(arg.value, offset);
       offset += 4;
+    } else if (arg.type === "b") {
+      const blobLength = oscBlobByteLength(arg.value);
+      buffer.writeInt32BE(arg.value.length, offset);
+      arg.value.copy(buffer, offset + 4);
+      buffer.fill(0, offset + 4 + arg.value.length, offset + blobLength);
+      offset += blobLength;
     } else {
       offset += writeOscString(buffer, offset, arg.value);
     }
@@ -195,6 +217,37 @@ export function decodeOscMessage(buffer: Buffer | Uint8Array): OscMessage {
       const { value, next } = readOscString(buf, offset, `string argument for "${address}"`);
       args.push({ type: "s", value });
       offset = next;
+    } else if (typeChar === "b") {
+      if (offset + 4 > buf.length) {
+        throw new Error(
+          `Malformed OSC message to "${address}": buffer too short for blob size at byte ${offset}.`,
+        );
+      }
+      const size = buf.readInt32BE(offset);
+      if (size < 0) {
+        throw new Error(
+          `Malformed OSC message to "${address}": negative blob size ${size} at byte ${offset}.`,
+        );
+      }
+      const dataStart = offset + 4;
+      const paddedLength = Math.ceil(size / 4) * 4;
+      const dataEnd = dataStart + paddedLength;
+      if (dataEnd > buf.length) {
+        throw new Error(
+          `Malformed OSC message to "${address}": blob at byte ${offset} declares ${size} ` +
+            `byte(s) but only ${buf.length - dataStart} are available.`,
+        );
+      }
+      for (let i = dataStart + size; i < dataEnd; i += 1) {
+        if (buf[i] !== 0) {
+          throw new Error(
+            `Malformed OSC message to "${address}": non-zero padding byte at offset ${i} ` +
+              `after blob starting at byte ${offset}.`,
+          );
+        }
+      }
+      args.push({ type: "b", value: Buffer.from(buf.subarray(dataStart, dataStart + size)) });
+      offset = dataEnd;
     } else {
       throw new Error(
         `Malformed OSC message to "${address}": unsupported type tag character "${typeChar}".`,

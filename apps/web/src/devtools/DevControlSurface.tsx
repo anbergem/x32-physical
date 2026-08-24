@@ -199,6 +199,37 @@ function SourceControl({ mock }: { mock: MockMixerClient }) {
   );
 }
 
+/**
+ * Meters (plan step 15) are the one piece of mock data with an actual on/off
+ * switch here, rather than a one-shot action like the controls above: the
+ * mock's level generator is a timer, and this toggle is the only thing that
+ * starts or stops it — everything else about `MockMixerClient` stays
+ * timer-free (architecture.md §4).
+ */
+function MetersControl({ mock }: { mock: MockMixerClient }) {
+  const [running, setRunning] = useState(false);
+
+  function toggle(): void {
+    if (running) {
+      mock.simulateMetersStop();
+    } else {
+      mock.simulateMetersStart();
+    }
+    setRunning((current) => !current);
+  }
+
+  return (
+    <div className="devtools__section">
+      <span className="devtools__section-title">Meters · simulated</span>
+      <div className="devtools__buttons">
+        <button type="button" onClick={toggle}>
+          {running ? "Stop" : "Start"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ConnectionControl({ mock }: { mock: MockMixerClient }) {
   const connection = useAppStore(selectConnection);
 
@@ -236,6 +267,7 @@ export function DevControlSurface({ mock }: { mock: MockMixerClient }) {
           <SelectedChannelControl mock={mock} />
           <RenameControl mock={mock} />
           <SourceControl mock={mock} />
+          <MetersControl mock={mock} />
           <ConnectionControl mock={mock} />
         </div>
       )}

@@ -1,6 +1,6 @@
 import type { MixerChannelId } from "@x32/domain";
-import { mixerChannelId } from "@x32/domain";
-import { describe, expect, it } from "vitest";
+import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MixerEvent, MixerSnapshot } from "./client";
 import { createDefaultMockSnapshot } from "./default-snapshot";
@@ -307,6 +307,90 @@ describe("MockMixerClient subscriptions", () => {
     client.simulateSelect(null);
 
     expect(delivered).toHaveLength(2);
+  });
+});
+
+describe("MockMixerClient meters (plan step 15)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("emits nothing until simulateMetersStart() — the mock is otherwise timer-free", () => {
+    vi.useFakeTimers();
+    const client = new MockMixerClient();
+    const levelsSeen: number[][] = [];
+    client.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(10_000);
+    expect(levelsSeen).toEqual([]);
+  });
+
+  it("delivers 32 levels on a ~250ms cadence once started, zero for OFF channels", () => {
+    vi.useFakeTimers();
+    const client = new MockMixerClient(); // default snapshot: CH32 is OFF
+    const levelsSeen: number[][] = [];
+    client.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    client.simulateMetersStart();
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(250);
+    expect(levelsSeen).toHaveLength(1);
+    const [first] = levelsSeen;
+    expect(first).toHaveLength(MIXER_CHANNEL_COUNT);
+    expect(first?.every((level) => level >= 0 && level <= 1)).toBe(true);
+    expect(first?.[31]).toBe(0); // CH32 is OFF in the default snapshot
+
+    vi.advanceTimersByTime(250 * 3);
+    expect(levelsSeen).toHaveLength(4);
+  });
+
+  it("simulateMetersStop() stops the interval cleanly, idempotently", () => {
+    vi.useFakeTimers();
+    const client = new MockMixerClient();
+    const levelsSeen: number[][] = [];
+    client.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    client.simulateMetersStart();
+    vi.advanceTimersByTime(250);
+    expect(levelsSeen).toHaveLength(1);
+
+    client.simulateMetersStop();
+    client.simulateMetersStop(); // idempotent
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.advanceTimersByTime(10_000);
+    expect(levelsSeen).toHaveLength(1); // nothing more delivered
+  });
+
+  it("starting twice does not create a second interval", () => {
+    vi.useFakeTimers();
+    const client = new MockMixerClient();
+    client.subscribeMeters(() => {});
+
+    client.simulateMetersStart();
+    client.simulateMetersStart();
+    expect(vi.getTimerCount()).toBe(1);
+
+    client.simulateMetersStop();
+  });
+
+  it("stops delivering to an unsubscribed meter listener", () => {
+    vi.useFakeTimers();
+    const client = new MockMixerClient();
+    const levelsSeen: number[][] = [];
+    const stop = client.subscribeMeters((levels) => levelsSeen.push(levels));
+
+    client.simulateMetersStart();
+    vi.advanceTimersByTime(250);
+    expect(levelsSeen).toHaveLength(1);
+
+    stop();
+    vi.advanceTimersByTime(250);
+    expect(levelsSeen).toHaveLength(1); // no further delivery
+
+    client.simulateMetersStop();
   });
 });
 

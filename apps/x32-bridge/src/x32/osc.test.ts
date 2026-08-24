@@ -99,6 +99,81 @@ describe("encodeOscMessage / decodeOscMessage — byte-level fixtures", () => {
   });
 });
 
+describe("encodeOscMessage / decodeOscMessage — blob (`,b`) fixtures", () => {
+  it("/meters/1 ,b with a 5-byte blob (needs 3 bytes of padding)", () => {
+    // "/meters/1" is 9 chars -> 9+1=10 -> next multiple of 4 = 12.
+    // ",b" is 2 chars -> 2+1=3 -> next multiple of 4 = 4.
+    // blob: int32 BE size (5) + 5 data bytes + 3 padding bytes = 12 bytes total.
+    const data = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]);
+    const expected = fixture(oscString("/meters/1", 12), oscString(",b", 4), [
+      0x00, 0x00, 0x00, 0x05, // int32 5, big-endian (blob byte length)
+      0x01, 0x02, 0x03, 0x04, 0x05, // the 5 data bytes
+      0x00, 0x00, 0x00, // padding to the next 4-byte boundary
+    ]);
+    expect(expected).toHaveLength(28);
+
+    const message: OscMessage = { address: "/meters/1", args: [{ type: "b", value: data }] };
+    expect(encodeOscMessage(message.address, message.args)).toEqual(expected);
+    expect(decodeOscMessage(expected)).toEqual(message);
+  });
+
+  it("a blob whose length is already a multiple of 4 needs no padding", () => {
+    const data = Buffer.from([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22]);
+    const expected = fixture(oscString("/meters/1", 12), oscString(",b", 4), [
+      0x00, 0x00, 0x00, 0x08, // int32 8, big-endian
+      ...data,
+    ]);
+    expect(expected).toHaveLength(28);
+
+    const message: OscMessage = { address: "/meters/1", args: [{ type: "b", value: data }] };
+    expect(encodeOscMessage(message.address, message.args)).toEqual(expected);
+    expect(decodeOscMessage(expected)).toEqual(message);
+  });
+
+  it("a zero-length blob", () => {
+    const expected = fixture(oscString("/meters/1", 12), oscString(",b", 4), [
+      0x00, 0x00, 0x00, 0x00,
+    ]);
+    const message: OscMessage = { address: "/meters/1", args: [{ type: "b", value: Buffer.alloc(0) }] };
+    expect(encodeOscMessage(message.address, message.args)).toEqual(expected);
+    expect(decodeOscMessage(expected)).toEqual(message);
+  });
+});
+
+describe("decodeOscMessage — malformed blobs never crash, always throw clearly", () => {
+  it("rejects a blob with no room for the size prefix", () => {
+    const buffer = Buffer.concat([oscString("/a", 4), oscString(",b", 4)]);
+    expect(() => decodeOscMessage(buffer)).toThrow(/buffer too short for blob size/);
+  });
+
+  it("rejects a blob whose declared size runs past the end of the buffer", () => {
+    const buffer = Buffer.concat([
+      oscString("/a", 4),
+      oscString(",b", 4),
+      Buffer.from([0x00, 0x00, 0x00, 0x08]), // claims 8 bytes, none follow
+    ]);
+    expect(() => decodeOscMessage(buffer)).toThrow(/only 0 are available/);
+  });
+
+  it("rejects a negative blob size", () => {
+    const buffer = Buffer.concat([
+      oscString("/a", 4),
+      oscString(",b", 4),
+      Buffer.from([0xff, 0xff, 0xff, 0xff]), // -1 as int32 BE
+    ]);
+    expect(() => decodeOscMessage(buffer)).toThrow(/negative blob size/);
+  });
+
+  it("rejects non-zero padding bytes after a blob", () => {
+    const buffer = Buffer.concat([
+      oscString("/a", 4),
+      oscString(",b", 4),
+      Buffer.from([0x00, 0x00, 0x00, 0x01, 0x42, 0x00, 0x00, 0x01]), // 1-byte blob, corrupt padding
+    ]);
+    expect(() => decodeOscMessage(buffer)).toThrow(/non-zero padding byte/);
+  });
+});
+
 describe("encodeOscMessage / decodeOscMessage — round-trips", () => {
   const cases: OscMessage[] = [
     { address: "/xinfo", args: [] },
@@ -178,8 +253,10 @@ describe("decodeOscMessage — malformed buffers never crash, always throw clear
   });
 
   it("rejects an unsupported type tag character", () => {
-    const buffer = Buffer.concat([oscString("/a", 4), oscString(",b", 4)]);
-    expect(() => decodeOscMessage(buffer)).toThrow(/unsupported type tag character "b"/);
+    // "b" (blob) is a supported type; "T"/"F" (OSC 1.0 booleans) are not part
+    // of this codec's subset, so use one of those as the unsupported case.
+    const buffer = Buffer.concat([oscString("/a", 4), oscString(",T", 4)]);
+    expect(() => decodeOscMessage(buffer)).toThrow(/unsupported type tag character "T"/);
   });
 
   it("rejects a truncated int32 argument", () => {

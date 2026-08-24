@@ -10,10 +10,12 @@
 import { endpointId, mixerChannel } from "@x32/domain";
 import type { MixerChannelId } from "@x32/domain";
 
+import { isMeterHot, meterBarHeightPercent } from "../format/meter";
 import {
   selectChannelState,
   selectDiagnosticStatus,
   selectHoverStatus,
+  selectMeterLevel,
   selectSelectionStatus,
   selectSetHoveredEndpoint,
 } from "../state/selectors";
@@ -29,6 +31,10 @@ export function MixerChannel({ channel }: { channel: MixerChannelId }) {
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
   const setHovered = useAppStore(selectSetHoveredEndpoint);
+  // The fourth, fastest state path (architecture.md §5): its own primitive
+  // selector, subscribed to only this channel's level, so a meter tick never
+  // rerenders any strip but this one.
+  const meterLevel = useAppStore(selectMeterLevel(channel));
 
   // Single composition point for the class list — see `InputPort`. Hover,
   // selection and diagnostics are independent layers: a strip can be on all
@@ -55,6 +61,24 @@ export function MixerChannel({ channel }: { channel: MixerChannelId }) {
           a mixer, and an empty X32 channel name is legitimately blank. */}
       <span className="strip__name">{state?.name ?? "·"}</span>
       {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {/* No data (null) -> no bar at all, zero layout change either way —
+          the bar is absolutely positioned so it never shifts the strip's
+          own content regardless of whether it's present. */}
+      {meterLevel !== null && <MeterBar level={meterLevel} />}
     </div>
+  );
+}
+
+function MeterBar({ level }: { level: number }) {
+  const heightPercent = meterBarHeightPercent(level);
+  const classNames = ["strip__meter"];
+  if (isMeterHot(heightPercent)) classNames.push("strip__meter--hot");
+
+  return (
+    <span
+      className={classNames.join(" ")}
+      style={{ height: `${heightPercent}%` }}
+      aria-hidden="true"
+    />
   );
 }

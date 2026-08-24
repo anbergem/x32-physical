@@ -271,6 +271,48 @@ describe("parseServerMessage: baseline-save-rejected", () => {
   });
 });
 
+describe("parseServerMessage: meters", () => {
+  function levels32(fill = 0): number[] {
+    return new Array(32).fill(fill);
+  }
+
+  it("accepts a well-formed meters message with exactly 32 levels", () => {
+    const message = { type: "meters", levels: levels32(0.5) };
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("rejects a levels array that isn't an array", () => {
+    expect(() =>
+      parseServerMessage({ type: "meters", levels: "not-an-array" }),
+    ).toThrow(/levels/);
+  });
+
+  it("rejects a levels array with the wrong length", () => {
+    expect(() =>
+      parseServerMessage({ type: "meters", levels: levels32().slice(0, 31) }),
+    ).toThrow(/levels/);
+    expect(() =>
+      parseServerMessage({ type: "meters", levels: [...levels32(), 0] }),
+    ).toThrow(/levels/);
+  });
+
+  it("rejects a non-numeric entry", () => {
+    const levels: unknown[] = levels32();
+    levels[5] = "loud";
+    expect(() => parseServerMessage({ type: "meters", levels })).toThrow(
+      /levels\[5\]/,
+    );
+  });
+
+  it("rejects a non-finite entry", () => {
+    const levels = levels32();
+    levels[0] = Number.NaN;
+    expect(() => parseServerMessage({ type: "meters", levels })).toThrow(
+      /levels\[0\]/,
+    );
+  });
+});
+
 describe("parseServerMessage: envelope", () => {
   it("rejects null, arrays, and non-objects", () => {
     for (const value of [null, undefined, 42, "snapshot", true, []]) {

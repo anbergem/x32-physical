@@ -46,6 +46,13 @@
   --diag-error: #e0435f;
   --diag-warn: #b07de0;
 
+  /* Strip meters (plan step 15): a quiet, cool default, switching to a warm
+     "hot" colour only near the top of the bar. Deliberately its own family
+     from --ok/--bad — a meter reading hot is normal audio behaviour, not a
+     diagnostics error. */
+  --meter: #3a6b7a;
+  --meter-hot: #e0a458;
+
   color-scheme: dark;
 }
 
@@ -461,6 +468,25 @@ body {
 
 .strip--unknown .strip__name {
   color: var(--text-dim);
+}
+
+/* --- strip meter (plan step 15) ------------------------------------------
+   Absolute-positioned on the strip's own right edge, growing up from the
+   bottom — it never shifts the strip's own layout, present or absent. Height
+   is set inline per-render from the (already perceptually mapped) level. */
+.strip__meter {
+  position: absolute;
+  right: 3px;
+  bottom: 4px;
+  width: 3px;
+  max-height: calc(100% - 8px);
+  background: var(--meter);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.strip__meter--hot {
+  background: var(--meter-hot);
 }
 
 /* --- diagnostics header (plan step 14) ---------------------------------- */

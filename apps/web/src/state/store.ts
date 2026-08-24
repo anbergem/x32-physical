@@ -63,6 +63,14 @@ export interface AppState {
   // Never touches `baseline`/`discrepancies` — a rejected save changed
   // nothing about either.
   baselineSaveError: string | null;
+
+  // Runtime: a fourth, fastest state path (architecture.md §5, step 15) —
+  // live per-channel meter levels, updated several times a second. `null`
+  // until the first `meters` message/mock tick arrives. Its own slice,
+  // disjoint from everything above: a meters update never touches
+  // routeIndex/channels/discrepancies/baseline/selection/hover, and none of
+  // those setters ever touch it (`store.test.ts` asserts both directions).
+  meterLevels: number[] | null;
 }
 
 /**
@@ -89,6 +97,9 @@ export interface AppActions {
   setSelectedChannel(channel: MixerChannelId | null): void;
   setHoveredEndpoint(endpoint: EndpointId | null): void;
   setBaselineSaveError(reason: string | null): void;
+
+  // Fourth path — never composed with any other slice's patch (architecture.md §5).
+  setMeterLevels(levels: number[] | null): void;
 }
 
 export type AppStoreState = AppState & AppActions;
@@ -188,6 +199,7 @@ export function createAppStore(
     selectedChannel: null,
     hoveredEndpoint: null,
     baselineSaveError: null,
+    meterLevels: null,
 
     applySnapshot(snapshot, connection) {
       const state = get();
@@ -249,6 +261,17 @@ export function createAppStore(
 
     setBaselineSaveError(reason) {
       if (get().baselineSaveError !== reason) set({ baselineSaveError: reason });
+    },
+
+    /**
+     * The one write in this store that runs several times a second — no
+     * equality check against the previous value (a fresh `levels` array
+     * arrives on every tick anyway) and, crucially, no other key in the
+     * patch: `set` only replaces `meterLevels`, so every other slice keeps
+     * its exact object identity (architecture.md §5's fourth-path guarantee).
+     */
+    setMeterLevels(levels) {
+      set({ meterLevels: levels });
     },
   }));
 }

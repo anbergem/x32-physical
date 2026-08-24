@@ -216,6 +216,63 @@ describe("configuration slice", () => {
  * rename or a baseline change recomputes it without ever touching
  * `routeIndex`, and runtime writes leave both alone.
  */
+/**
+ * `meterLevels` (architecture.md §5, plan step 15): a fourth, fastest state
+ * path, disjoint from all the others in both directions.
+ */
+describe("meters slice", () => {
+  it("starts with no meter levels", () => {
+    expect(createStore().getState().meterLevels).toBeNull();
+  });
+
+  it("setMeterLevels touches only meterLevels — every other slice keeps its identity", () => {
+    const store = createStore();
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    const before = store.getState();
+
+    store.getState().setMeterLevels(new Array(32).fill(0.42));
+
+    const after = store.getState();
+    expect(after.meterLevels).toEqual(new Array(32).fill(0.42));
+    expect(after.channels).toBe(before.channels);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+    expect(after.baseline).toBe(before.baseline);
+    expect(after.installation).toBe(before.installation);
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+    expect(after.hoveredEndpoint).toBe(before.hoveredEndpoint);
+    expect(after.connection).toBe(before.connection);
+  });
+
+  it("setMeterLevels(null) clears the slice without touching anything else", () => {
+    const store = createStore();
+    store.getState().setMeterLevels([1, 2, 3]);
+    const before = store.getState();
+
+    store.getState().setMeterLevels(null);
+
+    expect(store.getState().meterLevels).toBeNull();
+    expect(store.getState().channels).toBe(before.channels);
+    expect(store.getState().routeIndex).toBe(before.routeIndex);
+  });
+
+  it("no other setter ever touches meterLevels", () => {
+    const store = createStore();
+    store.getState().setMeterLevels([9, 9, 9]);
+    const before = store.getState().meterLevels;
+
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setConnection("disconnected");
+    store.getState().setChannelName(CH7, "Renamed");
+    store.getState().setChannelSource(CH12, { kind: "aes50", bus: "A", channel: 9 });
+    store.getState().setBaseline({ channels: [], selectedChannel: null });
+
+    expect(store.getState().meterLevels).toBe(before);
+  });
+});
+
 describe("baseline / discrepancies slice", () => {
   function baselineSnapshot(channels: MixerChannelState[]): MixerSnapshot {
     return { channels, selectedChannel: null };

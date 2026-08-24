@@ -9,7 +9,7 @@
 import { mixerChannelId, panelInput } from "@x32/domain";
 import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { venueInstallation } from "../__fixtures__/venue";
 import type { AppStore } from "../state/store";
@@ -109,6 +109,44 @@ describe("event → slice mapping", () => {
 
     mock.simulateReconnect();
     expect(store.getState().connection).toBe("connected");
+  });
+});
+
+describe("meters (step 15)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("wires mock.subscribeMeters to the store's meterLevels slice only", () => {
+    vi.useFakeTimers();
+    const before = store.getState();
+
+    mock.simulateMetersStart();
+    vi.advanceTimersByTime(250);
+
+    const after = store.getState();
+    expect(after.meterLevels).not.toBeNull();
+    expect(after.meterLevels).toHaveLength(32);
+    expect(after.channels).toBe(before.channels);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+
+    mock.simulateMetersStop();
+  });
+
+  it("stops delivering meter levels after disconnect", async () => {
+    vi.useFakeTimers();
+    mock.simulateMetersStart();
+    vi.advanceTimersByTime(250);
+    const levelsAfterFirstTick = store.getState().meterLevels;
+
+    await gateway.disconnect();
+    vi.advanceTimersByTime(250 * 4);
+
+    // Nothing further applied — the gateway's meters subscription was torn down.
+    expect(store.getState().meterLevels).toBe(levelsAfterFirstTick);
+
+    mock.simulateMetersStop();
   });
 });
 
