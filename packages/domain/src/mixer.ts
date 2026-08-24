@@ -29,3 +29,25 @@ export interface MixerChannelState {
    */
   source: MixerSourceRef;
 }
+
+/**
+ * Structural equality for `MixerSourceRef`. Every field across every variant
+ * is a primitive, so a generic key-wise comparison is exact — no per-kind
+ * switch to keep in sync when a variant grows a field. The single shared
+ * helper the adapter (scene-recall no-op detection) and the store
+ * (route-index-preserving source updates) both delegate to, so the "what
+ * counts as the same source" rule lives in one place.
+ */
+export function mixerSourceRefEquals(
+  a: MixerSourceRef,
+  b: MixerSourceRef,
+): boolean {
+  if (a.kind !== b.kind) return false;
+
+  const left: Record<string, unknown> = a;
+  const right: Record<string, unknown> = b;
+  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
+}

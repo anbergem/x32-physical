@@ -50,7 +50,7 @@ step 11 has validated resolution on real hardware (a baseline captured through
 an unvalidated adapter would enshrine any bug on both sides of the diff);
 re-saving after step 11 is one button press.
 
-- [ ] **12. Routing diff (domain)** — `compareRouting(expected, actual)` →
+- [x] **12. Routing diff (domain)** — `compareRouting(expected, actual)` →
       typed discrepancies: `source-mismatch` (error), `name-mismatch`
       (informational), `unexpected-shared-source` (shared in actual but not
       expected). Pure, unit-tested, order-stable.

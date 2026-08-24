@@ -40,6 +40,10 @@ export type {
 export { aes50ChannelForInput, deriveStaticEdges } from "./topology";
 
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
+export { mixerSourceRefEquals } from "./mixer";
+
+export type { RoutingDiscrepancy } from "./routing-diff";
+export { compareRouting } from "./routing-diff";
 
 export type { RouteIndex, SignalRoute } from "./routing";
 export { buildRouteIndex } from "./routing";

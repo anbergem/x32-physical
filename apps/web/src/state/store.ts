@@ -24,7 +24,7 @@ import type {
   MixerSourceRef,
   RouteIndex,
 } from "@x32/domain";
-import { buildRouteIndex } from "@x32/domain";
+import { buildRouteIndex, mixerSourceRefEquals } from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
@@ -110,25 +110,15 @@ function replaceChannel(
 }
 
 /**
- * Structural equality of two sources. Every `MixerSourceRef` field is a
- * primitive (`kind` plus at most one or two scalars), so a shallow key-wise
- * comparison is exact.
+ * Structural equality of two sources — `@x32/domain`'s `mixerSourceRefEquals`.
  *
  * This matters on real hardware: the X32 adapter expands one input-block
  * change into eight `channel-source-changed` events, most of which carry the
  * source the channel already had. Without this guard each of them would
  * rebuild the route index and invalidate every highlight lookup.
  */
-function sameSource(a: MixerSourceRef, b: MixerSourceRef): boolean {
-  if (a.kind !== b.kind) return false;
-
-  const left: Record<string, unknown> = a;
-  const right: Record<string, unknown> = b;
-  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
-    if (left[key] !== right[key]) return false;
-  }
-  return true;
-}
+const sameSource: (a: MixerSourceRef, b: MixerSourceRef) => boolean =
+  mixerSourceRefEquals;
 
 function cloneChannel(channel: MixerChannelState): MixerChannelState {
   return {

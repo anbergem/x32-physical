@@ -13,7 +13,11 @@
  */
 
 import type { MixerChannelId, MixerChannelState, MixerSourceRef } from "@x32/domain";
-import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
+import {
+  MIXER_CHANNEL_COUNT,
+  mixerChannelId,
+  mixerSourceRefEquals,
+} from "@x32/domain";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 
 import {
@@ -104,30 +108,12 @@ export function resolveChannelSource(inputs: ChannelResolutionInputs): MixerSour
  * changed; the client uses this to skip emitting a no-op
  * `channel-source-changed` for a channel whose re-resolved source is
  * identical to what it already was.
+ *
+ * Re-exported for this module's existing call sites/tests; the comparison
+ * itself lives in `@x32/domain` (`mixerSourceRefEquals`) so the adapter and
+ * the web store share one definition of "same source".
  */
-export function sourceRefEquals(a: MixerSourceRef, b: MixerSourceRef): boolean {
-  if (a.kind !== b.kind) return false;
-  switch (a.kind) {
-    case "off":
-      return true;
-    case "aes50":
-      return b.kind === "aes50" && a.bus === b.bus && a.channel === b.channel;
-    case "local":
-      return b.kind === "local" && a.input === b.input;
-    case "card":
-      return b.kind === "card" && a.input === b.input;
-    case "aux":
-      return b.kind === "aux" && a.input === b.input;
-    case "usb":
-      return b.kind === "usb" && a.side === b.side;
-    case "fx":
-      return b.kind === "fx" && a.ret === b.ret;
-    case "bus":
-      return b.kind === "bus" && a.bus === b.bus;
-    case "talkback":
-      return b.kind === "talkback" && a.which === b.which;
-  }
-}
+export const sourceRefEquals = mixerSourceRefEquals;
 
 function isInputSlotInRange(sourceValue: number, start: number, end: number): number | null {
   const category = classifyChannelSourceValue(sourceValue);
