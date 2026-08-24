@@ -15,6 +15,9 @@
  *                        only.
  *   X32_BASELINE_FILE    disk path for the persisted baseline (architecture.md
  *                        §7); default data/baseline.json, relative to cwd.
+ *   X32_WEB_DIST         static root for the built web app (plan step 16);
+ *                        unset serves WebSocket only, matching today's dev
+ *                        behaviour.
  */
 
 import { MockMixerClient } from "@x32/mixer-contracts";
@@ -26,6 +29,7 @@ import {
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
+  resolveWebDistPath,
 } from "./config";
 import { startDemoMode } from "./demo";
 import { startBridgeServer } from "./server/bridgeServer";
@@ -35,13 +39,17 @@ async function main(): Promise<void> {
   const port = resolvePort(process.env);
   const demo = resolveDemoMode(process.env);
   const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(process.env));
+  const webDist = resolveWebDistPath(process.env);
 
   const mixerClient = createMixerClient(mode, process.env);
-  const bridge = await startBridgeServer({ mixerClient, port, baselineStore });
+  const bridge = await startBridgeServer({ mixerClient, port, baselineStore, webDist });
 
   console.log(
     `x32-bridge: listening on ws://localhost:${bridge.port} (mixer: ${mode})`,
   );
+  if (webDist !== undefined) {
+    console.log(`x32-bridge: serving web app from ${webDist} on http://localhost:${bridge.port}`);
+  }
 
   let stopDemo: (() => void) | null = null;
   if (demo) {

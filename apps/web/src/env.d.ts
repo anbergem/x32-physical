@@ -14,12 +14,18 @@ declare module "*?raw" {
 declare module "*.css";
 
 /**
- * The one build-time env var this app reads (`gateway/webSocketMixerGateway.ts`):
- * an override for the bridge's WebSocket URL. Declared by hand, like the
- * modules above, rather than pulling in all of `vite/client`'s ambient types.
+ * The build-time env vars this app reads (`gateway/webSocketMixerGateway.ts`,
+ * `gateway/mixerGateway.ts`): an override for the bridge's WebSocket URL, and
+ * the default gateway mode baked in at build time (plan step 16 — the release
+ * build sets `VITE_DEFAULT_MODE=live`). `DEV` is Vite's own built-in flag
+ * (true under `vite`/`vite dev`, false in a `vite build` output) — declared
+ * by hand, like the vars above, rather than pulling in all of `vite/client`'s
+ * ambient types.
  */
 interface ImportMetaEnv {
   readonly VITE_X32_BRIDGE_URL?: string;
+  readonly VITE_DEFAULT_MODE?: string;
+  readonly DEV: boolean;
 }
 
 interface ImportMeta {

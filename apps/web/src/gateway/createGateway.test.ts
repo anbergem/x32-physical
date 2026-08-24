@@ -14,17 +14,30 @@ import { WebSocketMixerGateway } from "./webSocketMixerGateway";
 
 describe("resolveGatewayMode", () => {
   it("defaults to mock so the app always starts without an X32", () => {
-    expect(resolveGatewayMode("")).toBe("mock");
-    expect(resolveGatewayMode("?other=1")).toBe("mock");
+    expect(resolveGatewayMode("", {})).toBe("mock");
+    expect(resolveGatewayMode("?other=1", {})).toBe("mock");
   });
 
   it("reads the mode from the query string", () => {
-    expect(resolveGatewayMode("?mode=live")).toBe("live");
-    expect(resolveGatewayMode("?mode=mock")).toBe("mock");
+    expect(resolveGatewayMode("?mode=live", {})).toBe("live");
+    expect(resolveGatewayMode("?mode=mock", {})).toBe("mock");
   });
 
   it("falls back to mock on an unrecognised mode", () => {
-    expect(resolveGatewayMode("?mode=typo")).toBe("mock");
+    expect(resolveGatewayMode("?mode=typo", {})).toBe("mock");
+  });
+
+  it("falls back to the build-time VITE_DEFAULT_MODE when no query param is present", () => {
+    expect(resolveGatewayMode("", { VITE_DEFAULT_MODE: "live" })).toBe("live");
+    expect(resolveGatewayMode("?other=1", { VITE_DEFAULT_MODE: "live" })).toBe("live");
+  });
+
+  it("a query param still overrides VITE_DEFAULT_MODE", () => {
+    expect(resolveGatewayMode("?mode=mock", { VITE_DEFAULT_MODE: "live" })).toBe("mock");
+  });
+
+  it("treats an unrecognised VITE_DEFAULT_MODE as mock", () => {
+    expect(resolveGatewayMode("", { VITE_DEFAULT_MODE: "typo" })).toBe("mock");
   });
 });
 

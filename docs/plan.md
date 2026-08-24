@@ -75,7 +75,7 @@ re-saving after step 11 is one button press.
       `meters` WS message; a fourth, fastest store path that never touches
       channels/routeIndex/discrepancies; thin level bar on each strip's right
       edge; mock simulates levels behind a control-surface toggle.
-- [ ] **16. Production serve mode** — the bridge serves the built web app
+- [x] **16. Production serve mode** — the bridge serves the built web app
       (hand-rolled static handler, path-traversal safe, index fallback) over
       HTTP on the same port as the WS, so the venue URL is one origin
       (`http://localhost:8765`). Web built with `VITE_DEFAULT_MODE=live`

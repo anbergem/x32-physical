@@ -166,42 +166,68 @@ describe("WebSocketMixerGateway reconnection", () => {
 });
 
 describe("resolveBridgeUrl", () => {
-  it("defaults to the page host on the bridge's default port", () => {
+  it("under the Vite dev server, defaults to the page hostname on the bridge's default port", () => {
     const url = resolveBridgeUrl(
-      { search: "", hostname: "venue.local", protocol: "http:" },
-      {},
+      { search: "", hostname: "venue.local", host: "venue.local:5173", protocol: "http:" },
+      { DEV: true },
     );
     expect(url).toBe("ws://venue.local:8765");
   });
 
-  it("upgrades to wss: when the page itself is served over https", () => {
+  it("under the Vite dev server, upgrades to wss: when the page itself is served over https", () => {
     const url = resolveBridgeUrl(
-      { search: "", hostname: "venue.local", protocol: "https:" },
-      {},
+      { search: "", hostname: "venue.local", host: "venue.local:5173", protocol: "https:" },
+      { DEV: true },
     );
     expect(url).toBe("wss://venue.local:8765");
   });
 
+  it("outside the Vite dev server (release build), defaults to same-origin", () => {
+    const url = resolveBridgeUrl(
+      { search: "", hostname: "venue.local", host: "venue.local:8765", protocol: "http:" },
+      { DEV: false },
+    );
+    expect(url).toBe("ws://venue.local:8765");
+  });
+
+  it("outside the Vite dev server, same-origin default upgrades to wss: over https", () => {
+    const url = resolveBridgeUrl(
+      { search: "", hostname: "venue.local", host: "venue.local:443", protocol: "https:" },
+      { DEV: false },
+    );
+    expect(url).toBe("wss://venue.local:443");
+  });
+
   it("prefers an explicit ?bridge= override, adding ws:// to a bare host[:port]", () => {
     const url = resolveBridgeUrl(
-      { search: "?bridge=192.168.1.50:9000", hostname: "venue.local", protocol: "http:" },
-      {},
+      {
+        search: "?bridge=192.168.1.50:9000",
+        hostname: "venue.local",
+        host: "venue.local:5173",
+        protocol: "http:",
+      },
+      { DEV: true },
     );
     expect(url).toBe("ws://192.168.1.50:9000");
   });
 
   it("leaves a full ws(s):// override untouched", () => {
     const url = resolveBridgeUrl(
-      { search: "?bridge=wss%3A%2F%2Fexample.test%3A1234", hostname: "venue.local", protocol: "http:" },
-      {},
+      {
+        search: "?bridge=wss%3A%2F%2Fexample.test%3A1234",
+        hostname: "venue.local",
+        host: "venue.local:5173",
+        protocol: "http:",
+      },
+      { DEV: true },
     );
     expect(url).toBe("wss://example.test:1234");
   });
 
   it("falls back to VITE_X32_BRIDGE_URL when there is no query override", () => {
     const url = resolveBridgeUrl(
-      { search: "", hostname: "venue.local", protocol: "http:" },
-      { VITE_X32_BRIDGE_URL: "bridge.example.com:8765" },
+      { search: "", hostname: "venue.local", host: "venue.local:5173", protocol: "http:" },
+      { DEV: true, VITE_X32_BRIDGE_URL: "bridge.example.com:8765" },
     );
     expect(url).toBe("ws://bridge.example.com:8765");
   });

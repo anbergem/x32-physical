@@ -9,6 +9,7 @@ import {
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
+  resolveWebDistPath,
   resolveX32Host,
   resolveX32Port,
 } from "./config";
@@ -79,6 +80,20 @@ describe("resolveBaselineFilePath", () => {
 
   it("falls back to the default for a blank override", () => {
     expect(resolveBaselineFilePath({ X32_BASELINE_FILE: "   " })).toBe(DEFAULT_BASELINE_FILE);
+  });
+});
+
+describe("resolveWebDistPath", () => {
+  it("is unset by default (WS only)", () => {
+    expect(resolveWebDistPath({})).toBeUndefined();
+  });
+
+  it("returns the configured override", () => {
+    expect(resolveWebDistPath({ X32_WEB_DIST: "/opt/x32/web" })).toBe("/opt/x32/web");
+  });
+
+  it("treats a blank override as unset", () => {
+    expect(resolveWebDistPath({ X32_WEB_DIST: "   " })).toBeUndefined();
   });
 });
 

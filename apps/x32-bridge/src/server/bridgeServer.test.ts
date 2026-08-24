@@ -10,6 +10,7 @@ import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import type { ServerMessage } from "@x32/protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -383,5 +384,94 @@ describe("baseline persistence (architecture.md §7)", () => {
     const message = asSnapshot(await client.next());
 
     expect(message.baseline).toBeNull();
+  });
+});
+
+/** Raw HTTP GET against the bridge's own port, alongside the WS API (plan step 16). */
+function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port, path }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () =>
+        resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+      );
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("production static serving (plan step 16)", () => {
+  let webDist: string;
+
+  beforeEach(async () => {
+    webDist = await mkdtemp(join(tmpdir(), "x32-bridge-web-"));
+    await writeFile(join(webDist, "index.html"), "<html>the app</html>");
+  });
+
+  afterEach(async () => {
+    await rm(webDist, { recursive: true, force: true });
+  });
+
+  it("serves the built web app over HTTP on the same port as the WS API", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      webDist,
+    });
+
+    const httpResponse = await httpGet(bridge.port, "/");
+    expect(httpResponse.status).toBe(200);
+    expect(httpResponse.body).toBe("<html>the app</html>");
+
+    // WS still works on the very same port.
+    const client = await connectClient(bridge.port);
+    const message = asSnapshot(await client.next());
+    expect(message.snapshot.channels).toHaveLength(32);
+  });
+
+  it("blocks path traversal outside webDist, including URL-encoded segments", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      webDist,
+    });
+    const outsideSecret = join(webDist, "..", `secret-${Date.now()}.txt`);
+    await writeFile(outsideSecret, "top secret");
+    try {
+      // File extensions here so the SPA index.html fallback can't mask the
+      // result — this specifically exercises the traversal guard.
+      const plain = await httpGet(bridge.port, `/../${outsideSecret.split("/").pop()}`);
+      expect(plain.status).toBe(404);
+      expect(plain.body).not.toContain("top secret");
+
+      const encoded = await httpGet(bridge.port, `/%2e%2e/${outsideSecret.split("/").pop()}`);
+      expect(encoded.status).toBe(404);
+      expect(encoded.body).not.toContain("top secret");
+    } finally {
+      await rm(outsideSecret, { force: true });
+    }
+  });
+
+  it("without X32_WEB_DIST, HTTP GET gets a minimal 404 and WS is unaffected", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      // webDist intentionally omitted
+    });
+
+    const httpResponse = await httpGet(bridge.port, "/");
+    expect(httpResponse.status).toBe(404);
+
+    const client = await connectClient(bridge.port);
+    const message = asSnapshot(await client.next());
+    expect(message.snapshot.channels).toHaveLength(32);
   });
 });

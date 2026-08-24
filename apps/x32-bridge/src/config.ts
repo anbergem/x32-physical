@@ -11,6 +11,7 @@
  * | `X32_PORT`         | console OSC port (`x32` mode only)    | `10023` |
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
  * | `X32_BASELINE_FILE`| disk path for the persisted baseline (architecture.md §7) | `data/baseline.json` |
+ * | `X32_WEB_DIST`      | static root for the built web app (plan step 16); unset = WS only | unset |
  */
 
 import type { MixerClient } from "@x32/mixer-contracts";
@@ -63,6 +64,17 @@ export const DEFAULT_BASELINE_FILE = "data/baseline.json";
 export function resolveBaselineFilePath(env: NodeJS.ProcessEnv): string {
   const raw = env.X32_BASELINE_FILE;
   return raw !== undefined && raw.trim() !== "" ? raw : DEFAULT_BASELINE_FILE;
+}
+
+/**
+ * Static root for the built web app (plan step 16, architecture.md §6/§7).
+ * Unset means WS-only — today's dev behaviour, and the default when this
+ * bridge is run standalone against a separately-served (e.g. Vite dev)
+ * front end.
+ */
+export function resolveWebDistPath(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = env.X32_WEB_DIST;
+  return raw !== undefined && raw.trim() !== "" ? raw : undefined;
 }
 
 /** Required in `x32` mode: the console has no discovery protocol we implement. */

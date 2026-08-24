@@ -65,6 +65,8 @@ function openWebSocket(url: string): SocketLike {
 interface MinimalLocation {
   search: string;
   hostname: string;
+  /** `hostname[:port]` — used for the production same-origin default below. */
+  host: string;
   protocol: string;
 }
 
@@ -77,9 +79,20 @@ function normalizeBridgeUrl(value: string): string {
 /**
  * Resolves the bridge's WebSocket URL: a `?bridge=` query override (a full
  * `ws(s)://` URL, or a bare `host[:port]`) wins; then the build-time
- * `VITE_X32_BRIDGE_URL`; then `ws(s)://<page host>:8765`, matching the
- * page's own protocol so an https-served app does not attempt a mixed-content
- * plain `ws://` connection.
+ * `VITE_X32_BRIDGE_URL`; then a default that depends on how the page itself
+ * was served (plan step 16):
+ *
+ * - Vite dev server (`env.DEV`): `ws(s)://<page hostname>:8765` — the bridge
+ *   runs as its own dev process on its own port, so guessing the page's port
+ *   would be wrong.
+ * - Anything else (a release build, `vite preview`, the staged bridge's own
+ *   static serving): `ws(s)://<page host>`, i.e. same origin — the release
+ *   bridge serves the built web app and the WebSocket API from one port
+ *   (architecture.md §6/§7, step 16), so the page's own host:port *is* the
+ *   bridge.
+ *
+ * Either way the scheme matches the page's own protocol so an https-served
+ * app does not attempt a mixed-content plain `ws://` connection.
  */
 export function resolveBridgeUrl(
   location: MinimalLocation,
@@ -91,6 +104,7 @@ export function resolveBridgeUrl(
   if (env.VITE_X32_BRIDGE_URL) return normalizeBridgeUrl(env.VITE_X32_BRIDGE_URL);
 
   const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  if (!env.DEV) return `${wsProtocol}//${location.host}`;
   return `${wsProtocol}//${location.hostname}:${DEFAULT_BRIDGE_PORT}`;
 }
 

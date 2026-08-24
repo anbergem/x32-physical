@@ -9,10 +9,12 @@
     "test": "vitest run",
     "build": "pnpm --filter @x32/web run build",
     "dev": "pnpm --filter @x32/web run dev",
-    "bridge": "pnpm --filter @x32/x32-bridge run dev"
+    "bridge": "pnpm --filter @x32/x32-bridge run dev",
+    "release:build": "node scripts/release-build.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }

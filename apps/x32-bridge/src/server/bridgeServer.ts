@@ -12,6 +12,11 @@
  * `applyToStore`, independently — the bridge has no store and does not need
  * `routeIndex`, only the flat mixer state it re-serves to new clients).
  *
+ * The WebSocket server shares one `node:http` server with the static file
+ * handler (plan step 16, `staticFileServer.ts`) — one port serves both the
+ * built web app and the WS API in production; unset `webDist` keeps today's
+ * WS-only dev behaviour.
+ *
  * A `connection-state-changed` transition to `"connected"` is treated as a
  * resync opportunity rather than a plain delta: the bridge re-reads the
  * mixer's ground truth and pushes a fresh `snapshot` to every client instead
@@ -30,11 +35,14 @@ import type {
 } from "@x32/mixer-contracts";
 import type { ClientMessage, ServerMessage } from "@x32/protocol";
 import { parseClientMessage } from "@x32/protocol";
+import { createServer } from "node:http";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
 import { cloneSnapshot } from "../snapshot";
+
+import { createStaticFileHandler, createWsOnlyHandler } from "./staticFileServer";
 
 export interface BridgeServerOptions {
   mixerClient: MixerClient;
@@ -42,6 +50,14 @@ export interface BridgeServerOptions {
   port: number;
   /** Where the blessed baseline (architecture.md §7) is loaded from and persisted to. */
   baselineStore: BaselineStore;
+  /**
+   * Absolute path to the built web app (plan step 16). When set, plain HTTP
+   * `GET`/`HEAD` requests on this same port serve it (hand-rolled static
+   * handler, `staticFileServer.ts`); when unset, HTTP requests get a minimal
+   * 404 and only the WebSocket API is served — today's dev behaviour,
+   * unchanged.
+   */
+  webDist?: string;
 }
 
 export interface BridgeServer {
@@ -222,7 +238,12 @@ export async function startBridgeServer(
     broadcast({ type: "event", event });
   });
 
-  const wss = new WebSocketServer({ port: options.port });
+  const httpServer = createServer(
+    options.webDist !== undefined
+      ? createStaticFileHandler(options.webDist)
+      : createWsOnlyHandler(),
+  );
+  const wss = new WebSocketServer({ server: httpServer });
 
   wss.on("connection", (socket) => {
     console.log(`x32-bridge: client connected (${wss.clients.size} total)`);
@@ -266,11 +287,12 @@ export async function startBridgeServer(
   });
 
   await new Promise<void>((resolve, reject) => {
-    wss.once("listening", resolve);
-    wss.once("error", reject);
+    httpServer.once("listening", resolve);
+    httpServer.once("error", reject);
+    httpServer.listen(options.port);
   });
 
-  const address = wss.address();
+  const address = httpServer.address();
   const boundPort = typeof address === "string" || address === null
     ? options.port
     : address.port;
@@ -283,6 +305,9 @@ export async function startBridgeServer(
       for (const socket of wss.clients) socket.terminate();
       await new Promise<void>((resolve, reject) => {
         wss.close((error) => (error ? reject(error) : resolve()));
+      });
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => (error ? reject(error) : resolve()));
       });
       await mixerClient.disconnect();
     },
