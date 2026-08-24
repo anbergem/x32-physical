@@ -75,6 +75,28 @@ re-saving after step 11 is one button press.
       `meters` WS message; a fourth, fastest store path that never touches
       channels/routeIndex/discrepancies; thin level bar on each strip's right
       edge; mock simulates levels behind a control-surface toggle.
+- [ ] **16. Production serve mode** — the bridge serves the built web app
+      (hand-rolled static handler, path-traversal safe, index fallback) over
+      HTTP on the same port as the WS, so the venue URL is one origin
+      (`http://localhost:8765`). Web built with `VITE_DEFAULT_MODE=live`
+      defaults to live mode + same-origin bridge URL (dev stays mock/Vite).
+      `pnpm release:build` stages `dist/release/`: esbuild-bundled
+      `server.mjs`, web dist, `config/installation.yaml`, VERSION. Verified
+      locally by running the staged server with the mock mixer.
+- [ ] **17. Windows venue distribution** — GitHub Actions on tag `v*`:
+      typecheck + tests, release:build, assemble a self-contained win-x64 zip
+      (portable Node runtime + staged app + scripts), publish as a GitHub
+      Release. Scripts in the zip: `install.ps1` (run once as admin: unzip to
+      `C:\X32Visualizer`, prompt for the console IP → `settings.env`,
+      register a hidden at-logon scheduled task, desktop shortcut to the
+      localhost URL), `start.cmd` (loads settings, points
+      `X32_BASELINE_FILE` at a preserved `data\` dir, runs the server), and
+      `update.ps1` (double-click: fetch latest GitHub Release — optional
+      `GITHUB_TOKEN` for a private repo — swap `app\`, preserve
+      `data\` + `settings.env`, restart the task). README "Deploying to the
+      venue" section. Caveat: the PowerShell scripts get their first real
+      execution on the venue machine — keep them small, defensive, loud on
+      failure.
 
 ## Domain test checklist (step 5)
 
