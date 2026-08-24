@@ -6,4 +6,4 @@
  */
 
 export type { ClientMessage, ServerMessage } from "./messages";
-export { parseClientMessage, parseServerMessage } from "./parse";
+export { parseClientMessage, parseMixerSnapshot, parseServerMessage } from "./parse";

@@ -10,6 +10,7 @@
  * | `X32_HOST`         | console IP/hostname (`x32` mode only) | required |
  * | `X32_PORT`         | console OSC port (`x32` mode only)    | `10023` |
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
+ * | `X32_BASELINE_FILE`| disk path for the persisted baseline (architecture.md §7) | `data/baseline.json` |
  */
 
 import type { MixerClient } from "@x32/mixer-contracts";
@@ -53,6 +54,15 @@ export function resolvePort(env: NodeJS.ProcessEnv): number {
 /** `X32_DEMO=1` — dev-only scripted mock sequence, off unless set exactly. */
 export function resolveDemoMode(env: NodeJS.ProcessEnv): boolean {
   return env.X32_DEMO === "1";
+}
+
+/** Default location of the bridge's own disk-persisted baseline (architecture.md §7), relative to the bridge process's cwd. */
+export const DEFAULT_BASELINE_FILE = "data/baseline.json";
+
+/** Where `DiskBaselineStore` reads/writes the blessed snapshot. */
+export function resolveBaselineFilePath(env: NodeJS.ProcessEnv): string {
+  const raw = env.X32_BASELINE_FILE;
+  return raw !== undefined && raw.trim() !== "" ? raw : DEFAULT_BASELINE_FILE;
 }
 
 /** Required in `x32` mode: the console has no discovery protocol we implement. */

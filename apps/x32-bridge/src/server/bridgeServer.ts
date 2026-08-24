@@ -20,23 +20,28 @@
  * clients"). Every other event is forwarded as-is.
  */
 
+import { MIXER_CHANNEL_COUNT } from "@x32/domain";
 import type { MixerChannelState } from "@x32/domain";
 import type {
   MixerClient,
   MixerConnectionState,
   MixerEvent,
+  MixerSnapshot,
 } from "@x32/mixer-contracts";
 import type { ClientMessage, ServerMessage } from "@x32/protocol";
 import { parseClientMessage } from "@x32/protocol";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
+import type { BaselineStore } from "../baselineStore";
 import { cloneSnapshot } from "../snapshot";
 
 export interface BridgeServerOptions {
   mixerClient: MixerClient;
   /** WebSocket port; `0` binds an OS-assigned ephemeral port (tests). */
   port: number;
+  /** Where the blessed baseline (architecture.md §7) is loaded from and persisted to. */
+  baselineStore: BaselineStore;
 }
 
 export interface BridgeServer {
@@ -75,7 +80,7 @@ function describeEvent(event: MixerEvent): string {
 export async function startBridgeServer(
   options: BridgeServerOptions,
 ): Promise<BridgeServer> {
-  const { mixerClient } = options;
+  const { mixerClient, baselineStore } = options;
 
   // Establish the baseline before subscribing: `getSnapshot()` returns
   // current truth regardless of anything that happened during `connect()`,
@@ -84,12 +89,18 @@ export async function startBridgeServer(
   await mixerClient.connect();
   let cachedSnapshot = cloneSnapshot(await mixerClient.getSnapshot());
   let cachedConnection: MixerConnectionState = mixerClient.getConnectionState();
+  let cachedBaseline: MixerSnapshot | null = await baselineStore.load();
+
+  function cloneNullableSnapshot(snapshot: MixerSnapshot | null): MixerSnapshot | null {
+    return snapshot === null ? null : cloneSnapshot(snapshot);
+  }
 
   function snapshotMessage(): ServerMessage {
     return {
       type: "snapshot",
       snapshot: cloneSnapshot(cachedSnapshot),
       mixerConnection: cachedConnection,
+      baseline: cloneNullableSnapshot(cachedBaseline),
     };
   }
 
@@ -125,6 +136,46 @@ export async function startBridgeServer(
     } catch (error) {
       console.error("x32-bridge: resync after reconnect failed:", errorMessage(error));
     }
+  }
+
+  /**
+   * Blesses `cachedSnapshot` as the new baseline (architecture.md §7). Only
+   * confined to the bridge's own disk — never the mixer (CLAUDE.md invariant
+   * 5). Rejected — reason sent only to the requesting client, never
+   * broadcast — while the mixer is disconnected or the cached snapshot is
+   * incomplete: nobody blesses a half-read state.
+   */
+  async function handleSaveBaseline(socket: WebSocket): Promise<void> {
+    if (cachedConnection !== "connected") {
+      send(socket, {
+        type: "baseline-save-rejected",
+        reason: "The mixer is not connected.",
+      });
+      return;
+    }
+    if (cachedSnapshot.channels.length !== MIXER_CHANNEL_COUNT) {
+      send(socket, {
+        type: "baseline-save-rejected",
+        reason: `The current snapshot is incomplete (${cachedSnapshot.channels.length}/${MIXER_CHANNEL_COUNT} channels).`,
+      });
+      return;
+    }
+
+    const toSave = cloneSnapshot(cachedSnapshot);
+    try {
+      await baselineStore.save(toSave);
+    } catch (error) {
+      console.error("x32-bridge: failed to persist baseline:", errorMessage(error));
+      send(socket, {
+        type: "baseline-save-rejected",
+        reason: `Failed to persist the baseline: ${errorMessage(error)}`,
+      });
+      return;
+    }
+
+    cachedBaseline = toSave;
+    console.log(`x32-bridge: baseline saved, broadcasting to ${wss.clients.size} client(s)`);
+    broadcast({ type: "baseline-changed", baseline: cloneSnapshot(cachedBaseline) });
   }
 
   const unsubscribe = mixerClient.subscribe((event) => {
@@ -179,6 +230,12 @@ export async function startBridgeServer(
       if (message.type === "resync") {
         console.log("x32-bridge: client requested resync");
         send(socket, snapshotMessage());
+        return;
+      }
+
+      if (message.type === "save-baseline") {
+        console.log("x32-bridge: client requested save-baseline");
+        void handleSaveBaseline(socket);
       }
     });
 

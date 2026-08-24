@@ -4,3 +4,7 @@ dist/
 .DS_Store
 .env
 .env.local
+
+# x32-bridge's disk-persisted baseline (architecture.md §7); the default
+# X32_BASELINE_FILE location relative to the bridge process's cwd.
+apps/x32-bridge/data/

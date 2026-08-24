@@ -19,6 +19,16 @@ export interface MixerGateway {
   /** Applies the initial snapshot, then streams events until disconnected. */
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  /**
+   * Blesses the current live snapshot as the new baseline (architecture.md
+   * §7). Fire-and-forget: `WebSocketMixerGateway` sends `save-baseline` over
+   * the socket and the bridge answers asynchronously with `baseline-changed`
+   * or `baseline-save-rejected`; `LocalMockGateway` persists synchronously to
+   * its `BaselineStore`. Neither path writes to the mixer (CLAUDE.md
+   * invariant 5) — this only ever touches the bridge's disk or the browser's
+   * own storage.
+   */
+  saveBaseline(): void;
 }
 
 /**

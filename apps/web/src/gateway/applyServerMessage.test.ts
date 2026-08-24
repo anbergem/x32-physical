@@ -7,7 +7,7 @@
 
 import { mixerChannelId, panelInput } from "@x32/domain";
 import type { ServerMessage } from "@x32/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { venueInstallation } from "../__fixtures__/venue";
 import type { AppStore } from "../state/store";
@@ -36,6 +36,7 @@ function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {
         source: { kind: "aes50" as const, bus: "A" as const, channel: index + 1 },
       })),
     },
+    baseline: null,
   };
 }
 
@@ -136,6 +137,52 @@ describe("applyServerMessage: event -> slice mapping", () => {
     expect(store.getState().connection).toBe("disconnected");
     expect(store.getState().routeIndex).toBe(before.routeIndex);
     expect(store.getState().channels).toBe(before.channels);
+  });
+});
+
+describe("applyServerMessage: baseline (architecture.md §7)", () => {
+  it("applies a snapshot message's baseline field to the baseline slice", () => {
+    const message = snapshotMessage();
+    message.baseline = message.snapshot;
+
+    applyServerMessage(store, message);
+
+    expect(store.getState().baseline).toEqual(message.snapshot);
+  });
+
+  it("routes baseline-changed to the baseline slice and recomputes discrepancies, not routeIndex", () => {
+    applyServerMessage(store, snapshotMessage());
+    const before = store.getState();
+
+    const renamed = {
+      ...snapshotMessage().snapshot,
+      channels: snapshotMessage().snapshot.channels.map((c) =>
+        c.channel === CH7 ? { ...c, name: "Old Name" } : c,
+      ),
+    };
+    applyServerMessage(store, { type: "baseline-changed", baseline: renamed });
+
+    const after = store.getState();
+    expect(after.baseline).toEqual(renamed);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies.some((d) => d.kind === "name-mismatch")).toBe(true);
+  });
+
+  it("logs baseline-save-rejected as a console warning rather than crashing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(() =>
+      applyServerMessage(store, {
+        type: "baseline-save-rejected",
+        reason: "The mixer is not connected.",
+      }),
+    ).not.toThrow();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("baseline"),
+      expect.stringContaining("not connected"),
+    );
+    warn.mockRestore();
   });
 });
 

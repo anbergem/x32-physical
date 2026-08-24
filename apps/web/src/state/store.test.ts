@@ -10,6 +10,7 @@
 
 import type { MixerChannelState } from "@x32/domain";
 import { endpointId, mixerChannelId, panelInput } from "@x32/domain";
+import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
 import { venueInstallation } from "../__fixtures__/venue";
@@ -205,5 +206,150 @@ describe("configuration slice", () => {
     store.getState().setChannelName(mixerChannelId(31), "Ghost");
 
     expect(store.getState()).toBe(before);
+  });
+});
+
+/**
+ * `baseline`/`discrepancies` (architecture.md §5/§7, plan step 13): a second
+ * derived-value pair with its own invalidation, independent of `routeIndex`.
+ * `discrepancies` depends on (channels, baseline) via `compareRouting` — a
+ * rename or a baseline change recomputes it without ever touching
+ * `routeIndex`, and runtime writes leave both alone.
+ */
+describe("baseline / discrepancies slice", () => {
+  function baselineSnapshot(channels: MixerChannelState[]): MixerSnapshot {
+    return { channels, selectedChannel: null };
+  }
+
+  it("starts with no baseline and no discrepancies", () => {
+    const state = createStore().getState();
+    expect(state.baseline).toBeNull();
+    expect(state.discrepancies).toEqual([]);
+  });
+
+  it("setBaseline with a matching baseline yields no discrepancies", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 12)]));
+
+    const after = store.getState();
+    expect(after.discrepancies).toEqual([]);
+    // Only `discrepancies` (and `baseline`) change — routeIndex is untouched.
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.channels).toBe(before.channels);
+  });
+
+  it("setBaseline with a source mismatch surfaces a source-mismatch discrepancy, without rebuilding routeIndex", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 8)]));
+
+    const after = store.getState();
+    expect(after.discrepancies).toEqual([
+      expect.objectContaining({ kind: "source-mismatch", channel: CH12 }),
+    ]);
+    expect(after.routeIndex).toBe(before.routeIndex);
+  });
+
+  it("setBaseline with only a name difference surfaces a name-mismatch discrepancy", () => {
+    const store = createStore();
+
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "Old Name", 7), channel(12, "Keys R", 12)]));
+
+    expect(store.getState().discrepancies).toEqual([
+      expect.objectContaining({ kind: "name-mismatch", channel: CH7 }),
+    ]);
+  });
+
+  it("selection/hover/connection changes preserve baseline and discrepancies identity", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 8)]));
+    const before = store.getState();
+
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setConnection("disconnected");
+
+    const after = store.getState();
+    expect(after.baseline).toBe(before.baseline);
+    expect(after.discrepancies).toBe(before.discrepancies);
+    expect(after.routeIndex).toBe(before.routeIndex);
+  });
+
+  it("a channel-source change recomputes discrepancies (and routeIndex)", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 8)]));
+    const before = store.getState();
+    expect(before.discrepancies).toHaveLength(1); // the CH12 source-mismatch
+
+    // Bring CH12's live source in line with the baseline.
+    store.getState().setChannelSource(CH12, { kind: "aes50", bus: "A", channel: 8 });
+
+    const after = store.getState();
+    expect(after.discrepancies).toEqual([]);
+    expect(after.routeIndex).not.toBe(before.routeIndex);
+  });
+
+  it("a rename recomputes discrepancies (names are compared) but not routeIndex", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 12)]));
+    const before = store.getState();
+    expect(before.discrepancies).toEqual([]);
+
+    store.getState().setChannelName(CH7, "Overhead Right");
+
+    const after = store.getState();
+    expect(after.discrepancies).toEqual([
+      expect.objectContaining({ kind: "name-mismatch", channel: CH7 }),
+    ]);
+    // The whole point: a rename never rebuilds the route index.
+    expect(after.routeIndex).toBe(before.routeIndex);
+  });
+
+  it("applySnapshot recomputes discrepancies against the existing baseline", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 12)]));
+
+    store.getState().applySnapshot(
+      { channels: [channel(12, "Keys R", 9)], selectedChannel: null },
+      "connected",
+    );
+
+    const after = store.getState();
+    expect(after.discrepancies).toEqual([
+      expect.objectContaining({ kind: "source-mismatch", channel: CH12 }),
+    ]);
+  });
+
+  it("setBaseline(null) clears discrepancies without touching routeIndex", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 8)]));
+    const before = store.getState();
+    expect(before.discrepancies).toHaveLength(1);
+
+    store.getState().setBaseline(null);
+
+    const after = store.getState();
+    expect(after.baseline).toBeNull();
+    expect(after.discrepancies).toEqual([]);
+    expect(after.routeIndex).toBe(before.routeIndex);
   });
 });

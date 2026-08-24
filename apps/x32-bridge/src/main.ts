@@ -13,12 +13,16 @@
  *                        so bridge -> browser events can be watched live
  *                        without an X32 connected. Off by default, mock mode
  *                        only.
+ *   X32_BASELINE_FILE    disk path for the persisted baseline (architecture.md
+ *                        §7); default data/baseline.json, relative to cwd.
  */
 
 import { MockMixerClient } from "@x32/mixer-contracts";
 
+import { DiskBaselineStore } from "./baselineStore";
 import {
   createMixerClient,
+  resolveBaselineFilePath,
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
@@ -30,9 +34,10 @@ async function main(): Promise<void> {
   const mode = resolveMixerMode(process.env);
   const port = resolvePort(process.env);
   const demo = resolveDemoMode(process.env);
+  const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(process.env));
 
   const mixerClient = createMixerClient(mode, process.env);
-  const bridge = await startBridgeServer({ mixerClient, port });
+  const bridge = await startBridgeServer({ mixerClient, port, baselineStore });
 
   console.log(
     `x32-bridge: listening on ws://localhost:${bridge.port} (mixer: ${mode})`,

@@ -130,6 +130,17 @@ export class WebSocketMixerGateway implements MixerGateway {
     this.#store.getState().setConnection("disconnected");
   }
 
+  /**
+   * Sends `save-baseline` to the bridge; fire-and-forget (the bridge answers
+   * asynchronously with `baseline-changed` or `baseline-save-rejected`,
+   * handled by `applyServerMessage`). Silently a no-op with no live socket —
+   * matches every other write path here: nothing throws just because the
+   * connection dropped between button-enable and click.
+   */
+  saveBaseline(): void {
+    this.#socket?.send(JSON.stringify({ type: "save-baseline" }));
+  }
+
   #open(): void {
     this.#store.getState().setConnection("connecting");
 

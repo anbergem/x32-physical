@@ -11,6 +11,9 @@
  * | `connection-state-changed` | runtime only — no index rebuild        |
  * | `channel-name-changed`     | configuration — no index rebuild       |
  * | `channel-source-changed`   | configuration — rebuilds the index     |
+ *
+ * `applyBaseline` (step 13) is the sibling entry point for the `baseline`
+ * slice — not a `MixerEvent` variant, since it is not mixer state at all.
  */
 
 import type {
@@ -27,6 +30,15 @@ export function applyMixerSnapshot(
   connection: MixerConnectionState,
 ): void {
   store.getState().applySnapshot(snapshot, connection);
+}
+
+/**
+ * The one path both gateways use to set the `baseline` slice (architecture.md
+ * §7): the WS `snapshot` message's `baseline` field, a `baseline-changed`
+ * event, and mock mode's persisted-on-load value all funnel through here.
+ */
+export function applyBaseline(store: AppStore, baseline: MixerSnapshot | null): void {
+  store.getState().setBaseline(baseline);
 }
 
 export function applyMixerEvent(store: AppStore, event: MixerEvent): void {

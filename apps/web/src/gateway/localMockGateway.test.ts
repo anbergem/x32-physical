@@ -8,13 +8,26 @@
 
 import { mixerChannelId, panelInput } from "@x32/domain";
 import { MockMixerClient } from "@x32/mixer-contracts";
+import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { venueInstallation } from "../__fixtures__/venue";
 import type { AppStore } from "../state/store";
 import { createAppStore } from "../state/store";
 
+import type { BaselineStore } from "./baselineStore";
 import { LocalMockGateway } from "./localMockGateway";
+
+/** In-memory `BaselineStore` fake — no real `localStorage` in these tests. */
+function fakeBaselineStore(initial: MixerSnapshot | null = null): BaselineStore {
+  let stored = initial;
+  return {
+    load: () => stored,
+    save: (snapshot) => {
+      stored = snapshot;
+    },
+  };
+}
 
 const CH7 = mixerChannelId(7);
 const CH12 = mixerChannelId(12);
@@ -107,5 +120,59 @@ describe("LocalMockGateway.disconnect", () => {
     mock.simulateSelect(CH7);
 
     expect(store.getState().selectedChannel).toBeNull();
+  });
+});
+
+describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
+  it("applies a previously persisted baseline on connect", async () => {
+    const persisted: MixerSnapshot = {
+      channels: [{ channel: CH7, name: "Overhead R", source: { kind: "aes50", bus: "A", channel: 7 } }],
+      selectedChannel: null,
+    };
+    const freshStore = createAppStore(venueInstallation());
+    const freshGateway = new LocalMockGateway(
+      freshStore,
+      new MockMixerClient(),
+      fakeBaselineStore(persisted),
+    );
+
+    await freshGateway.connect();
+
+    expect(freshStore.getState().baseline).toEqual(persisted);
+  });
+
+  it("starts with no baseline when nothing was persisted", () => {
+    // `gateway`/`store` from the outer beforeEach use a fresh fakeBaselineStore-less
+    // LocalMockGateway (real localStorage, unavailable under Node) — always null.
+    expect(store.getState().baseline).toBeNull();
+  });
+
+  it("saveBaseline persists the current channels/selection and updates the store", () => {
+    const baselineStore = fakeBaselineStore();
+    const localGateway = new LocalMockGateway(store, mock, baselineStore);
+
+    mock.simulateSelect(CH12);
+    localGateway.saveBaseline();
+
+    const state = store.getState();
+    expect(state.baseline).toEqual({
+      channels: state.channels,
+      selectedChannel: CH12,
+    });
+    // Round-trips through the store: a fresh gateway reading the same store
+    // sees exactly what was just saved.
+    expect(baselineStore.load()).toEqual(state.baseline);
+  });
+
+  it("saveBaseline round-trips through the fake storage across a fresh load", async () => {
+    const baselineStore = fakeBaselineStore();
+    const saver = new LocalMockGateway(store, mock, baselineStore);
+    saver.saveBaseline();
+
+    const freshStore = createAppStore(venueInstallation());
+    const reader = new LocalMockGateway(freshStore, new MockMixerClient(), baselineStore);
+    await reader.connect();
+
+    expect(freshStore.getState().baseline).toEqual(store.getState().baseline);
   });
 });

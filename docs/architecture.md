@@ -331,7 +331,8 @@ type ServerMessage =
   | { type: "snapshot"; snapshot: MixerSnapshot; mixerConnection: MixerConnectionState;
       baseline: MixerSnapshot | null }       // baseline added in step 13
   | { type: "event"; event: MixerEvent }     // re-uses mixer-contracts types
-  | { type: "baseline-changed"; baseline: MixerSnapshot };
+  | { type: "baseline-changed"; baseline: MixerSnapshot }
+  | { type: "baseline-save-rejected"; reason: string };  // save couldn't be honoured
 
 type ClientMessage =
   | { type: "resync" }                       // explicit full-snapshot request

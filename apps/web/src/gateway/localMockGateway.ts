@@ -9,11 +9,14 @@ import type { MockMixerClient, Unsubscribe } from "@x32/mixer-contracts";
 
 import type { AppStore } from "../state/store";
 
-import { applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import { applyBaseline, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import type { BaselineStore } from "./baselineStore";
+import { LocalStorageBaselineStore } from "./baselineStore";
 import type { MixerGateway } from "./mixerGateway";
 
 export class LocalMockGateway implements MixerGateway {
   readonly #store: AppStore;
+  readonly #baselineStore: BaselineStore;
   #unsubscribe: Unsubscribe | null = null;
 
   /**
@@ -24,9 +27,14 @@ export class LocalMockGateway implements MixerGateway {
    */
   readonly mock: MockMixerClient;
 
-  constructor(store: AppStore, mock: MockMixerClient) {
+  constructor(
+    store: AppStore,
+    mock: MockMixerClient,
+    baselineStore: BaselineStore = new LocalStorageBaselineStore(),
+  ) {
     this.#store = store;
     this.mock = mock;
+    this.#baselineStore = baselineStore;
   }
 
   async connect(): Promise<void> {
@@ -41,6 +49,10 @@ export class LocalMockGateway implements MixerGateway {
 
     const snapshot = await this.mock.getSnapshot();
     applyMixerSnapshot(this.#store, snapshot, this.mock.getConnectionState());
+
+    // The mock's own snapshot has nothing to do with the persisted baseline
+    // (architecture.md §7) — that comes from localStorage, independently.
+    applyBaseline(this.#store, this.#baselineStore.load());
   }
 
   async disconnect(): Promise<void> {
@@ -48,5 +60,18 @@ export class LocalMockGateway implements MixerGateway {
     this.#unsubscribe = null;
     await this.mock.disconnect();
     this.#store.getState().setConnection("disconnected");
+  }
+
+  /**
+   * Blesses the store's current `channels` as the new baseline and persists
+   * it via the `BaselineStore` seam — mock mode's stand-in for the bridge's
+   * disk write, per architecture.md §7 ("Mock mode ... persists via
+   * localStorage behind a small `BaselineStore` seam").
+   */
+  saveBaseline(): void {
+    const state = this.#store.getState();
+    const snapshot = { channels: state.channels, selectedChannel: state.selectedChannel };
+    this.#baselineStore.save(snapshot);
+    applyBaseline(this.#store, snapshot);
   }
 }

@@ -4,12 +4,20 @@
  * Three slices with three different lifecycles, deliberately never merged:
  *
  * - `installation` — structural, set once at load, effectively immutable.
- * - `channels` — mixer configuration; changes occasionally. A *source* change
- *   rebuilds the derived `routeIndex`; a rename does not, because routes are
- *   derived from sources alone (architecture.md §5).
+ * - `channels` / `baseline` — mixer configuration; changes occasionally. A
+ *   *source* change rebuilds the derived `routeIndex`; a rename does not,
+ *   because routes are derived from sources alone (architecture.md §5).
  * - `connection` / `selectedChannel` / `hoveredEndpoint` — runtime state, fast
  *   changing. Writing these must **never** rebuild the route index
  *   (CLAUDE.md invariant 1); `store.test.ts` asserts the object identity.
+ *
+ * `routeIndex` and `discrepancies` (step 13) are two *independent* derived
+ * values with two different invalidation triggers — `routeIndex` from
+ * (installation, channels' sources), `discrepancies` from (channels,
+ * baseline) via `compareRouting`, which also compares names. A rename must
+ * recompute `discrepancies` (it may fix or introduce a name-mismatch) without
+ * touching `routeIndex` — so each action composes only the patch its own
+ * change requires, never a shared "recompute everything derived" step.
  *
  * A vanilla store rather than a `create()` hook so it can be built with the
  * loaded installation in hand (no nullable structural slice) and driven from
@@ -23,8 +31,9 @@ import type {
   MixerChannelState,
   MixerSourceRef,
   RouteIndex,
+  RoutingDiscrepancy,
 } from "@x32/domain";
-import { buildRouteIndex, mixerSourceRefEquals } from "@x32/domain";
+import { buildRouteIndex, compareRouting, mixerSourceRefEquals } from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
@@ -37,8 +46,13 @@ export interface AppState {
   // Mixer configuration: changes occasionally; updating it rebuilds routeIndex.
   channels: MixerChannelState[];
 
-  // Derived (recomputed only when installation/channels change):
+  // Blessed known-good snapshot (config lifecycle; null until first save).
+  baseline: MixerSnapshot | null;
+
+  // Derived (recomputed only when installation/channels' sources change):
   routeIndex: RouteIndex;
+  // Derived (recomputed only when channels/baseline change; [] w/o baseline):
+  discrepancies: RoutingDiscrepancy[];
 
   // Runtime: fast-changing, never triggers index rebuilds.
   connection: MixerConnectionState;
@@ -62,6 +76,9 @@ export interface AppActions {
   setChannelName(channel: MixerChannelId, name: string): void;
   setChannelSource(channel: MixerChannelId, source: MixerSourceRef): void;
 
+  // Configuration slice — recomputes discrepancies only, never routeIndex.
+  setBaseline(baseline: MixerSnapshot | null): void;
+
   // Runtime slice — never rebuilds routeIndex.
   setConnection(connection: MixerConnectionState): void;
   setSelectedChannel(channel: MixerChannelId | null): void;
@@ -79,6 +96,23 @@ function configurationPatch(
   channels: MixerChannelState[],
 ): ConfigurationPatch {
   return { channels, routeIndex: buildRouteIndex(installation, channels) };
+}
+
+/**
+ * `discrepancies`' own patch, independent of `configurationPatch`: it only
+ * depends on `channels` and `baseline`, never `installation`, and every
+ * caller merges it as a *separate* key from `routeIndex` so the two derived
+ * values invalidate independently (architecture.md §5).
+ */
+type DiscrepancyPatch = Pick<AppState, "discrepancies">;
+
+function discrepancyPatch(
+  channels: MixerChannelState[],
+  baseline: MixerSnapshot | null,
+): DiscrepancyPatch {
+  return {
+    discrepancies: baseline === null ? [] : compareRouting(baseline.channels, channels),
+  };
 }
 
 /**
@@ -142,28 +176,33 @@ export function createAppStore(
   return createStore<AppStoreState>()((set, get) => ({
     installation,
     ...configurationPatch(installation, channels),
+    baseline: null,
+    ...discrepancyPatch(channels, null),
     connection: "disconnected",
     selectedChannel: null,
     hoveredEndpoint: null,
 
     applySnapshot(snapshot, connection) {
       const state = get();
+      const nextChannels = snapshot.channels.map(cloneChannel);
       set({
-        ...configurationPatch(
-          state.installation,
-          snapshot.channels.map(cloneChannel),
-        ),
+        ...configurationPatch(state.installation, nextChannels),
+        ...discrepancyPatch(nextChannels, state.baseline),
         selectedChannel: snapshot.selectedChannel,
         connection,
       });
     },
 
-    /** Names are not part of a route: no index rebuild. */
+    /** Names are not part of a route: no index rebuild — but discrepancies
+     * compare names too, so they do recompute. */
     setChannelName(channel, name) {
-      const channels = replaceChannel(get(), channel, (current) =>
+      const state = get();
+      const channels = replaceChannel(state, channel, (current) =>
         current.name === name ? current : { ...current, name },
       );
-      if (channels !== null) set({ channels });
+      if (channels !== null) {
+        set({ channels, ...discrepancyPatch(channels, state.baseline) });
+      }
     },
 
     setChannelSource(channel, source) {
@@ -174,8 +213,19 @@ export function createAppStore(
           : { ...current, source: { ...source } },
       );
       if (channels !== null) {
-        set(configurationPatch(state.installation, channels));
+        set({
+          ...configurationPatch(state.installation, channels),
+          ...discrepancyPatch(channels, state.baseline),
+        });
       }
+    },
+
+    /** Only `discrepancies` recomputes — `routeIndex` depends on installation
+     * + channels' sources alone, untouched by a baseline change. */
+    setBaseline(baseline) {
+      const state = get();
+      if (state.baseline === baseline) return;
+      set({ baseline, ...discrepancyPatch(state.channels, baseline) });
     },
 
     setConnection(connection) {

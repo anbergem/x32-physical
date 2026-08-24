@@ -25,6 +25,8 @@ export function createGateway(
   switch (mode) {
     case "mock":
       return new LocalMockGateway(store, new MockMixerClient());
+    // `LocalMockGateway`'s own default `BaselineStore` (localStorage) is used
+    // when none is passed — see `localMockGateway.ts`.
     case "live":
       return new WebSocketMixerGateway(store, bridgeUrl);
   }

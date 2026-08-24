@@ -12,7 +12,7 @@ import { parseServerMessage } from "@x32/protocol";
 
 import type { AppStore } from "../state/store";
 
-import { applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import { applyBaseline, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
 
 /**
  * @param data `MessageEvent.data` from the socket in production (a JSON
@@ -41,9 +41,17 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
   switch (message.type) {
     case "snapshot":
       applyMixerSnapshot(store, message.snapshot, message.mixerConnection);
+      applyBaseline(store, message.baseline);
       return;
     case "event":
       applyMixerEvent(store, message.event);
+      return;
+    case "baseline-changed":
+      applyBaseline(store, message.baseline);
+      return;
+    case "baseline-save-rejected":
+      // No UI surface yet (plan step 14); at least visible in devtools.
+      console.warn("WebSocketMixerGateway: baseline save rejected —", message.reason);
       return;
   }
 }

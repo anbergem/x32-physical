@@ -21,9 +21,10 @@ class FakeSocket implements SocketLike {
   onerror: ((error: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   closed = false;
+  sent: string[] = [];
 
-  send(): void {
-    // Not exercised by these tests: the gateway never sends anything today.
+  send(data: string): void {
+    this.sent.push(data);
   }
 
   close(): void {
@@ -41,6 +42,7 @@ function snapshotMessage() {
     type: "snapshot",
     mixerConnection: "connected",
     snapshot: { channels: [], selectedChannel: null },
+    baseline: null,
   };
 }
 
@@ -82,6 +84,23 @@ describe("WebSocketMixerGateway.connect", () => {
     sockets[0]?.emitMessage(JSON.stringify(snapshotMessage()));
 
     expect(store.getState().connection).toBe("connected");
+  });
+});
+
+describe("WebSocketMixerGateway.saveBaseline", () => {
+  it("sends a save-baseline message over the socket", async () => {
+    const gateway = new WebSocketMixerGateway(store, "ws://bridge.test", fakeFactory());
+    await gateway.connect();
+
+    gateway.saveBaseline();
+
+    expect(sockets[0]?.sent).toEqual([JSON.stringify({ type: "save-baseline" })]);
+  });
+
+  it("is a silent no-op with no live socket", async () => {
+    const gateway = new WebSocketMixerGateway(store, "ws://bridge.test", fakeFactory());
+
+    expect(() => gateway.saveBaseline()).not.toThrow();
   });
 });
 

@@ -18,11 +18,23 @@ function validSnapshot(): MixerSnapshot {
 }
 
 describe("parseServerMessage: snapshot", () => {
-  it("accepts a well-formed snapshot message", () => {
+  it("accepts a well-formed snapshot message with no baseline yet", () => {
     const message = {
       type: "snapshot",
       snapshot: validSnapshot(),
       mixerConnection: "connected",
+      baseline: null,
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("accepts a well-formed snapshot message carrying a baseline", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: validSnapshot(),
     };
 
     expect(parseServerMessage(message)).toEqual(message);
@@ -49,6 +61,7 @@ describe("parseServerMessage: snapshot", () => {
           selectedChannel: null,
         },
         mixerConnection: "disconnected",
+        baseline: null,
       };
       expect(parseServerMessage(message)).toEqual(message);
     }
@@ -59,6 +72,7 @@ describe("parseServerMessage: snapshot", () => {
       type: "snapshot",
       snapshot: { channels: [], selectedChannel: 12 },
       mixerConnection: "connected",
+      baseline: null,
     };
 
     const parsed = parseServerMessage(message);
@@ -66,6 +80,24 @@ describe("parseServerMessage: snapshot", () => {
       type: "snapshot",
       snapshot: { channels: [], selectedChannel: CH12 },
       mixerConnection: "connected",
+      baseline: null,
+    });
+  });
+
+  it("re-brands channel ids inside the baseline too", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: { channels: [], selectedChannel: null },
+      mixerConnection: "connected",
+      baseline: { channels: [], selectedChannel: 12 },
+    };
+
+    const parsed = parseServerMessage(message);
+    expect(parsed).toEqual({
+      type: "snapshot",
+      snapshot: { channels: [], selectedChannel: null },
+      mixerConnection: "connected",
+      baseline: { channels: [], selectedChannel: CH12 },
     });
   });
 
@@ -74,6 +106,7 @@ describe("parseServerMessage: snapshot", () => {
       type: "snapshot",
       snapshot: { channels: [], selectedChannel: 99 },
       mixerConnection: "connected",
+      baseline: null,
     };
 
     expect(() => parseServerMessage(message)).toThrow(/selectedChannel/);
@@ -84,6 +117,7 @@ describe("parseServerMessage: snapshot", () => {
       type: "snapshot",
       snapshot: { selectedChannel: null },
       mixerConnection: "connected",
+      baseline: null,
     };
 
     expect(() => parseServerMessage(message)).toThrow(/channels/);
@@ -97,6 +131,7 @@ describe("parseServerMessage: snapshot", () => {
         selectedChannel: null,
       },
       mixerConnection: "connected",
+      baseline: null,
     };
 
     expect(() => parseServerMessage(message)).toThrow(/mixer source kind/);
@@ -107,9 +142,31 @@ describe("parseServerMessage: snapshot", () => {
       type: "snapshot",
       snapshot: validSnapshot(),
       mixerConnection: "reticulating",
+      baseline: null,
     };
 
     expect(() => parseServerMessage(message)).toThrow(/mixerConnection/);
+  });
+
+  it("rejects a missing baseline field (undefined is not a valid 'no baseline')", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/baseline/);
+  });
+
+  it("rejects a malformed baseline", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: { channels: "not-an-array", selectedChannel: null },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/baseline/);
   });
 });
 
@@ -153,6 +210,67 @@ describe("parseServerMessage: event", () => {
   });
 });
 
+describe("parseServerMessage: baseline-changed", () => {
+  it("accepts a well-formed baseline-changed message", () => {
+    const message = { type: "baseline-changed", baseline: validSnapshot() };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("re-brands channel ids inside the baseline", () => {
+    const message = {
+      type: "baseline-changed",
+      baseline: { channels: [], selectedChannel: 12 },
+    };
+
+    expect(parseServerMessage(message)).toEqual({
+      type: "baseline-changed",
+      baseline: { channels: [], selectedChannel: CH12 },
+    });
+  });
+
+  it("rejects a missing baseline", () => {
+    expect(() => parseServerMessage({ type: "baseline-changed" })).toThrow(
+      /baseline/,
+    );
+  });
+
+  it("rejects a null baseline (unlike snapshot, this message always carries one)", () => {
+    expect(() =>
+      parseServerMessage({ type: "baseline-changed", baseline: null }),
+    ).toThrow(/baseline/);
+  });
+
+  it("rejects a malformed baseline", () => {
+    expect(() =>
+      parseServerMessage({ type: "baseline-changed", baseline: { channels: null } }),
+    ).toThrow(/baseline/);
+  });
+});
+
+describe("parseServerMessage: baseline-save-rejected", () => {
+  it("accepts a well-formed baseline-save-rejected message", () => {
+    const message = {
+      type: "baseline-save-rejected",
+      reason: "The mixer is not connected.",
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("rejects a missing reason", () => {
+    expect(() =>
+      parseServerMessage({ type: "baseline-save-rejected" }),
+    ).toThrow(/reason/);
+  });
+
+  it("rejects a non-string reason", () => {
+    expect(() =>
+      parseServerMessage({ type: "baseline-save-rejected", reason: 42 }),
+    ).toThrow(/reason/);
+  });
+});
+
 describe("parseServerMessage: envelope", () => {
   it("rejects null, arrays, and non-objects", () => {
     for (const value of [null, undefined, 42, "snapshot", true, []]) {
@@ -174,6 +292,12 @@ describe("parseServerMessage: envelope", () => {
 describe("parseClientMessage", () => {
   it("accepts a resync message", () => {
     expect(parseClientMessage({ type: "resync" })).toEqual({ type: "resync" });
+  });
+
+  it("accepts a save-baseline message", () => {
+    expect(parseClientMessage({ type: "save-baseline" })).toEqual({
+      type: "save-baseline",
+    });
   });
 
   it("rejects anything else", () => {

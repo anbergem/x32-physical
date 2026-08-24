@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMixerClient,
+  DEFAULT_BASELINE_FILE,
   DEFAULT_X32_PORT,
+  resolveBaselineFilePath,
   resolveDemoMode,
   resolveMixerMode,
   resolvePort,
@@ -60,6 +62,23 @@ describe("resolvePort / resolveDemoMode — unchanged by this step", () => {
     expect(resolvePort({})).toBe(8765);
     expect(resolveDemoMode({ X32_DEMO: "1" })).toBe(true);
     expect(resolveDemoMode({})).toBe(false);
+  });
+});
+
+describe("resolveBaselineFilePath", () => {
+  it("defaults to data/baseline.json", () => {
+    expect(resolveBaselineFilePath({})).toBe(DEFAULT_BASELINE_FILE);
+    expect(DEFAULT_BASELINE_FILE).toBe("data/baseline.json");
+  });
+
+  it("returns the configured override", () => {
+    expect(resolveBaselineFilePath({ X32_BASELINE_FILE: "/tmp/x32/baseline.json" })).toBe(
+      "/tmp/x32/baseline.json",
+    );
+  });
+
+  it("falls back to the default for a blank override", () => {
+    expect(resolveBaselineFilePath({ X32_BASELINE_FILE: "   " })).toBe(DEFAULT_BASELINE_FILE);
   });
 });
 

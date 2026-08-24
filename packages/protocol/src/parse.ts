@@ -156,7 +156,14 @@ function parseMixerChannelState(
   };
 }
 
-function parseMixerSnapshot(value: unknown, context: string): MixerSnapshot {
+/**
+ * Validates a plain `MixerSnapshot` object. Exported (not just used
+ * internally by the message guards) because the bridge's `DiskBaselineStore`
+ * and the web app's `LocalStorageBaselineStore` reuse it to tolerate a
+ * corrupt persisted baseline file/localStorage entry — same "never crash on
+ * malformed input" discipline, applied to disk instead of the wire.
+ */
+export function parseMixerSnapshot(value: unknown, context: string): MixerSnapshot {
   if (!isRecord(value)) {
     throw malformed(context, "a mixer snapshot object", value);
   }
@@ -215,6 +222,10 @@ function parseMixerEvent(value: unknown, context: string): MixerEvent {
   }
 }
 
+function parseNullableBaseline(value: unknown, context: string): MixerSnapshot | null {
+  return value === null ? null : parseMixerSnapshot(value, context);
+}
+
 /** Validates a `ServerMessage` decoded from `JSON.parse`d WebSocket data. */
 export function parseServerMessage(value: unknown): ServerMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -230,14 +241,29 @@ export function parseServerMessage(value: unknown): ServerMessage {
           value.mixerConnection,
           "server message.mixerConnection",
         ),
+        baseline: parseNullableBaseline(value.baseline, "server message.baseline"),
       };
     case "event":
       return {
         type: "event",
         event: parseMixerEvent(value.event, "server message.event"),
       };
+    case "baseline-changed":
+      return {
+        type: "baseline-changed",
+        baseline: parseMixerSnapshot(value.baseline, "server message.baseline"),
+      };
+    case "baseline-save-rejected":
+      return {
+        type: "baseline-save-rejected",
+        reason: requireString(value.reason, "server message.reason"),
+      };
     default:
-      throw malformed("server message.type", '"snapshot" | "event"', value.type);
+      throw malformed(
+        "server message.type",
+        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected"',
+        value.type,
+      );
   }
 }
 
@@ -246,8 +272,12 @@ export function parseClientMessage(value: unknown): ClientMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw malformed("client message", 'an object with a "type"', value);
   }
-  if (value.type !== "resync") {
-    throw malformed("client message.type", '"resync"', value.type);
+  switch (value.type) {
+    case "resync":
+      return { type: "resync" };
+    case "save-baseline":
+      return { type: "save-baseline" };
+    default:
+      throw malformed("client message.type", '"resync" | "save-baseline"', value.type);
   }
-  return { type: "resync" };
 }

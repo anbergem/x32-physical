@@ -54,7 +54,7 @@ re-saving after step 11 is one button press.
       typed discrepancies: `source-mismatch` (error), `name-mismatch`
       (informational), `unexpected-shared-source` (shared in actual but not
       expected). Pure, unit-tested, order-stable.
-- [ ] **13. Baseline capture + persistence** — bridge stores the blessed
+- [x] **13. Baseline capture + persistence** — bridge stores the blessed
       snapshot: `save-baseline` client message → resolved snapshot written as
       JSON on bridge disk (`X32_BASELINE_FILE`, default `data/baseline.json`,
       gitignored) → `baseline-changed` broadcast to all clients; snapshot
