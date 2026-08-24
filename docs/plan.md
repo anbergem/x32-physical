@@ -11,7 +11,8 @@ how issues are authored and executed. The contract documents
 must be built*; issues track *what to change*.
 
 Step 11 is the one item that stayed unchecked here: it needs the physical
-console, and it now lives as an issue.
+console, and it now lives as
+[issue #1](https://github.com/anbergem/x32-physical/issues/1).
 
 ---
 
