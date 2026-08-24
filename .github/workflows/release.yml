@@ -1,0 +1,90 @@
+name: Release
+
+# Builds and publishes the Windows venue-distribution zip (docs/plan.md step
+# 17). Triggered by pushing a tag like `v1.2.3` — the tag's version (minus
+# the leading `v`) becomes both the GitHub Release tag/name and the version
+# baked into the zip filename and app/VERSION (via `pnpm release:build`,
+# step 16).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# The portable Node.js runtime bundled into the Windows zip. Pinned to a
+# specific version (not just a major line) so the SHA256 check below is
+# meaningful and the release is reproducible. Bump deliberately, alongside
+# the SHA below, when a newer LTS is wanted — check
+# https://nodejs.org/dist/index.json for current LTS releases.
+env:
+  BUNDLED_NODE_VERSION: "22.11.0"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm release:build
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the portable Node.js runtime (win-x64)
+        run: |
+          set -euo pipefail
+          version="${BUNDLED_NODE_VERSION}"
+          base_url="https://nodejs.org/dist/v${version}"
+          zip_name="node-v${version}-win-x64.zip"
+
+          curl -fsSLO "${base_url}/${zip_name}"
+          curl -fsSLO "${base_url}/SHASUMS256.txt"
+
+          # Only check the one line for our zip, not the whole file — the
+          # SHASUMS file lists every platform's artifact.
+          grep " ${zip_name}\$" SHASUMS256.txt > node.sha256
+          sha256sum -c node.sha256
+
+          unzip -q "${zip_name}"
+          mkdir -p /tmp/win-node
+          cp "node-v${version}-win-x64/node.exe" /tmp/win-node/node.exe
+
+      - name: Assemble Windows release zip
+        run: |
+          node scripts/assemble-win-release.mjs \
+            --app dist/release/app \
+            --node /tmp/win-node/node.exe \
+            --version "${{ steps.version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --out dist/release
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          zip_path="dist/release/x32-visualizer-win64-v${version}.zip"
+          gh release create "${GITHUB_REF_NAME}" \
+            "${zip_path}" \
+            --title "v${version}" \
+            --generate-notes

@@ -83,7 +83,7 @@ re-saving after step 11 is one button press.
       `pnpm release:build` stages `dist/release/`: esbuild-bundled
       `server.mjs`, web dist, `config/installation.yaml`, VERSION. Verified
       locally by running the staged server with the mock mixer.
-- [ ] **17. Windows venue distribution** — GitHub Actions on tag `v*`:
+- [x] **17. Windows venue distribution** — GitHub Actions on tag `v*`:
       typecheck + tests, release:build, assemble a self-contained win-x64 zip
       (portable Node runtime + staged app + scripts), publish as a GitHub
       Release. Scripts in the zip: `install.ps1` (run once as admin: unzip to

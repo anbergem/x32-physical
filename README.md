@@ -70,10 +70,57 @@ Fix the patch, or press **Save as correct** again (it asks you to confirm
 before replacing an existing baseline) to bless the new state, and the
 badges clear.
 
+## Deploying to the venue (Windows)
+
+The venue machine runs a self-contained release — no Node.js or console
+config needed on the machine itself. Releases are built by CI
+(`.github/workflows/release.yml`) and published to the repo's GitHub
+Releases page whenever a `v*` tag is pushed.
+
+**First install:**
+
+1. Download `x32-visualizer-win64-v<version>.zip` from the [Releases
+   page](../../releases) and extract it.
+2. Right-click `install.ps1` inside the extracted folder → **Run with
+   PowerShell**, and allow it to run as Administrator when asked.
+3. When prompted, enter the X32 console's IP address (or type `mock` for a
+   no-console test install).
+
+That's it — the app registers itself as a hidden background task that starts
+at logon, starts immediately, and is reachable at `http://localhost:8765`
+(a desktop shortcut, "X32 Routing.url", opens it directly).
+
+**Updating:** double-click the **Update X32 Visualizer** desktop shortcut
+(or run `update.ps1` from `C:\X32Visualizer` directly). No admin rights are
+needed — it checks GitHub for a newer release and swaps `app\` and `node\`
+in place, or reports "already up to date". `settings.env` and `data\` are
+never touched by an update.
+
+**Where things live**, all under `C:\X32Visualizer`:
+
+- `settings.env` — console IP, update source; survives updates, editable by
+  hand (Notepad) if the console's IP changes.
+- `data\baseline.json` — the "known correct routing" saved via **Save as
+  correct**; survives every update.
+- `data\bridge.log` — background service log, rotated at ~5 MB; survives
+  every update.
+- `app\`, `node\` — replaced wholesale by every update.
+
+**Changing the physical wiring:** `config/installation.yaml` is baked into
+the app at build time (see the caveat in `scripts/release-build.mjs`) — it
+is **not** a file to hand-edit on the venue machine. A cabling change means
+editing `config/installation.yaml` in this repo, tagging a new release, and
+updating the venue machine as above; there is nothing to patch locally.
+
+Full script behavior and troubleshooting: `deploy/windows/VENUE-README.txt`
+(also included in the release zip).
+
 ## Layout
 
 pnpm workspace: `packages/domain` (pure routing model — no infrastructure),
 `packages/installation` (YAML → validated topology), `packages/mixer-contracts`
 (`MixerClient` + mock), `packages/protocol` (bridge↔browser messages),
 `apps/web` (React schematic), `apps/x32-bridge` (OSC adapter + WS server —
-the only OSC-aware module is `src/x32/`).
+the only OSC-aware module is `src/x32/`). `deploy/windows/` holds the venue
+install/update/launch scripts; `scripts/release-build.mjs` and
+`scripts/assemble-win-release.mjs` stage and package a release.
