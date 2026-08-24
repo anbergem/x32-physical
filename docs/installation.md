@@ -27,10 +27,23 @@ Norwegian: **V** = venstre (left), **H** = høyre (right).
 - **Left**: passive panel "MK Front V" (8 sockets) → Stagebox V inputs 1–8
   (AES50-A 1–8). Stagebox V inputs 9–16 are direct stage sockets labelled
   "V 09"–"V 16" (A9–A16).
-- **Right**: Stagebox H input 1 is the direct socket "H 01" (A17). Passive
-  panel "MK Front H" has only **7 sockets**, cabled **offset by one**:
-  panel sockets 1–7 → Stagebox H inputs 2–8 (A18–A24). Inputs 9–16 are
-  direct sockets "H 09"–"H 16" (A25–A32).
+- **Right**: Stagebox H input 1 is the direct socket "H 01" (A17, patched to
+  DI HB). The passive panel "MK Front H" is an **8-position** link box whose
+  usable sockets feed Stagebox H inputs 2–8 (A18–A24). Inputs 9–16 are
+  direct sockets "H 09"–"H 16" (A25–A32). Two quirks of this plate, both
+  confirmed on site 2026-08-24:
+  - **Physical position 1 is broken** and connected to nothing.
+  - **The printed labels are shifted by one**: the label "1" is on physical
+    position 2, "2" on position 3, and so on through "7" on position 8. The
+    installer's convention appears to have been "1 = the first *usable*
+    input at front stage right", which is defensible but means a printed
+    label never matches its physical position on this plate.
+
+  `installation.yaml` therefore models this panel as 7 sockets numbered by
+  the **printed labels** (socket 1 → A18 …), which is what a tech standing
+  at the plate reads and is functionally correct. It does not yet show the
+  dead 8th position, so the app displays 7 holes where the wall has 8.
+  How to visualise that is deliberately unresolved — see issue #12.
 - The direct-socket stage labels match the box input numbers ("H 12" =
   Stagebox H input 12 = A28), which is what the UI's dual labels display.
 - The desk also has three local inputs in use at FOH (IN 1–3: Bøyle,
