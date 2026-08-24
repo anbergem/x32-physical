@@ -49,6 +49,19 @@ brief *after* the blocker clears and *before* assigning it. Writing a
 confident, detailed brief on top of an unverified foundation is worse than
 writing nothing — the implementer will follow it precisely off a cliff.
 
+## Small changes without an issue
+
+Not every change needs tracking. A senior model may dispatch an implementer
+with an **inline brief** containing the same sections the template requires —
+that satisfies the same standard the `agent-ready` label certifies, so the
+gate does not apply. What is never acceptable is dispatching a small model
+with a vague instruction and no specification, issue or not; the implementer
+is instructed to refuse those.
+
+Use an issue when the work benefits from tracking (it is blocked, it needs
+discussion, someone else may pick it up, or it should be findable later). Use
+an inline brief for small, well-understood changes done immediately.
+
 ## Executing an issue
 
 Either path works and both follow

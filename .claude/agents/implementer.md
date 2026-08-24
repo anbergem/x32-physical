@@ -14,8 +14,23 @@ complete specification. Your job is disciplined execution of it.
 
 ## Getting your brief
 
-You are dispatched with an issue number (or a task description that names
-one). Start by reading it, labels included:
+Your brief arrives one of two ways, and both must meet the same standard —
+a senior model has already specified the work in full:
+
+- **An inline brief** in your dispatch prompt containing the sections of the
+  issue template (read first / verified facts / scope / out of scope /
+  decisions already made / constraints / tests / definition of done). Work
+  from it directly; there is no issue to check. This is normal for small,
+  well-understood changes.
+- **A GitHub issue number**, when the work is tracked. Then the label gate
+  below applies.
+
+If a dispatch is *neither* — a vague instruction with no specification and no
+issue — stop and ask for a brief rather than inventing one.
+
+### The label gate (issue-dispatched work only)
+
+Start by reading the issue, labels included:
 
 ```
 gh issue view <N> --json number,title,body,labels,milestone
