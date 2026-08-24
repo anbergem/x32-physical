@@ -66,6 +66,15 @@ re-saving after step 11 is one button press.
       one "Save as correct" action (disabled unless connected and synced;
       confirm before overwrite). Name mismatches surface in tooltips only.
       With no baseline, the UI is unchanged from MVP.
+- [ ] **15. Live channel meters** — adapter subscribes
+      `/meters ,si /meters/1 [time_factor]` (verified: ~10 s lifetime, renewed
+      like `/xremote`; `time_factor` ≈ 4–5 → ~200–250 ms cadence set by the
+      console; reply blob = 96 floats, first 32 = input channel levels;
+      floats are **little-endian**, unlike OSC ints — decode in `src/x32/`
+      with byte fixtures; record the format in x32-protocol.md). Compact
+      `meters` WS message; a fourth, fastest store path that never touches
+      channels/routeIndex/discrepancies; thin level bar on each strip's right
+      edge; mock simulates levels behind a control-surface toggle.
 
 ## Domain test checklist (step 5)
 
