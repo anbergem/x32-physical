@@ -1,4 +1,19 @@
-# Build plan
+# Build plan — CLOSED (initial build log)
+
+**This file is history, not a work queue.** It records how the application was
+built (steps 1–20, Aug 2026) and why several decisions were made. Do not add
+new steps here.
+
+New work lives in **GitHub issues** — see [docs/workflow.md](workflow.md) for
+how issues are authored and executed. The contract documents
+([architecture.md](architecture.md), [x32-protocol.md](x32-protocol.md),
+[installation.md](installation.md)) remain the authority on *how the system
+must be built*; issues track *what to change*.
+
+Step 11 is the one item that stayed unchecked here: it needs the physical
+console, and it now lives as an issue.
+
+---
 
 Vertical slices, mock-first. The complete UX (steps 1–7) must work with
 simulated data before any OSC code is written; the real X32 integration is an

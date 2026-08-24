@@ -19,7 +19,10 @@ Read these before making structural changes:
   index-translation rules, snapshot/subscribe strategy.
 - [docs/installation.md](docs/installation.md) — the real venue's physical
   topology facts and the `installation.yaml` schema.
-- [docs/plan.md](docs/plan.md) — build sequence and MVP acceptance criteria.
+- [docs/workflow.md](docs/workflow.md) — how work is tracked: issue
+  authoring standard, the `agent-ready` gate, model split, review policy.
+- [docs/plan.md](docs/plan.md) — **closed**. The initial build log (steps
+  1–20) and the reasoning behind several decisions. Not a work queue.
 
 ## Non-negotiable invariants
 
@@ -47,22 +50,24 @@ config validation, React + Zustand + Vite for the web app.
 
 ## Implementation workflow
 
-Implementation coding runs on **Opus or Sonnet**; architecture/planning
-discussions happen on the owner's model of choice. Two equivalent ways to
-implement:
+Work is tracked as **GitHub issues** (`gh issue list`), not in a plan file.
+Full standard: [docs/workflow.md](docs/workflow.md). The short version:
 
-- A dedicated session with Opus/Sonnet selected: pick the next unchecked step
-  in [docs/plan.md](docs/plan.md) and follow the rules in
-  [.claude/agents/implementer.md](.claude/agents/implementer.md) — they apply
-  to direct sessions too, not just the agent.
-- Delegation from any session: spawn the `implementer` agent (pinned to Opus;
-  pass `model: "sonnet"` on the Agent call to override) with the plan step to
-  execute.
+- **Large model (this kind of session)** decides *what* and *how*: authors
+  issues in full detail per the template, verifies protocol facts, resolves
+  design forks, and reviews results. An issue is only cleared for
+  implementation once it carries the **`agent-ready`** label.
+- **Small model (Sonnet)** executes one `agent-ready` issue literally, via the
+  `implementer` agent or a direct session — both follow
+  [.claude/agents/implementer.md](.claude/agents/implementer.md).
 
-Per step: read the relevant doc sections first, implement vertically with
-tests, ensure `pnpm typecheck` and `pnpm test` pass, tick the checkbox in
-docs/plan.md, and commit (`feat:`/`test:`/`chore:`/`fix:`/`docs:` prefix).
-One step per session/agent run unless explicitly asked otherwise.
+**An unlabelled issue is not implementable.** No label means it has not been
+verified as detailed enough; it needs a large model to triage and expand it
+first. Implementers must refuse such issues rather than guess at the gaps.
+
+Per issue: read the docs it names, implement vertically with tests, ensure
+`pnpm typecheck` + `pnpm test` (+ `pnpm build` when the web app is touched)
+pass, and commit with a conventional prefix and `Fixes #N`.
 
 If implementation reveals a conflict with the docs, stop and surface it —
 docs are updated deliberately, never silently diverged from.
