@@ -52,6 +52,14 @@ describe("LocalMockGateway.connect", () => {
     expect(state.selectedChannel).toBeNull();
     expect(state.routeIndex.byMixerChannel.size).toBe(32);
   });
+
+  /**
+   * Step 20: mock mode has no bridge to check GitHub Releases with — the
+   * update notice must stay hidden, never merely "not yet populated".
+   */
+  it("never sets updateAvailable — mock mode has no bridge to check with", () => {
+    expect(store.getState().updateAvailable).toBeNull();
+  });
 });
 
 describe("event → slice mapping", () => {

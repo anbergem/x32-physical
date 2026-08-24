@@ -26,6 +26,7 @@ import type {
 } from "@x32/domain";
 import { endpointId, mixerChannel, mixerSourceRefEquals, parseEndpointId } from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
+import type { UpdateAvailable } from "@x32/protocol";
 
 import type { AppState, AppStoreState } from "./store";
 
@@ -211,6 +212,11 @@ export function selectDiscrepancies(state: AppState): RoutingDiscrepancy[] {
 
 export function selectBaseline(state: AppState): MixerSnapshot | null {
   return state.baseline;
+}
+
+/** The bridge's GitHub Releases check result (step 20) — `null` in mock mode always. */
+export function selectUpdateAvailable(state: AppState): UpdateAvailable | null {
+  return state.updateAvailable;
 }
 
 export function selectBaselineSaveError(state: AppState): string | null {

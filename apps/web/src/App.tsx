@@ -19,6 +19,7 @@ import { DiagnosticsControl } from "./components/DiagnosticsControl";
 import { Mixer } from "./components/Mixer";
 import { PhysicalInputPanel } from "./components/PhysicalInputPanel";
 import { Stagebox } from "./components/Stagebox";
+import { UpdateNotice } from "./components/UpdateNotice";
 import type { GatewayMode, MixerGateway } from "./gateway/mixerGateway";
 
 export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGateway }) {
@@ -27,6 +28,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
       <header className="app__bar">
         <h1 className="app__title">X32 Physical Routing Visualizer</h1>
         <div className="app__bar-status">
+          <UpdateNotice />
           <DiagnosticsControl gateway={gateway} />
           <ConnectionStatus mockData={mode === "mock"} />
         </div>

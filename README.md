@@ -99,7 +99,11 @@ X32RoutingVisualizer-<version>.msi /quiet`.
 `UpgradeCode` (see `deploy/msi/Product.wxs`) makes this an in-place upgrade —
 the old version is removed and the new one installed, service included; the
 blessed baseline and any `settings.env` override survive untouched (see
-below). There is no separate update mechanism to run.
+below). There is no separate update mechanism to run — the app itself shows
+an unobtrusive "Update available (vX.Y.Z)" link in the header when the
+bridge's periodic GitHub Releases check finds something newer than the
+running build (plan step 20); it is only a notice, never a downloader — the
+tech still downloads and double-clicks the new MSI by hand.
 
 **Uninstalling:** use *Add or Remove Programs*, or `msiexec /x
 X32RoutingVisualizer-<version>.msi /quiet`. The service is stopped and

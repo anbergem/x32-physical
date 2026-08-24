@@ -26,7 +26,7 @@ import type {
   MixerSnapshot,
 } from "@x32/mixer-contracts";
 
-import type { ClientMessage, ServerMessage } from "./messages";
+import type { ClientMessage, ServerMessage, UpdateAvailable } from "./messages";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -226,6 +226,38 @@ function parseNullableBaseline(value: unknown, context: string): MixerSnapshot |
   return value === null ? null : parseMixerSnapshot(value, context);
 }
 
+/**
+ * `updateAvailable`/`update-available` payloads (step 20). `url` must be an
+ * `https://` string — anything else (a `javascript:`/`data:` URL, a bare
+ * hostname, a non-string) is rejected here, before it can ever reach a
+ * rendered link, rather than sanitized downstream.
+ */
+function parseUpdateAvailable(value: unknown, context: string): UpdateAvailable {
+  if (!isRecord(value)) {
+    throw malformed(context, "an update-available object", value);
+  }
+  const version = requireString(value.version, `${context}.version`);
+  const url = requireString(value.url, `${context}.url`);
+  if (!url.startsWith("https://")) {
+    throw malformed(`${context}.url`, "an https:// URL", url);
+  }
+  return { version, url };
+}
+
+/**
+ * `null`/absent both mean "no update" — absent is tolerated (rather than
+ * rejected as malformed) so a `snapshot` message from a bridge that predates
+ * this field still parses; only a *present but invalid* value is an error.
+ */
+function parseNullableUpdateAvailable(
+  value: unknown,
+  context: string,
+): UpdateAvailable | null {
+  return value === null || value === undefined
+    ? null
+    : parseUpdateAvailable(value, context);
+}
+
 /** `meters` messages (step 15): always exactly `MIXER_CHANNEL_COUNT` finite numbers. */
 function parseMeterLevels(value: unknown, context: string): number[] {
   if (!Array.isArray(value)) {
@@ -257,6 +289,10 @@ export function parseServerMessage(value: unknown): ServerMessage {
           "server message.mixerConnection",
         ),
         baseline: parseNullableBaseline(value.baseline, "server message.baseline"),
+        updateAvailable: parseNullableUpdateAvailable(
+          value.updateAvailable,
+          "server message.updateAvailable",
+        ),
       };
     case "event":
       return {
@@ -278,10 +314,15 @@ export function parseServerMessage(value: unknown): ServerMessage {
         type: "meters",
         levels: parseMeterLevels(value.levels, "server message.levels"),
       };
+    case "update-available":
+      return {
+        type: "update-available",
+        update: parseUpdateAvailable(value.update, "server message.update"),
+      };
     default:
       throw malformed(
         "server message.type",
-        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters"',
+        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters" | "update-available"',
         value.type,
       );
   }

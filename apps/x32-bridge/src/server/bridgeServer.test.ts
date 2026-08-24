@@ -18,6 +18,7 @@ import { WebSocket } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
 import { DiskBaselineStore } from "../baselineStore";
+import type { UpdateChecker, UpdateInfo } from "../updateCheck";
 
 import type { BridgeServer } from "./bridgeServer";
 import { startBridgeServer } from "./bridgeServer";
@@ -94,6 +95,31 @@ function connectClient(port: number): Promise<TestClient> {
 function asSnapshot(message: ServerMessage) {
   if (message.type !== "snapshot") throw new Error(`expected a snapshot, got ${message.type}`);
   return message;
+}
+
+/**
+ * A fully manual `UpdateChecker` (step 20) — no timers, no fetch. Tests
+ * control exactly when an update is "found" via `emit`, so the wiring in
+ * `bridgeServer.ts` (snapshot's `updateAvailable`, the `update-available`
+ * broadcast) can be exercised without real network/timer dependencies.
+ */
+function fakeUpdateChecker(): UpdateChecker & { emit(update: UpdateInfo): void } {
+  let current: UpdateInfo | null = null;
+  const listeners = new Set<(update: UpdateInfo) => void>();
+  return {
+    getUpdate: () => current,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    stop() {
+      /* no-op — nothing scheduled */
+    },
+    emit(update) {
+      current = update;
+      for (const listener of listeners) listener(update);
+    },
+  };
 }
 
 describe("startBridgeServer", () => {
@@ -473,5 +499,64 @@ describe("production static serving (plan step 16)", () => {
     const client = await connectClient(bridge.port);
     const message = asSnapshot(await client.next());
     expect(message.snapshot.channels).toHaveLength(32);
+  });
+});
+
+describe("in-app update notice (plan step 20)", () => {
+  it("snapshot carries updateAvailable: null when no update has been found", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      updateChecker: fakeUpdateChecker(),
+    });
+
+    const client = await connectClient(bridge.port);
+    const message = asSnapshot(await client.next());
+    expect(message.updateAvailable).toBeNull();
+  });
+
+  it("snapshot carries the checker's current update when one was already found", async () => {
+    const mock = new MockMixerClient();
+    const checker = fakeUpdateChecker();
+    checker.emit({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      updateChecker: checker,
+    });
+
+    const client = await connectClient(bridge.port);
+    const message = asSnapshot(await client.next());
+    expect(message.updateAvailable).toEqual({
+      version: "0.2.0",
+      url: "https://example.com/release/v0.2.0",
+    });
+  });
+
+  it("broadcasts update-available to already-connected clients when the checker finds one later", async () => {
+    const mock = new MockMixerClient();
+    const checker = fakeUpdateChecker();
+
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      updateChecker: checker,
+    });
+
+    const client = await connectClient(bridge.port);
+    asSnapshot(await client.next()); // consume the initial snapshot
+
+    checker.emit({ version: "0.3.0", url: "https://example.com/release/v0.3.0" });
+
+    const message = await client.next();
+    expect(message).toEqual({
+      type: "update-available",
+      update: { version: "0.3.0", url: "https://example.com/release/v0.3.0" },
+    });
   });
 });

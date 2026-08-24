@@ -41,6 +41,8 @@ import { WebSocketServer } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
 import { cloneSnapshot } from "../snapshot";
+import type { UpdateChecker } from "../updateCheck";
+import { startUpdateChecker } from "../updateCheck";
 
 import { createStaticFileHandler, createWsOnlyHandler } from "./staticFileServer";
 
@@ -58,6 +60,13 @@ export interface BridgeServerOptions {
    * unchanged.
    */
   webDist?: string;
+  /**
+   * The in-app update notice's checker (plan step 20, architecture.md §7).
+   * Defaults to a real `startUpdateChecker()` (own VERSION file, real
+   * GitHub API, real timers) — tests inject a fake here instead of waiting
+   * on real timers/network.
+   */
+  updateChecker?: UpdateChecker;
 }
 
 export interface BridgeServer {
@@ -97,6 +106,7 @@ export async function startBridgeServer(
   options: BridgeServerOptions,
 ): Promise<BridgeServer> {
   const { mixerClient, baselineStore } = options;
+  const updateChecker = options.updateChecker ?? startUpdateChecker({});
 
   // Establish the baseline before subscribing: `getSnapshot()` returns
   // current truth regardless of anything that happened during `connect()`,
@@ -117,6 +127,7 @@ export async function startBridgeServer(
       snapshot: cloneSnapshot(cachedSnapshot),
       mixerConnection: cachedConnection,
       baseline: cloneNullableSnapshot(cachedBaseline),
+      updateAvailable: updateChecker.getUpdate(),
     };
   }
 
@@ -211,6 +222,16 @@ export async function startBridgeServer(
     });
   });
 
+  /**
+   * The in-app update notice (step 20): a check that completes after clients
+   * are already connected still reaches them, via its own broadcast message
+   * rather than piggybacking on `event`/`snapshot` (architecture.md §7).
+   */
+  const unsubscribeUpdateChecker = updateChecker.subscribe((update) => {
+    console.log(`x32-bridge: broadcasting update-available (v${update.version}) to ${wss.clients.size} client(s)`);
+    broadcast({ type: "update-available", update });
+  });
+
   const unsubscribe = mixerClient.subscribe((event) => {
     if (event.type === "connection-state-changed") {
       if (event.state === "connected") {
@@ -302,6 +323,8 @@ export async function startBridgeServer(
     async close() {
       unsubscribe();
       unsubscribeMeters?.();
+      unsubscribeUpdateChecker();
+      updateChecker.stop();
       for (const socket of wss.clients) socket.terminate();
       await new Promise<void>((resolve, reject) => {
         wss.close((error) => (error ? reject(error) : resolve()));

@@ -35,6 +35,7 @@ import type {
 } from "@x32/domain";
 import { buildRouteIndex, compareRouting, mixerSourceRefEquals } from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
+import type { UpdateAvailable } from "@x32/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
 
@@ -48,6 +49,12 @@ export interface AppState {
 
   // Blessed known-good snapshot (config lifecycle; null until first save).
   baseline: MixerSnapshot | null;
+
+  // Config lifecycle (step 20): the bridge's GitHub Releases check result,
+  // changing at most a couple of times a day — never the fast runtime path.
+  // Never touches routeIndex/discrepancies; mock mode (no bridge) leaves it
+  // null forever.
+  updateAvailable: UpdateAvailable | null;
 
   // Derived (recomputed only when installation/channels' sources change):
   routeIndex: RouteIndex;
@@ -91,6 +98,9 @@ export interface AppActions {
 
   // Configuration slice — recomputes discrepancies only, never routeIndex.
   setBaseline(baseline: MixerSnapshot | null): void;
+
+  // Configuration slice (step 20) — its own key, touches nothing derived.
+  setUpdateAvailable(update: UpdateAvailable | null): void;
 
   // Runtime slice — never rebuilds routeIndex.
   setConnection(connection: MixerConnectionState): void;
@@ -195,6 +205,7 @@ export function createAppStore(
     ...configurationPatch(installation, channels),
     baseline: null,
     ...discrepancyPatch(channels, null),
+    updateAvailable: null,
     connection: "disconnected",
     selectedChannel: null,
     hoveredEndpoint: null,
@@ -245,6 +256,18 @@ export function createAppStore(
       const state = get();
       if (state.baseline === baseline) return;
       set({ baseline, ...discrepancyPatch(state.channels, baseline) });
+    },
+
+    setUpdateAvailable(update) {
+      const state = get();
+      if (
+        state.updateAvailable === update ||
+        (state.updateAvailable?.version === update?.version &&
+          state.updateAvailable?.url === update?.url)
+      ) {
+        return;
+      }
+      set({ updateAvailable: update });
     },
 
     setConnection(connection) {

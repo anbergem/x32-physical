@@ -573,6 +573,22 @@ body {
   letter-spacing: 0.1em;
 }
 
+/* --- in-app update notice (step 20) ------------------------------------- */
+
+/* Deliberately unobtrusive — a plain link, not a badge or a banner: this is
+   a convenience notice, not an alert. */
+.update-notice {
+  font-size: 11px;
+  color: var(--pending);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--pending);
+}
+
+.update-notice:hover {
+  color: var(--selected-strong);
+  border-bottom-color: var(--selected-strong);
+}
+
 /* --- startup failure --------------------------------------------------- */
 
 .startup-error {

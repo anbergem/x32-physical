@@ -12,7 +12,13 @@ import { parseServerMessage } from "@x32/protocol";
 
 import type { AppStore } from "../state/store";
 
-import { applyBaseline, applyMeterLevels, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import {
+  applyBaseline,
+  applyMeterLevels,
+  applyMixerEvent,
+  applyMixerSnapshot,
+  applyUpdateAvailable,
+} from "./applyToStore";
 
 /**
  * @param data `MessageEvent.data` from the socket in production (a JSON
@@ -42,6 +48,7 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
     case "snapshot":
       applyMixerSnapshot(store, message.snapshot, message.mixerConnection);
       applyBaseline(store, message.baseline);
+      applyUpdateAvailable(store, message.updateAvailable);
       return;
     case "event":
       applyMixerEvent(store, message.event);
@@ -56,6 +63,9 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
       return;
     case "meters":
       applyMeterLevels(store, message.levels);
+      return;
+    case "update-available":
+      applyUpdateAvailable(store, message.update);
       return;
   }
 }

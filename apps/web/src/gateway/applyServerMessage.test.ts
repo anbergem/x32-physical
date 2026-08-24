@@ -37,6 +37,7 @@ function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {
       })),
     },
     baseline: null,
+    updateAvailable: null,
   };
 }
 
@@ -211,6 +212,39 @@ describe("applyServerMessage: baseline (architecture.md §7)", () => {
     ).not.toThrow();
 
     expect(store.getState().baselineSaveError).toBe("The mixer is not connected.");
+  });
+});
+
+describe("applyServerMessage: updateAvailable (plan step 20)", () => {
+  it("applies a snapshot message's updateAvailable field", () => {
+    const message = snapshotMessage();
+    message.updateAvailable = { version: "0.2.0", url: "https://example.com/release/v0.2.0" };
+
+    applyServerMessage(store, message);
+
+    expect(store.getState().updateAvailable).toEqual({
+      version: "0.2.0",
+      url: "https://example.com/release/v0.2.0",
+    });
+  });
+
+  it("routes update-available to the updateAvailable slice only, touching nothing else", () => {
+    applyServerMessage(store, snapshotMessage());
+    const before = store.getState();
+
+    applyServerMessage(store, {
+      type: "update-available",
+      update: { version: "0.3.0", url: "https://example.com/release/v0.3.0" },
+    });
+
+    const after = store.getState();
+    expect(after.updateAvailable).toEqual({
+      version: "0.3.0",
+      url: "https://example.com/release/v0.3.0",
+    });
+    expect(after.channels).toBe(before.channels);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
   });
 });
 

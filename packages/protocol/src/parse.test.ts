@@ -24,6 +24,7 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: validSnapshot(),
       mixerConnection: "connected",
       baseline: null,
+      updateAvailable: null,
     };
 
     expect(parseServerMessage(message)).toEqual(message);
@@ -35,9 +36,57 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: validSnapshot(),
       mixerConnection: "connected",
       baseline: validSnapshot(),
+      updateAvailable: null,
     };
 
     expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("accepts a well-formed snapshot message carrying an update notice", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: null,
+      updateAvailable: { version: "0.2.0", url: "https://github.com/x/y/releases/tag/v0.2.0" },
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("treats a missing updateAvailable field as null (older bridge compatibility)", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: null,
+    };
+
+    expect(parseServerMessage(message)).toEqual({ ...message, updateAvailable: null });
+  });
+
+  it("rejects an updateAvailable with a non-https url", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: null,
+      updateAvailable: { version: "0.2.0", url: "javascript:alert(1)" },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/updateAvailable\.url/);
+  });
+
+  it("rejects an updateAvailable missing its version", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: validSnapshot(),
+      mixerConnection: "connected",
+      baseline: null,
+      updateAvailable: { url: "https://github.com/x/y/releases/tag/v0.2.0" },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/updateAvailable\.version/);
   });
 
   it("accepts every documented MixerSourceRef kind", () => {
@@ -62,6 +111,7 @@ describe("parseServerMessage: snapshot", () => {
         },
         mixerConnection: "disconnected",
         baseline: null,
+        updateAvailable: null,
       };
       expect(parseServerMessage(message)).toEqual(message);
     }
@@ -73,6 +123,7 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: { channels: [], selectedChannel: 12 },
       mixerConnection: "connected",
       baseline: null,
+      updateAvailable: null,
     };
 
     const parsed = parseServerMessage(message);
@@ -81,6 +132,7 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: { channels: [], selectedChannel: CH12 },
       mixerConnection: "connected",
       baseline: null,
+      updateAvailable: null,
     });
   });
 
@@ -90,6 +142,7 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: { channels: [], selectedChannel: null },
       mixerConnection: "connected",
       baseline: { channels: [], selectedChannel: 12 },
+      updateAvailable: null,
     };
 
     const parsed = parseServerMessage(message);
@@ -98,6 +151,7 @@ describe("parseServerMessage: snapshot", () => {
       snapshot: { channels: [], selectedChannel: null },
       mixerConnection: "connected",
       baseline: { channels: [], selectedChannel: CH12 },
+      updateAvailable: null,
     });
   });
 
@@ -310,6 +364,39 @@ describe("parseServerMessage: meters", () => {
     expect(() => parseServerMessage({ type: "meters", levels })).toThrow(
       /levels\[0\]/,
     );
+  });
+});
+
+describe("parseServerMessage: update-available", () => {
+  it("accepts a well-formed update-available message", () => {
+    const message = {
+      type: "update-available",
+      update: { version: "0.2.0", url: "https://github.com/x/y/releases/tag/v0.2.0" },
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("rejects a missing update", () => {
+    expect(() => parseServerMessage({ type: "update-available" })).toThrow(/update/);
+  });
+
+  it("rejects a non-https url", () => {
+    const message = {
+      type: "update-available",
+      update: { version: "0.2.0", url: "data:text/html,<script>alert(1)</script>" },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/update\.url/);
+  });
+
+  it("rejects a non-string version", () => {
+    const message = {
+      type: "update-available",
+      update: { version: 2, url: "https://github.com/x/y/releases/tag/v0.2.0" },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/update\.version/);
   });
 });
 

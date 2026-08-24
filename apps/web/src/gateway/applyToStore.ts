@@ -21,6 +21,7 @@ import type {
   MixerEvent,
   MixerSnapshot,
 } from "@x32/mixer-contracts";
+import type { UpdateAvailable } from "@x32/protocol";
 
 import type { AppStore } from "../state/store";
 
@@ -39,6 +40,19 @@ export function applyMixerSnapshot(
  */
 export function applyBaseline(store: AppStore, baseline: MixerSnapshot | null): void {
   store.getState().setBaseline(baseline);
+}
+
+/**
+ * The `updateAvailable` slice's own entry point (step 20) — shared by both
+ * wire forms (`snapshot`'s field and the standalone `update-available`
+ * message) and by mock mode, which never calls it at all (`LocalMockGateway`
+ * has no bridge, so the slice stays `null`).
+ */
+export function applyUpdateAvailable(
+  store: AppStore,
+  update: UpdateAvailable | null,
+): void {
+  store.getState().setUpdateAvailable(update);
 }
 
 /**

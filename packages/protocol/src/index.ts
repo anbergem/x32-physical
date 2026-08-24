@@ -5,5 +5,5 @@
  * the guards below before anything downstream trusts it.
  */
 
-export type { ClientMessage, ServerMessage } from "./messages";
+export type { ClientMessage, ServerMessage, UpdateAvailable } from "./messages";
 export { parseClientMessage, parseMixerSnapshot, parseServerMessage } from "./parse";

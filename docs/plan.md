@@ -120,7 +120,7 @@ re-saving after step 11 is one button press.
       service is Running, then uninstalls and asserts the service is gone.
       Release workflow triggers on `release: [published]` (not tag push) and
       uploads the MSI to that release.
-- [ ] **20. In-app update notice** — the bridge checks the GitHub Releases
+- [x] **20. In-app update notice** — the bridge checks the GitHub Releases
       API at most once every few hours (failures silent; never blocks
       startup), compares to its own VERSION, and exposes the result on the
       existing snapshot/protocol path; the header shows an unobtrusive

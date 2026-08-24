@@ -410,3 +410,78 @@ describe("baseline / discrepancies slice", () => {
     expect(after.routeIndex).toBe(before.routeIndex);
   });
 });
+
+/**
+ * `updateAvailable` (architecture.md §7, plan step 20): config lifecycle,
+ * like `baseline` — it changes at most a couple of times a day, so it must
+ * never sit in the fast runtime path, and setting it must never touch
+ * `routeIndex`/`discrepancies`. Mock mode never touches it at all — its
+ * default `null` is the only value `LocalMockGateway` ever produces.
+ */
+describe("updateAvailable slice", () => {
+  it("starts null", () => {
+    expect(createStore().getState().updateAvailable).toBeNull();
+  });
+
+  it("setUpdateAvailable sets the value and leaves every other slice's identity intact", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store
+      .getState()
+      .setUpdateAvailable({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+
+    const after = store.getState();
+    expect(after.updateAvailable).toEqual({
+      version: "0.2.0",
+      url: "https://example.com/release/v0.2.0",
+    });
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+    expect(after.channels).toBe(before.channels);
+    expect(after.baseline).toBe(before.baseline);
+  });
+
+  it("ignores a write that changes nothing (same version and url)", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setUpdateAvailable({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+    const before = store.getState();
+
+    store
+      .getState()
+      .setUpdateAvailable({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+
+    expect(store.getState()).toBe(before);
+  });
+
+  it("selection/hover/connection changes preserve updateAvailable identity", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setUpdateAvailable({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+    const before = store.getState();
+
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setConnection("disconnected");
+
+    expect(store.getState().updateAvailable).toBe(before.updateAvailable);
+  });
+
+  it("no other setter ever touches updateAvailable", () => {
+    const store = createStore();
+    store
+      .getState()
+      .setUpdateAvailable({ version: "0.2.0", url: "https://example.com/release/v0.2.0" });
+    const before = store.getState().updateAvailable;
+
+    store.getState().setChannelName(CH7, "Overhead Right");
+    store.getState().setChannelSource(CH12, { kind: "aes50", bus: "A", channel: 20 });
+    store.getState().setBaseline({ channels: [channel(7, "OH R", 7)], selectedChannel: null });
+    store.getState().setMeterLevels(new Array(32).fill(0.1));
+
+    expect(store.getState().updateAvailable).toBe(before);
+  });
+});
