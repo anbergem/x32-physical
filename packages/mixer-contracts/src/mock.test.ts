@@ -212,6 +212,53 @@ describe("MockMixerClient simulation API", () => {
       client.simulateSourceChange(CH23, { kind: "off" }),
     ).toThrow(/Unknown mixer channel/);
   });
+
+  it("emits output-source-changed and updates the snapshot (issue #11)", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateOutputSourceChange(13, { kind: "bus", bus: 7 });
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.outputs?.[12]).toEqual({
+      output: 13,
+      name: undefined,
+      source: { kind: "bus", bus: 7 },
+    });
+    expect(events).toEqual([
+      { type: "output-source-changed", output: 13, source: { kind: "bus", bus: 7 } },
+    ]);
+  });
+
+  it("does not alias the output source object it was handed", async () => {
+    const client = new MockMixerClient();
+    const source = { kind: "bus", bus: 3 } as const;
+
+    client.simulateOutputSourceChange(7, { ...source });
+    const { events } = recorder(client);
+    client.simulateOutputSourceChange(7, { ...source });
+
+    const emitted = events[0];
+    if (emitted?.type !== "output-source-changed") {
+      throw new Error("expected an output-source-changed event");
+    }
+    Object.assign(emitted.source, { bus: 99 });
+
+    expect((await client.getSnapshot()).outputs?.[6]?.source).toEqual(source);
+  });
+
+  it("rejects outputs the snapshot does not contain", () => {
+    const snapshot: MixerSnapshot = {
+      channels: [],
+      outputs: [{ output: 1, source: { kind: "off" } }],
+      selectedChannel: null,
+    };
+    const client = new MockMixerClient(snapshot);
+
+    expect(() =>
+      client.simulateOutputSourceChange(2, { kind: "off" }),
+    ).toThrow(/Unknown mixer output 2/);
+  });
 });
 
 describe("MockMixerClient subscriptions", () => {

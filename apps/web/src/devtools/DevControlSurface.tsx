@@ -13,14 +13,15 @@
  * that, once, at bootstrap); this module is never reachable in live mode.
  */
 
-import type { MixerChannelId, MixerSourceRef } from "@x32/domain";
-import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
+import type { MixerChannelId, MixerOutputSourceRef, MixerSourceRef } from "@x32/domain";
+import { MIXER_CHANNEL_COUNT, MIXER_OUTPUT_COUNT, mixerChannelId } from "@x32/domain";
 import type { MockMixerClient } from "@x32/mixer-contracts";
 import type { ChangeEvent, FormEvent } from "react";
 import { useState } from "react";
 
+import { formatMixerOutputSource } from "../format/outputSource";
 import { formatMixerSource } from "../format/source";
-import { selectChannels, selectConnection, selectSelectedChannel } from "../state/selectors";
+import { selectChannels, selectConnection, selectOutputs, selectSelectedChannel } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 /** Channel name is at most 12 characters on an X32 (docs/x32-protocol.md). */
@@ -35,6 +36,11 @@ const CONSOLE_INPUTS = Array.from({ length: 32 }, (_, index) => index + 1);
 const ALL_CHANNELS: MixerChannelId[] = Array.from(
   { length: MIXER_CHANNEL_COUNT },
   (_, index) => mixerChannelId(index + 1),
+);
+
+const ALL_OUTPUTS: number[] = Array.from(
+  { length: MIXER_OUTPUT_COUNT },
+  (_, index) => index + 1,
 );
 
 /** Encodes a source picker option as a stable string `<select>` value. */
@@ -199,6 +205,95 @@ function SourceControl({ mock }: { mock: MockMixerClient }) {
   );
 }
 
+/** Encodes an output-source picker option — the output-side mirror of `sourceOptionValue`. */
+function outputSourceOptionValue(kind: string, ...parts: (string | number)[]): string {
+  return [kind, ...parts].join(":");
+}
+
+/** The inverse of `outputSourceOptionValue`, mirroring `parseSourceOption`. */
+function parseOutputSourceOption(value: string): MixerOutputSourceRef {
+  const [kind, a] = value.split(":");
+  switch (kind) {
+    case "off":
+      return { kind: "off" };
+    case "main":
+      return { kind: "main", side: a as "L" | "R" | "C" };
+    case "bus":
+      return { kind: "bus", bus: Number(a) };
+    case "matrix":
+      return { kind: "matrix", matrix: Number(a) };
+    default:
+      throw new Error(`Unrecognised output source picker value "${value}"`);
+  }
+}
+
+function OutputOptions() {
+  return (
+    <>
+      {ALL_OUTPUTS.map((output) => (
+        <option key={output} value={output}>{`Out ${output}`}</option>
+      ))}
+    </>
+  );
+}
+
+/**
+ * The output-side mirror of `SourceControl` (issue #11) — drives
+ * `simulateOutputSourceChange`, so the output half of the schematic is fully
+ * exercisable without a console, per CLAUDE.md invariant 4.
+ */
+function OutputSourceControl({ mock }: { mock: MockMixerClient }) {
+  const outputs = useAppStore(selectOutputs);
+  const [output, setOutput] = useState(1);
+  const [source, setSource] = useState(outputSourceOptionValue("off"));
+
+  const current = outputs.find((o) => o.output === output)?.source;
+
+  function handleSubmit(event: FormEvent): void {
+    event.preventDefault();
+    mock.simulateOutputSourceChange(output, parseOutputSourceOption(source));
+  }
+
+  return (
+    <form className="devtools__section" onSubmit={handleSubmit}>
+      <span className="devtools__section-title">Change output source</span>
+      <div className="devtools__row">
+        <select value={output} onChange={(event) => setOutput(Number(event.target.value))}>
+          <OutputOptions />
+        </select>
+      </div>
+      {current !== undefined && (
+        <span className="devtools__hint">Currently {formatMixerOutputSource(current)}</span>
+      )}
+      <div className="devtools__row">
+        <select value={source} onChange={(event) => setSource(event.target.value)}>
+          <option value={outputSourceOptionValue("off")}>OFF</option>
+          <optgroup label="Main">
+            <option value={outputSourceOptionValue("main", "L")}>Main L</option>
+            <option value={outputSourceOptionValue("main", "R")}>Main R</option>
+            <option value={outputSourceOptionValue("main", "C")}>M/C</option>
+          </optgroup>
+          <optgroup label="Bus">
+            {ALL_OUTPUTS.map((n) => (
+              <option key={`bus${n}`} value={outputSourceOptionValue("bus", n)}>
+                Bus {n}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Matrix">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={`mtx${n}`} value={outputSourceOptionValue("matrix", n)}>
+                Matrix {n}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <button type="submit">Set</button>
+      </div>
+    </form>
+  );
+}
+
 /**
  * Meters (plan step 15) are the one piece of mock data with an actual on/off
  * switch here, rather than a one-shot action like the controls above: the
@@ -310,6 +405,7 @@ export function DevControlSurface({ mock }: { mock: MockMixerClient }) {
           <SelectedChannelControl mock={mock} />
           <RenameControl mock={mock} />
           <SourceControl mock={mock} />
+          <OutputSourceControl mock={mock} />
           <MetersControl mock={mock} />
           <Aes50Control mock={mock} />
           <ConnectionControl mock={mock} />

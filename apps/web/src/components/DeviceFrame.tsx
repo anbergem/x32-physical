@@ -12,12 +12,21 @@ export function DeviceFrame({
   label,
   meta,
   children,
+  outputs,
 }: {
   kind: "panel" | "stagebox";
   label: string;
   /** Short static fact, e.g. socket count or the box's AES50 range. */
   meta: string;
   children: ReactNode;
+  /**
+   * A stagebox's outputs row (issue #11), rendered as its own labelled row
+   * below the inputs grid — the box is one physical object with 16 in / 8
+   * out, and the frame says so, rather than splitting outputs into a
+   * separate area. `undefined` for a device with no outputs (every panel,
+   * and a stagebox with none declared).
+   */
+  outputs?: ReactNode;
 }) {
   return (
     <section className={`device device--${kind}`}>
@@ -26,6 +35,12 @@ export function DeviceFrame({
         <span className="device__meta">{meta}</span>
       </header>
       <div className="device__ports">{children}</div>
+      {outputs !== undefined && (
+        <div className="device__outputs">
+          <span className="device__outputs-label">OUT</span>
+          <div className="device__ports">{outputs}</div>
+        </div>
+      )}
     </section>
   );
 }

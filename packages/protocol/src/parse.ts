@@ -20,9 +20,11 @@ import type {
   Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
   MixerSourceRef,
 } from "@x32/domain";
-import { MIXER_CHANNEL_COUNT, mixerChannelId } from "@x32/domain";
+import { MIXER_CHANNEL_COUNT, MIXER_OUTPUT_COUNT, mixerChannelId } from "@x32/domain";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -159,6 +161,102 @@ function parseMixerChannelState(
   };
 }
 
+const MAIN_SIDES = new Set(["L", "R", "C"]);
+const MONITOR_SIDES = new Set(["L", "R"]);
+
+/** A console Out slot number (1–16, issue #11) — the output-side mirror of `parseChannelId`. */
+function parseOutputNumber(value: unknown, context: string): number {
+  const raw = requireNumber(value, context);
+  if (!Number.isInteger(raw) || raw < 1 || raw > MIXER_OUTPUT_COUNT) {
+    throw malformed(
+      context,
+      `an integer between 1 and ${MIXER_OUTPUT_COUNT}`,
+      value,
+    );
+  }
+  return raw;
+}
+
+/**
+ * `MixerOutputSourceRef` (issue #11) — the output-side mirror of
+ * `parseMixerSourceRef`, deliberately its own function since the two unions
+ * are not related (architecture.md §3).
+ */
+function parseMixerOutputSourceRef(
+  value: unknown,
+  context: string,
+): MixerOutputSourceRef {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw malformed(context, 'a mixer output source ref object with a "kind"', value);
+  }
+
+  switch (value.kind) {
+    case "main": {
+      const side = value.side;
+      if (typeof side !== "string" || !MAIN_SIDES.has(side)) {
+        throw malformed(`${context}.side`, '"L" | "R" | "C"', side);
+      }
+      return { kind: "main", side: side as "L" | "R" | "C" };
+    }
+    case "bus":
+      return { kind: "bus", bus: requireNumber(value.bus, `${context}.bus`) };
+    case "matrix":
+      return { kind: "matrix", matrix: requireNumber(value.matrix, `${context}.matrix`) };
+    case "direct-out-channel":
+      return {
+        kind: "direct-out-channel",
+        channel: parseChannelId(value.channel, `${context}.channel`),
+      };
+    case "direct-out-aux":
+      return { kind: "direct-out-aux", aux: requireNumber(value.aux, `${context}.aux`) };
+    case "direct-out-fx":
+      return { kind: "direct-out-fx", ret: requireNumber(value.ret, `${context}.ret`) };
+    case "monitor": {
+      const side = value.side;
+      if (typeof side !== "string" || !MONITOR_SIDES.has(side)) {
+        throw malformed(`${context}.side`, '"L" | "R"', side);
+      }
+      return { kind: "monitor", side: side as "L" | "R" };
+    }
+    case "talkback":
+      return { kind: "talkback" };
+    case "off":
+      return { kind: "off" };
+    default:
+      throw malformed(`${context}.kind`, "a known mixer output source kind", value.kind);
+  }
+}
+
+function parseMixerOutputState(value: unknown, context: string): MixerOutputState {
+  if (!isRecord(value)) {
+    throw malformed(context, "a mixer output state object", value);
+  }
+  const rawName = value.name;
+  if (rawName !== undefined && typeof rawName !== "string") {
+    throw malformed(`${context}.name`, "a string or undefined", rawName);
+  }
+  return {
+    output: parseOutputNumber(value.output, `${context}.output`),
+    name: rawName,
+    source: parseMixerOutputSourceRef(value.source, `${context}.source`),
+  };
+}
+
+/**
+ * Absent/undefined means "no output data yet" (issue #11) — tolerated, like
+ * `updateAvailable`, so a snapshot from a peer that predates this field still
+ * parses. Unlike `aes50Chain` (normalized to `[]`), `undefined` is preserved
+ * rather than coerced, matching the field's own optionality on `MixerSnapshot`.
+ */
+function parseMixerOutputList(
+  value: unknown,
+  context: string,
+): MixerOutputState[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw malformed(context, "an array", value);
+  return value.map((output, index) => parseMixerOutputState(output, `${context}[${index}]`));
+}
+
 function requireBoolean(value: unknown, context: string): boolean {
   if (typeof value !== "boolean") throw malformed(context, "a boolean", value);
   return value;
@@ -249,6 +347,8 @@ export function parseMixerSnapshot(value: unknown, context: string): MixerSnapsh
     parseMixerChannelState(channel, `${context}.channels[${index}]`),
   );
 
+  const outputs = parseMixerOutputList(value.outputs, `${context}.outputs`);
+
   const rawSelected = value.selectedChannel;
   const selectedChannel =
     rawSelected === null
@@ -261,7 +361,7 @@ export function parseMixerSnapshot(value: unknown, context: string): MixerSnapsh
   );
   const aes50Chain = parseAes50ChainList(value.aes50Chain, `${context}.aes50Chain`);
 
-  return { channels, selectedChannel, aes50LinkState, aes50Chain };
+  return { channels, outputs, selectedChannel, aes50LinkState, aes50Chain };
 }
 
 function parseMixerEvent(value: unknown, context: string): MixerEvent {
@@ -291,6 +391,12 @@ function parseMixerEvent(value: unknown, context: string): MixerEvent {
         type: "channel-source-changed",
         channel: parseChannelId(value.channel, `${context}.channel`),
         source: parseMixerSourceRef(value.source, `${context}.source`),
+      };
+    case "output-source-changed":
+      return {
+        type: "output-source-changed",
+        output: parseOutputNumber(value.output, `${context}.output`),
+        source: parseMixerOutputSourceRef(value.source, `${context}.source`),
       };
     case "connection-state-changed":
       return {

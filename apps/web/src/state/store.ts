@@ -32,15 +32,20 @@ import type {
   Installation,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
   MixerSourceRef,
+  OutputRouteIndex,
   RouteIndex,
   RoutingDiscrepancy,
 } from "@x32/domain";
 import {
   aes50LinkStateEquals,
+  buildOutputRouteIndex,
   buildRouteIndex,
   compareAes50Chain,
   compareRouting,
+  mixerOutputSourceRefEquals,
   mixerSourceRefEquals,
 } from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
@@ -56,6 +61,12 @@ export interface AppState {
   // Mixer configuration: changes occasionally; updating it rebuilds routeIndex.
   channels: MixerChannelState[];
 
+  // Mixer configuration (issue #11): the 16 console Out slots. Changes
+  // occasionally, exactly like `channels` — updating it rebuilds
+  // `outputRouteIndex` alone, never `routeIndex`/`discrepancies` (those are
+  // the input side's own derived values, untouched by output changes).
+  outputs: MixerOutputState[];
+
   // Blessed known-good snapshot (config lifecycle; null until first save).
   baseline: MixerSnapshot | null;
 
@@ -69,6 +80,12 @@ export interface AppState {
   routeIndex: RouteIndex;
   // Derived (recomputed only when channels/baseline change; [] w/o baseline):
   discrepancies: RoutingDiscrepancy[];
+
+  // Derived (issue #11; recomputed only when installation/outputs change).
+  // A separate index from `routeIndex` — the input and output endpoint-kind
+  // spaces are disjoint (architecture.md §3), and an outputs change must
+  // never rebuild the input side's `routeIndex`/`discrepancies`.
+  outputRouteIndex: OutputRouteIndex;
 
   // Runtime: fast-changing, never triggers index rebuilds.
   connection: MixerConnectionState;
@@ -117,6 +134,10 @@ export interface AppActions {
   setChannelName(channel: MixerChannelId, name: string): void;
   setChannelSource(channel: MixerChannelId, source: MixerSourceRef): void;
 
+  // Configuration slice (issue #11) — rebuilds outputRouteIndex only, never
+  // routeIndex/discrepancies.
+  setOutputSource(output: number, source: MixerOutputSourceRef): void;
+
   // Configuration slice — recomputes discrepancies only, never routeIndex.
   setBaseline(baseline: MixerSnapshot | null): void;
 
@@ -149,6 +170,20 @@ function configurationPatch(
   channels: MixerChannelState[],
 ): ConfigurationPatch {
   return { channels, routeIndex: buildRouteIndex(installation, channels) };
+}
+
+/**
+ * The output configuration slice and its derived index (issue #11), rebuilt
+ * together — the output-side mirror of `configurationPatch`, kept
+ * independent so an outputs change never touches `routeIndex`.
+ */
+type OutputConfigurationPatch = Pick<AppState, "outputs" | "outputRouteIndex">;
+
+function outputConfigurationPatch(
+  installation: Installation,
+  outputs: MixerOutputState[],
+): OutputConfigurationPatch {
+  return { outputs, outputRouteIndex: buildOutputRouteIndex(installation, outputs) };
 }
 
 /**
@@ -228,19 +263,57 @@ function cloneChannel(channel: MixerChannelState): MixerChannelState {
 }
 
 /**
+ * The output-side mirror of `replaceChannel`: replaces one output slot,
+ * leaving every other entry's object identity intact. `null` when there is
+ * nothing to do.
+ */
+function replaceOutput(
+  state: AppState,
+  output: number,
+  update: (current: MixerOutputState) => MixerOutputState,
+): MixerOutputState[] | null {
+  const index = state.outputs.findIndex((candidate) => candidate.output === output);
+  const current = index === -1 ? undefined : state.outputs[index];
+  if (current === undefined) return null;
+
+  const next = update(current);
+  if (next === current) return null;
+
+  const outputs = [...state.outputs];
+  outputs[index] = next;
+  return outputs;
+}
+
+/** Structural equality of two output sources — the output-side mirror of `sameSource`. */
+const sameOutputSource: (a: MixerOutputSourceRef, b: MixerOutputSourceRef) => boolean =
+  mixerOutputSourceRefEquals;
+
+function cloneOutput(output: MixerOutputState): MixerOutputState {
+  return {
+    output: output.output,
+    name: output.name,
+    source: { ...output.source },
+  };
+}
+
+/**
  * @param installation the loaded topology — structural, never replaced.
  * @param channels     initial mixer configuration; empty until the gateway
  *                     delivers the first snapshot. The schematic renders fine
  *                     without it (topology alone), which is exactly what has to
  *                     happen while the mixer is unreachable.
+ * @param outputs      initial output configuration (issue #11); empty until
+ *                     the gateway delivers the first snapshot, same as `channels`.
  */
 export function createAppStore(
   installation: Installation,
   channels: MixerChannelState[] = [],
+  outputs: MixerOutputState[] = [],
 ): AppStore {
   return createStore<AppStoreState>()((set, get) => ({
     installation,
     ...configurationPatch(installation, channels),
+    ...outputConfigurationPatch(installation, outputs),
     baseline: null,
     ...discrepancyPatch(channels, null),
     updateAvailable: null,
@@ -255,8 +328,10 @@ export function createAppStore(
     applySnapshot(snapshot, connection) {
       const state = get();
       const nextChannels = snapshot.channels.map(cloneChannel);
+      const nextOutputs = (snapshot.outputs ?? []).map(cloneOutput);
       set({
         ...configurationPatch(state.installation, nextChannels),
+        ...outputConfigurationPatch(state.installation, nextOutputs),
         ...discrepancyPatch(nextChannels, state.baseline),
         ...aes50ChainPatch(state.installation, snapshot.aes50Chain ?? []),
         selectedChannel: snapshot.selectedChannel,
@@ -289,6 +364,20 @@ export function createAppStore(
           ...configurationPatch(state.installation, channels),
           ...discrepancyPatch(channels, state.baseline),
         });
+      }
+    },
+
+    /** Rebuilds `outputRouteIndex` only — never `routeIndex`/`discrepancies`
+     * (issue #11's own identity boundary, mirroring `setChannelSource`). */
+    setOutputSource(output, source) {
+      const state = get();
+      const outputs = replaceOutput(state, output, (current) =>
+        sameOutputSource(current.source, source)
+          ? current
+          : { ...current, source: { ...source } },
+      );
+      if (outputs !== null) {
+        set(outputConfigurationPatch(state.installation, outputs));
       }
     },
 

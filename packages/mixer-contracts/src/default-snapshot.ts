@@ -18,7 +18,14 @@
  * snapshot) rather than leaning on the default.
  */
 
-import type { Aes50Chain, Aes50LinkState, MixerChannelState, MixerSourceRef } from "@x32/domain";
+import type {
+  Aes50Chain,
+  Aes50LinkState,
+  MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
+  MixerSourceRef,
+} from "@x32/domain";
 import { mixerChannelId } from "@x32/domain";
 
 import type { MixerSnapshot } from "./client";
@@ -69,6 +76,58 @@ const DEFAULT_CHANNELS: ReadonlyArray<{
   { name: "OH V", source: aes50A(31) }, // CH31 · Stagebox H / 15
   { name: "OH H", source: aes50A(32) }, // CH32 · Stagebox H / 16
 ];
+
+function matrix(n: number): MixerOutputSourceRef {
+  return { kind: "matrix", matrix: n };
+}
+
+function bus(n: number): MixerOutputSourceRef {
+  return { kind: "bus", bus: n };
+}
+
+function main(side: "L" | "R" | "C"): MixerOutputSourceRef {
+  return { kind: "main", side };
+}
+
+const OFF: MixerOutputSourceRef = { kind: "off" };
+
+/**
+ * The venue's real output patch (docs/installation.md §"Output topology",
+ * "Betania Lydsystem - Outputs"): Out 1/2 feed the console's own XLRs
+ * (Sidesal, Vip Rom) from Matrix 1/2; Outs 6–8 and 11–13 feed the stagebox
+ * blocks; 14–16 carry the M/C and Main L/R signal pair. Outs 3, 4, 5, 9, 10
+ * are unused at this venue.
+ */
+const DEFAULT_OUTPUT_SOURCES: ReadonlyArray<MixerOutputSourceRef> = [
+  matrix(1), // Out 1  · Sidesal
+  matrix(2), // Out 2  · Vip Rom
+  OFF, // Out 3
+  OFF, // Out 4
+  OFF, // Out 5
+  bus(5), // Out 6  · Bak Høyre
+  bus(3), // Out 7  · Piano Høyre
+  bus(2), // Out 8  · Front Høyre
+  OFF, // Out 9
+  OFF, // Out 10
+  bus(4), // Out 11 · Venstre Bak
+  bus(3), // Out 12 · Piano Venstre
+  bus(1), // Out 13 · Front Venstre
+  main("C"), // Out 14 · Sub
+  main("L"), // Out 15 · Main Left
+  main("R"), // Out 16 · Main Right
+];
+
+/**
+ * A fresh copy per call, matching `DEFAULT_CHANNELS`' discipline — the mock
+ * mirrors the desk's real output patch (docs/installation.md), the same
+ * decision taken for input channel names.
+ */
+function defaultOutputs(): MixerOutputState[] {
+  return DEFAULT_OUTPUT_SOURCES.map((source, index) => ({
+    output: index + 1,
+    source: { ...source },
+  }));
+}
 
 /**
  * A healthy default AES50 state (issue #17): both buses clear, locked (the
@@ -121,6 +180,7 @@ export function createDefaultMockSnapshot(): MixerSnapshot {
 
   return {
     channels,
+    outputs: defaultOutputs(),
     selectedChannel: null,
     aes50LinkState: defaultAes50LinkState(),
     aes50Chain: defaultAes50Chain(),

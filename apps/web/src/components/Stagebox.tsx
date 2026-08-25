@@ -9,15 +9,18 @@
  * the graph edges, so a label can never disagree with a route.
  */
 
-import { aes50ChannelForInput, endpointId, stageboxInput } from "@x32/domain";
+import { aes50ChannelForInput, endpointId, stageboxInput, stageboxOutput } from "@x32/domain";
 import type { Device, DeviceId } from "@x32/domain";
 
 import { aes50LabelsFor } from "../installation/aes50Labels";
+import { physicalOutputDestinationsFor } from "../installation/outputCabling";
+import { outputSlotsFor } from "../installation/outputLabels";
 import { selectDevice, selectInstallation } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { DeviceFrame, MissingDevice, socketNumbers } from "./DeviceFrame";
 import { InputPort } from "./InputPort";
+import { OutputPort } from "./OutputPort";
 
 /** `AES50-A 17–32`, or a warning when the device declares no AES50 mapping. */
 function metaOf(device: Device): string {
@@ -31,11 +34,36 @@ export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
   const installation = useAppStore(selectInstallation);
   const aes50Labels = aes50LabelsFor(installation);
+  const outputSlots = outputSlotsFor(installation);
+  const outputDestinations = physicalOutputDestinationsFor(installation);
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
+  const outputCount = device.outputs ?? 0;
+
   return (
-    <DeviceFrame kind="stagebox" label={device.label} meta={metaOf(device)}>
+    <DeviceFrame
+      kind="stagebox"
+      label={device.label}
+      meta={metaOf(device)}
+      outputs={
+        outputCount === 0
+          ? undefined
+          : socketNumbers(outputCount).map((socket) => {
+              const endpoint = endpointId(stageboxOutput(device.id, socket));
+              const slot = outputSlots.get(endpoint);
+              return (
+                <OutputPort
+                  key={socket}
+                  endpoint={endpoint}
+                  label={String(socket)}
+                  outSlotLabel={slot === undefined ? undefined : `Out ${slot}`}
+                  cabled={outputDestinations.has(endpoint)}
+                />
+              );
+            })
+      }
+    >
       {socketNumbers(device.inputs).map((socket) => {
         const endpoint = endpointId(stageboxInput(device.id, socket));
         const busChannel = aes50Labels.get(endpoint);

@@ -2,10 +2,16 @@ import { fileURLToPath } from "node:url";
 
 import type { MixerSourceRef } from "@x32/domain";
 import {
+  buildOutputRouteIndex,
   buildRouteIndex,
+  consoleOutput,
+  destination,
+  endpointId,
   MIXER_CHANNEL_COUNT,
+  MIXER_OUTPUT_COUNT,
   mixerChannelId,
   panelInput,
+  stageboxOutput,
 } from "@x32/domain";
 import { loadInstallationFile } from "@x32/installation/node";
 import { describe, expect, it } from "vitest";
@@ -126,6 +132,101 @@ describe("createDefaultMockSnapshot", () => {
 
       const route = routeIndex.byMixerChannel.get(mixerChannelId(5));
       expect(route?.physicalInputs).toEqual([panelInput("front-left", 1)]);
+    });
+  });
+
+  describe("output patch (issue #11, docs/installation.md \"Output topology\")", () => {
+    it("has exactly 16 output slots, ids 1–16 in order", () => {
+      const { outputs } = createDefaultMockSnapshot();
+
+      expect(outputs).toHaveLength(MIXER_OUTPUT_COUNT);
+      expect(outputs?.map((output) => output.output)).toEqual(
+        Array.from({ length: MIXER_OUTPUT_COUNT }, (_, index) => index + 1),
+      );
+    });
+
+    it("matches the venue's real output patch sheet", () => {
+      const { outputs } = createDefaultMockSnapshot();
+      const byOutput = new Map(outputs?.map((o) => [o.output, o.source]));
+
+      expect(byOutput.get(1)).toEqual({ kind: "matrix", matrix: 1 });
+      expect(byOutput.get(2)).toEqual({ kind: "matrix", matrix: 2 });
+      expect(byOutput.get(6)).toEqual({ kind: "bus", bus: 5 });
+      expect(byOutput.get(7)).toEqual({ kind: "bus", bus: 3 });
+      expect(byOutput.get(8)).toEqual({ kind: "bus", bus: 2 });
+      expect(byOutput.get(11)).toEqual({ kind: "bus", bus: 4 });
+      expect(byOutput.get(12)).toEqual({ kind: "bus", bus: 3 });
+      expect(byOutput.get(13)).toEqual({ kind: "bus", bus: 1 });
+      expect(byOutput.get(14)).toEqual({ kind: "main", side: "C" });
+      expect(byOutput.get(15)).toEqual({ kind: "main", side: "L" });
+      expect(byOutput.get(16)).toEqual({ kind: "main", side: "R" });
+
+      for (const off of [3, 4, 5, 9, 10]) {
+        expect(byOutput.get(off)).toEqual({ kind: "off" });
+      }
+    });
+
+    it("returns an independent outputs array per call", () => {
+      const first = createDefaultMockSnapshot();
+      const second = createDefaultMockSnapshot();
+
+      expect(first.outputs).not.toBe(second.outputs);
+      expect(first.outputs?.[0]).not.toBe(second.outputs?.[0]);
+      expect(first.outputs).toEqual(second.outputs);
+    });
+
+    describe("sanity anchor against the real installation", () => {
+      it("traces Out 13 Front Venstre: Bus 1 -> Stagebox V out 5 -> Front Venstre", () => {
+        const installation = loadInstallationFile(VENUE_CONFIG);
+        const { outputs } = createDefaultMockSnapshot();
+        const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
+
+        const route = outputRouteIndex.byMixerOutput.get(13);
+        expect(route?.destinations).toEqual([destination("front-venstre")]);
+        expect(route?.endpoints).toContain(
+          endpointId(stageboxOutput("stagebox-1", 5)),
+        );
+      });
+
+      it("shares one route between Out 7 and Out 12, both fed by Bus 3", () => {
+        const installation = loadInstallationFile(VENUE_CONFIG);
+        const { outputs } = createDefaultMockSnapshot();
+        const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
+
+        const route7 = outputRouteIndex.byMixerOutput.get(7);
+        const route12 = outputRouteIndex.byMixerOutput.get(12);
+        expect(route7).toBe(route12);
+        expect(route7?.mixerOutputs).toEqual([7, 12]);
+      });
+
+      it("presents Out 1's block wholesale: the stagebox XLR carries it, but only the console XLR is declared cabled", () => {
+        const installation = loadInstallationFile(VENUE_CONFIG);
+        const { outputs } = createDefaultMockSnapshot();
+        const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
+
+        const route = outputRouteIndex.byMixerOutput.get(1);
+        // Both physical presentations of the block are on the one shared
+        // route — `endpoints` is a flat set, not a linear path
+        // (architecture.md §3) — and `destinations` names every destination
+        // the route reaches, from either branch.
+        expect(route?.endpoints).toContain(endpointId(consoleOutput(1)));
+        expect(route?.endpoints).toContain(
+          endpointId(stageboxOutput("stagebox-2", 1)),
+        );
+        expect(route?.destinations).toEqual([destination("sidesal")]);
+
+        // `byEndpoint` for the stagebox socket returns this same shared
+        // route object — its `destinations` is the whole route's, not this
+        // one branch's. This is exactly why the wholesale-block distinction
+        // (issue #11) cannot be read off `OutputRoute.destinations` alone:
+        // the web app's own `physicalOutputDestinationsFor` answers "is
+        // *this* socket declared cabled?" directly from `installation`,
+        // never through this index.
+        const socketRoutes = outputRouteIndex.byEndpoint.get(
+          endpointId(stageboxOutput("stagebox-2", 1)),
+        );
+        expect(socketRoutes).toEqual([route]);
+      });
     });
   });
 });

@@ -11,6 +11,7 @@
  * | `connection-state-changed` | runtime only — no index rebuild        |
  * | `channel-name-changed`     | configuration — no index rebuild       |
  * | `channel-source-changed`   | configuration — rebuilds the index     |
+ * | `output-source-changed`    | configuration — rebuilds outputRouteIndex only |
  *
  * `applyBaseline` (step 13) is the sibling entry point for the `baseline`
  * slice — not a `MixerEvent` variant, since it is not mixer state at all.
@@ -76,6 +77,9 @@ export function applyMixerEvent(store: AppStore, event: MixerEvent): void {
       return;
     case "channel-source-changed":
       state.setChannelSource(event.channel, event.source);
+      return;
+    case "output-source-changed":
+      state.setOutputSource(event.output, event.source);
       return;
     case "connection-state-changed":
       state.setConnection(event.state);

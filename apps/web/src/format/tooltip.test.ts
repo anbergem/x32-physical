@@ -11,12 +11,17 @@
 
 import type { MixerChannelState } from "@x32/domain";
 import {
+  buildOutputRouteIndex,
   buildRouteIndex,
+  consoleOutput,
+  destination,
   endpointId,
   mixerChannel,
   mixerChannelId,
+  mixerOutput,
   panelInput,
   stageboxInput,
+  stageboxOutput,
 } from "@x32/domain";
 import type { RoutingDiscrepancy } from "@x32/domain";
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
@@ -28,12 +33,14 @@ import type { TooltipContext } from "./tooltip";
 import { describeEndpoint } from "./tooltip";
 
 const installation = venueInstallation();
-const { channels } = createDefaultMockSnapshot();
+const { channels, outputs } = createDefaultMockSnapshot();
 const context: TooltipContext = {
   installation,
   routeIndex: buildRouteIndex(installation, channels),
   channels,
   discrepancies: [],
+  outputRouteIndex: buildOutputRouteIndex(installation, outputs ?? []),
+  outputs: outputs ?? [],
 };
 
 const CH23 = mixerChannelId(23);
@@ -50,6 +57,8 @@ const sharedContext: TooltipContext = {
   routeIndex: buildRouteIndex(installation, sharedChannels),
   channels: sharedChannels,
   discrepancies: [],
+  outputRouteIndex: buildOutputRouteIndex(installation, outputs ?? []),
+  outputs: outputs ?? [],
 };
 
 describe("describeEndpoint · mixer channel", () => {
@@ -86,6 +95,8 @@ describe("describeEndpoint · mixer channel", () => {
       routeIndex: buildRouteIndex(installation, offChannels),
       channels: offChannels,
       discrepancies: [],
+      outputRouteIndex: buildOutputRouteIndex(installation, outputs ?? []),
+      outputs: outputs ?? [],
     };
 
     expect(describeEndpoint(endpointId(mixerChannel(32)), offContext)).toEqual({
@@ -100,6 +111,8 @@ describe("describeEndpoint · mixer channel", () => {
       routeIndex: buildRouteIndex(installation, []),
       channels: [],
       discrepancies: [],
+      outputRouteIndex: buildOutputRouteIndex(installation, []),
+      outputs: [],
     };
 
     expect(describeEndpoint(endpointId(mixerChannel(12)), empty)).toEqual({
@@ -187,6 +200,74 @@ describe("describeEndpoint · physical socket", () => {
     ).toEqual({
       title: "Stagebox 1 · Input 10",
       lines: ["→ AES50-A 10", "No channel consumes this input"],
+    });
+  });
+});
+
+describe("describeEndpoint · output slot (issue #11)", () => {
+  it("shows the slot's source and the destination it reaches", () => {
+    expect(describeEndpoint(endpointId(mixerOutput(13)), context)).toEqual({
+      title: "Out 13",
+      lines: ["Bus 1", "→ Front Venstre"],
+    });
+  });
+
+  it("names every destination for a slot shared by two Out numbers", () => {
+    expect(describeEndpoint(endpointId(mixerOutput(7)), context)).toEqual({
+      title: "Out 7",
+      lines: ["Bus 3", "→ Piano Høyre, Piano Venstre"],
+    });
+    expect(describeEndpoint(endpointId(mixerOutput(12)), context)).toEqual({
+      title: "Out 12",
+      lines: ["Bus 3", "→ Piano Høyre, Piano Venstre"],
+    });
+  });
+
+  it("reports an off slot as unrouted, not merely uncabled", () => {
+    expect(describeEndpoint(endpointId(mixerOutput(3)), context)).toEqual({
+      title: "Out 3",
+      lines: ["OFF", "OFF — not routed"],
+    });
+  });
+});
+
+describe("describeEndpoint · physical output socket — the wholesale-block distinction (issue #11)", () => {
+  it("describes a cabled console XLR out", () => {
+    expect(describeEndpoint(endpointId(consoleOutput(1)), context)).toEqual({
+      title: "Console Out 1",
+      lines: ["Carries Out 1 → Sidesal"],
+    });
+  });
+
+  it("describes a cabled stagebox XLR out", () => {
+    expect(describeEndpoint(endpointId(stageboxOutput("stagebox-1", 5)), context)).toEqual({
+      title: "Stagebox 1 · Out 5",
+      lines: ["Carries Out 13 → Front Venstre"],
+    });
+  });
+
+  it("reads distinctly for a socket that carries a block wholesale but is not cabled", () => {
+    // Stagebox 2 presents OUT1-8 wholesale; only console-out:1 is actually
+    // cabled to Sidesal — this socket must never claim to feed it too.
+    expect(describeEndpoint(endpointId(stageboxOutput("stagebox-2", 1)), context)).toEqual({
+      title: "Stagebox 2 · Out 1",
+      lines: ["Carries Out 1 · nothing connected"],
+    });
+  });
+});
+
+describe("describeEndpoint · destination (issue #11)", () => {
+  it("shows the full upstream chain for a simple 1:1 destination", () => {
+    expect(describeEndpoint(endpointId(destination("front-venstre")), context)).toEqual({
+      title: "Front Venstre",
+      lines: ["Front Venstre ← Stagebox 1 · Out 5 ← Out 13 ← Bus 1"],
+    });
+  });
+
+  it("shows the chain for a console-XLR-fed destination", () => {
+    expect(describeEndpoint(endpointId(destination("vip-rom")), context)).toEqual({
+      title: "Vip Rom",
+      lines: ["Vip Rom ← Console Out 2 ← Out 2 ← Matrix 2"],
     });
   });
 });

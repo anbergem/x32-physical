@@ -9,17 +9,25 @@
  */
 
 import type {
+  DestinationRef,
   EndpointId,
   EndpointRef,
   Installation,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputState,
+  OutputRoute,
+  OutputRouteIndex,
   RouteIndex,
   RoutingDiscrepancy,
   SignalRoute,
 } from "@x32/domain";
 import { parseEndpointId } from "@x32/domain";
 
+import { outputSlotsFor } from "../installation/outputLabels";
+import { physicalOutputDestinationsFor } from "../installation/outputCabling";
+
+import { formatMixerOutputSource } from "./outputSource";
 import { formatMixerSource } from "./source";
 
 export interface TooltipContext {
@@ -28,6 +36,9 @@ export interface TooltipContext {
   channels: MixerChannelState[];
   /** Baseline diff (architecture.md §3), `[]` without a baseline (step 14). */
   discrepancies: RoutingDiscrepancy[];
+  /** Output-side route index (issue #11) — mirrors `routeIndex` for the output half of the schematic. */
+  outputRouteIndex: OutputRouteIndex;
+  outputs: MixerOutputState[];
 }
 
 export interface EndpointDescription {
@@ -50,17 +61,15 @@ export function formatEndpoint(
       return `AES50-${ref.bus} ${ref.channel}`;
     case "mixer-channel":
       return `CH${ref.channel}`;
-    // Output-side endpoint kinds (domain issue #8). The output UI is a
-    // separate, not-yet-built milestone (issue #11) — this function never
-    // receives one of these today, since nothing produces an output
-    // `RouteIndex`/`EndpointRef` in the web app yet.
+    // Output-side endpoint kinds (issue #11).
     case "mixer-output":
+      return `Out ${ref.output}`;
     case "console-output":
+      return `Console Out ${ref.output}`;
     case "stagebox-output":
+      return `${deviceLabel(ref.device, installation)} · Out ${ref.output}`;
     case "destination":
-      throw new Error(
-        `formatEndpoint does not support output-side endpoint "${ref.kind}" yet (issue #11).`,
-      );
+      return deviceLabel(ref.device, installation);
   }
 }
 
@@ -105,9 +114,19 @@ export function describeEndpoint(
   context: TooltipContext,
 ): EndpointDescription {
   const ref = parseEndpointId(endpoint);
-  return ref.kind === "mixer-channel"
-    ? describeChannel(ref.channel, context)
-    : describePhysical(ref, endpoint, context);
+  switch (ref.kind) {
+    case "mixer-channel":
+      return describeChannel(ref.channel, context);
+    case "mixer-output":
+      return describeOutputSlot(ref.output, context);
+    case "console-output":
+    case "stagebox-output":
+      return describePhysicalOutput(ref, endpoint, context);
+    case "destination":
+      return describeDestination(ref, context);
+    default:
+      return describePhysical(ref, endpoint, context);
+  }
 }
 
 /** "Which socket does this channel come from?" */
@@ -224,4 +243,117 @@ function consumerLine(
     .sort((a, b) => a - b)
     .map((channel) => channelLabel(channel, channels))
     .join(", ");
+}
+
+// --- output side (issue #11) ------------------------------------------------
+
+/** "Where does this Out slot's signal go?" */
+function describeOutputSlot(
+  output: number,
+  { installation, outputs, outputRouteIndex }: TooltipContext,
+): EndpointDescription {
+  const title = `Out ${output}`;
+  const state = outputs.find((candidate) => candidate.output === output);
+  if (state === undefined) {
+    return { title, lines: ["No mixer data yet"] };
+  }
+
+  const route = outputRouteIndex.byMixerOutput.get(output);
+  const line = outputDestinationLine(route, installation);
+
+  return { title, lines: [formatMixerOutputSource(state.source), line] };
+}
+
+/** The destination-summary line shared by `describeOutputSlot` and `describePhysicalOutput`. */
+function outputDestinationLine(
+  route: OutputRoute | undefined,
+  installation: Installation,
+): string {
+  if (route?.unroutedSource !== undefined) return "OFF — not routed";
+  // `OutputRoute.destinations` is typed as the general `EndpointRef` union,
+  // but every entry the domain puts there is always `kind: "destination"`
+  // (`destinationsOf` in `output-routing.ts`) — narrow rather than assert.
+  const destinations = (route?.destinations ?? []).filter(
+    (ref): ref is DestinationRef => ref.kind === "destination",
+  );
+  return destinations.length === 0
+    ? "Not cabled to a destination"
+    : `→ ${destinations.map((ref) => deviceLabel(ref.device, installation)).join(", ")}`;
+}
+
+/**
+ * "What does this physical output socket carry, and what is cabled to it?"
+ *
+ * The wholesale-block distinction (issue #11) lives here: `outputSlotsFor`
+ * gives the console Out slot this exact socket carries as a structural fact,
+ * independent of `OutputRouteIndex` — and `physicalOutputDestinationsFor`
+ * answers "is *this* socket declared cabled?" the same way, never through
+ * the shared route's `destinations` (which would read identically for a
+ * wholesale-uncabled socket and its block's cabled sibling — see
+ * `installation/outputCabling.ts`). A socket that carries a block but has
+ * nothing plugged into it reads "carries Out N · nothing connected",
+ * distinct from a cabled one's "carries Out N → Destination".
+ */
+function describePhysicalOutput(
+  ref: EndpointRef,
+  endpoint: EndpointId,
+  { installation }: TooltipContext,
+): EndpointDescription {
+  const title = formatEndpoint(ref, installation);
+  const slot = outputSlotsFor(installation).get(endpoint);
+  const cabledTo = physicalOutputDestinationsFor(installation).get(endpoint);
+
+  if (slot === undefined) {
+    return { title, lines: ["No console Out slot mapped"] };
+  }
+
+  const line =
+    cabledTo === undefined
+      ? `Carries Out ${slot} · nothing connected`
+      : `Carries Out ${slot} → ${deviceLabel(cabledTo.device, installation)}`;
+
+  return { title, lines: [line] };
+}
+
+/**
+ * "Which output feeds this destination, and via which physical socket?" —
+ * the full upstream chain, e.g. `Front Venstre ← Stagebox V out 5 ← Out 13 ←
+ * Bus 1`. Built from the declared cabling (`physicalOutputDestinationsFor`)
+ * and the structural slot mapping (`outputSlotsFor`) rather than from
+ * `OutputRouteIndex`, for the same reason `describePhysicalOutput` does —
+ * a destination's own tooltip must never suggest a wholesale-uncabled
+ * sibling socket feeds it.
+ */
+function describeDestination(
+  ref: DestinationRef,
+  { installation, outputs }: TooltipContext,
+): EndpointDescription {
+  const title = deviceLabel(ref.device, installation);
+  const outputSlots = outputSlotsFor(installation);
+
+  const feeders: EndpointId[] = [];
+  for (const [physicalId, dest] of physicalOutputDestinationsFor(installation)) {
+    if (dest.device === ref.device) feeders.push(physicalId);
+  }
+
+  if (feeders.length === 0) {
+    return { title, lines: ["Nothing cabled to this destination"] };
+  }
+
+  const lines = feeders.sort().map((physicalId) => {
+    const physicalRef = parseEndpointId(physicalId);
+    const physicalLabel = formatEndpoint(physicalRef, installation);
+    const slot = outputSlots.get(physicalId);
+    if (slot === undefined) return `${title} ← ${physicalLabel}`;
+
+    const state = outputs.find((candidate) => candidate.output === slot);
+    const sourceLabel =
+      state === undefined ? undefined : formatMixerOutputSource(state.source);
+
+    return sourceLabel === undefined
+      ? `${title} ← ${physicalLabel} ← Out ${slot}`
+      : `${title} ← ${physicalLabel} ← Out ${slot} ← ${sourceLabel}`;
+  });
+
+  return { title, lines };
 }

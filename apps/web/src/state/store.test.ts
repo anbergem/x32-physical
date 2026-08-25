@@ -8,8 +8,15 @@
  * every memoised highlight lookup in steps 7–8.
  */
 
-import type { MixerChannelState } from "@x32/domain";
-import { endpointId, mixerChannelId, panelInput } from "@x32/domain";
+import type { MixerChannelState, MixerOutputState } from "@x32/domain";
+import {
+  consoleOutput,
+  destination,
+  endpointId,
+  mixerChannelId,
+  panelInput,
+  stageboxOutput,
+} from "@x32/domain";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
@@ -599,5 +606,115 @@ describe("updateAvailable slice", () => {
     store.getState().setMeterLevels(new Array(32).fill(0.1));
 
     expect(store.getState().updateAvailable).toBe(before);
+  });
+});
+
+describe("outputs slice + outputRouteIndex (issue #11)", () => {
+  function outputState(output: number, kind: MixerOutputState["source"]["kind"]): MixerOutputState {
+    if (kind === "bus") return { output, source: { kind: "bus", bus: output } };
+    return { output, source: { kind: "off" } };
+  }
+
+  function storeWithOutputs(outputs: MixerOutputState[]) {
+    return createAppStore(venueInstallation(), [], outputs);
+  }
+
+  it("derives outputRouteIndex from installation and outputs at creation", () => {
+    const { outputRouteIndex } = storeWithOutputs([
+      { output: 13, source: { kind: "bus", bus: 1 } },
+    ]).getState();
+
+    const route = outputRouteIndex.byMixerOutput.get(13);
+    expect(route?.destinations).toEqual([destination("front-venstre")]);
+    expect(route?.endpoints).toContain(
+      endpointId(stageboxOutput("stagebox-1", 5)),
+    );
+  });
+
+  it("setOutputSource rebuilds outputRouteIndex but leaves routeIndex/discrepancies untouched", () => {
+    const store = storeWithOutputs([outputState(1, "off")]);
+    const before = store.getState();
+
+    store.getState().setOutputSource(1, { kind: "matrix", matrix: 1 });
+
+    const after = store.getState();
+    expect(after.outputRouteIndex).not.toBe(before.outputRouteIndex);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+    expect(after.channels).toBe(before.channels);
+  });
+
+  it("setOutputSource is a no-op (no rebuild, no listener notification) when the source is structurally unchanged", () => {
+    const store = storeWithOutputs([{ output: 7, source: { kind: "bus", bus: 3 } }]);
+    const before = store.getState();
+
+    store.getState().setOutputSource(7, { kind: "bus", bus: 3 });
+
+    expect(store.getState()).toBe(before);
+  });
+
+  it("applySnapshot carries the snapshot's outputs into the outputs/outputRouteIndex slice", () => {
+    const store = createStore();
+    const before = store.getState().outputRouteIndex;
+
+    store.getState().applySnapshot(
+      {
+        channels: [channel(7, "OH R", 7), channel(12, "Keys R", 12)],
+        outputs: [{ output: 1, source: { kind: "matrix", matrix: 1 } }],
+        selectedChannel: null,
+      },
+      "connected",
+    );
+
+    const after = store.getState();
+    expect(after.outputs).toHaveLength(1);
+    expect(after.outputRouteIndex).not.toBe(before);
+  });
+
+  it("applySnapshot with no outputs field leaves the outputs slice empty (older-peer compatibility)", () => {
+    const store = createStore();
+
+    store.getState().applySnapshot(
+      { channels: [channel(7, "OH R", 7)], selectedChannel: null },
+      "connected",
+    );
+
+    expect(store.getState().outputs).toEqual([]);
+  });
+
+  it("selection/hover/connection changes preserve outputs/outputRouteIndex identity", () => {
+    const store = storeWithOutputs([outputState(1, "off")]);
+    const before = store.getState();
+
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(consoleOutput(1)));
+    store.getState().setConnection("disconnected");
+
+    const after = store.getState();
+    expect(after.outputs).toBe(before.outputs);
+    expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
+  });
+
+  it("meter updates preserve outputs/outputRouteIndex identity", () => {
+    const store = storeWithOutputs([outputState(1, "off")]);
+    const before = store.getState();
+
+    store.getState().setMeterLevels(new Array(32).fill(0.2));
+
+    const after = store.getState();
+    expect(after.outputs).toBe(before.outputs);
+    expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
+  });
+
+  it("a channel rename/source change never touches outputs/outputRouteIndex", () => {
+    const store = storeWithOutputs([outputState(1, "off")]);
+    const before = store.getState();
+
+    store.getState().setChannelName(CH7, "Renamed");
+    store.getState().setChannelSource(CH12, { kind: "off" });
+
+    const after = store.getState();
+    expect(after.outputs).toBe(before.outputs);
+    expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
   });
 });

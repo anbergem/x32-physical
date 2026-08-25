@@ -455,6 +455,15 @@ interface AppState {
   // Derived (recomputed only when channels/baseline change; [] w/o baseline):
   discrepancies: RoutingDiscrepancy[];
 
+  // Mixer configuration (issue #11): the 16 console Out slots — the
+  // output-side mirror of `channels`, same lifecycle.
+  outputs: MixerOutputState[];
+  // Derived (issue #11; recomputed only when installation/outputs change).
+  // A separate index from `routeIndex` — the input and output endpoint-kind
+  // spaces are disjoint (§3), so an outputs change never rebuilds
+  // `routeIndex`/`discrepancies`, and vice versa.
+  outputRouteIndex: OutputRouteIndex;
+
   // Runtime: fast-changing, never triggers index rebuilds.
   connection: MixerConnectionState;
   selectedChannel: MixerChannelId | null;   // from the physical console
@@ -479,6 +488,27 @@ connection ever do, and every strip subscribes to it through its own
 primitive selector (one channel's own level, `state.meterLevels?.[ch - 1] ??
 null`) so a meter tick only rerenders the 32 strips, never anything that
 reads `routeIndex`/`channels`/`discrepancies`/`baseline`.
+
+`hoveredEndpoint` (issue #11) is one slice covering *both* graphs: input and
+output endpoint ids are disjoint (§3 "Identifiers"), so `selectHoverStatus`
+consults `routeIndex.byEndpoint` first and falls back to
+`outputRouteIndex.byEndpoint` — exactly one of the two can ever hold an entry
+for a given hovered id. There is no output selection layer: the console's
+SELECT reports input strips only, so `selectedChannel` and its highlight stay
+input-only, unchanged by this issue.
+
+The wholesale-block distinction (docs/installation.md "a block is presented
+wholesale, but only some sockets are patched") is **not** read off
+`OutputRouteIndex` — a shared route's `destinations` reads identically for
+every physical socket on it, wholesale-uncabled siblings included (§3
+"Output route resolution"). Two small memoized helpers under
+`apps/web/src/installation/` answer the two questions this needs, both keyed
+off `installation` alone (never the route index): `outputSlotsFor` (which
+console Out slot a physical socket carries — a structural fact, true even for
+an `off` slot) and `physicalOutputDestinationsFor` (whether *this exact*
+socket is declared cabled to a destination). `format/tooltip.ts` and the
+`OutputPort`/`ConsoleOutputs` components both read these directly, the same
+way `Stagebox.tsx` already reads `aes50LabelsFor`.
 
 ## 6. Gateway: how the web app gets mixer data
 
@@ -512,6 +542,17 @@ type ClientMessage =
   | { type: "resync" }                       // explicit full-snapshot request
   | { type: "save-baseline" };               // bless the current live snapshot
 ```
+
+`MixerSnapshot` gains `outputs?: MixerOutputState[]` (issue #11, 16 entries)
+and `MixerEvent` gains `{ type: "output-source-changed"; output: number;
+source: MixerOutputSourceRef }` — the output-side mirror of `channels` and
+`channel-source-changed`. Both are guarded tolerant of a peer that omits them
+entirely (mirroring the `updateAvailable` compatibility pattern): an absent
+`outputs` field parses as `undefined`, not `[]` — unlike `aes50Chain`, which
+normalizes absence to `[]` — so a snapshot from a bridge that predates this
+field round-trips unchanged rather than gaining a phantom empty array. The web
+app's `applySnapshot` treats `snapshot.outputs ?? []` the same way it already
+treats `snapshot.aes50Chain ?? []`.
 
 On WS connect the bridge sends `snapshot` immediately (from its cached state,
 even if the X32 is currently unreachable — the topology and last-known config

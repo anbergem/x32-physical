@@ -24,6 +24,8 @@ import type {
   Installation,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputState,
+  OutputRouteIndex,
   RouteIndex,
   RoutingDiscrepancy,
 } from "@x32/domain";
@@ -87,9 +89,18 @@ export function selectHoverStatus(
     if (hovered === null) return "none";
     if (hovered === endpoint) return "hovered";
 
-    // Read the precomputed index; never traverse the graph here.
-    const routes = state.routeIndex.byEndpoint.get(hovered) ?? [];
-    return routes.some((route) => route.endpoints.includes(endpoint))
+    // `hoveredEndpoint` covers both graphs (architecture.md §3/§5): input
+    // and output endpoint ids are disjoint, so exactly one of these two
+    // lookups can ever hit — never traverse either graph here, only read
+    // the precomputed index.
+    const routes = state.routeIndex.byEndpoint.get(hovered);
+    if (routes !== undefined) {
+      return routes.some((route) => route.endpoints.includes(endpoint))
+        ? "on-route"
+        : "none";
+    }
+    const outputRoutes = state.outputRouteIndex.byEndpoint.get(hovered) ?? [];
+    return outputRoutes.some((route) => route.endpoints.includes(endpoint))
       ? "on-route"
       : "none";
   };
@@ -298,6 +309,16 @@ export function selectChannels(state: AppState): MixerChannelState[] {
   return state.channels;
 }
 
+/** Output-side mirror of `selectRouteIndex` (issue #11), for the tooltip. */
+export function selectOutputRouteIndex(state: AppState): OutputRouteIndex {
+  return state.outputRouteIndex;
+}
+
+/** Output-side mirror of `selectChannels` (issue #11), for the tooltip. */
+export function selectOutputs(state: AppState): MixerOutputState[] {
+  return state.outputs;
+}
+
 // --- structural slice ------------------------------------------------------
 
 /**
@@ -372,4 +393,14 @@ export function selectChannelState(
 ): (state: AppState) => MixerChannelState | undefined {
   return (state) =>
     state.channels.find((candidate) => candidate.channel === channel);
+}
+
+/**
+ * One output slot's own state (issue #11) — the output-side mirror of
+ * `selectChannelState`. `undefined` before the first snapshot arrives.
+ */
+export function selectOutputState(
+  output: number,
+): (state: AppState) => MixerOutputState | undefined {
+  return (state) => state.outputs.find((candidate) => candidate.output === output);
 }

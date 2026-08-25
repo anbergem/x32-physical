@@ -108,6 +108,8 @@ function describeEvent(event: MixerEvent): string {
       return `CH${event.channel} renamed to "${event.name}"`;
     case "channel-source-changed":
       return `CH${event.channel} source changed (${event.source.kind})`;
+    case "output-source-changed":
+      return `Out ${event.output} source changed (${event.source.kind})`;
     case "connection-state-changed":
       return `mixer connection -> ${event.state}`;
     case "aes50-link-state-changed":

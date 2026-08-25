@@ -18,6 +18,8 @@ import type {
   Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
   MixerSourceRef,
 } from "@x32/domain";
 import { MIXER_CHANNEL_COUNT } from "@x32/domain";
@@ -62,6 +64,18 @@ function cloneChannel(channel: MixerChannelState): MixerChannelState {
   };
 }
 
+function cloneOutput(output: MixerOutputState): MixerOutputState {
+  return {
+    output: output.output,
+    name: output.name,
+    source: { ...output.source },
+  };
+}
+
+function cloneOutputs(outputs: MixerOutputState[] | undefined): MixerOutputState[] {
+  return outputs === undefined ? [] : outputs.map(cloneOutput);
+}
+
 function cloneAes50LinkState(state: Aes50LinkState | null | undefined): Aes50LinkState | null {
   if (state === null || state === undefined) return null;
   return {
@@ -81,6 +95,7 @@ function cloneAes50Chain(chains: Aes50Chain[] | undefined): Aes50Chain[] {
 function cloneSnapshot(snapshot: MixerSnapshot): MixerSnapshot {
   return {
     channels: snapshot.channels.map(cloneChannel),
+    outputs: cloneOutputs(snapshot.outputs),
     selectedChannel: snapshot.selectedChannel,
     aes50LinkState: cloneAes50LinkState(snapshot.aes50LinkState),
     aes50Chain: cloneAes50Chain(snapshot.aes50Chain),
@@ -171,6 +186,20 @@ export class MockMixerClient implements MixerClient {
     this.#emit({
       type: "channel-source-changed",
       channel,
+      source: { ...source },
+    });
+  }
+
+  /**
+   * A console Out slot's *resolved* source changed (issue #11) — the output
+   * mirror of `simulateSourceChange`. The real adapter would emit one of
+   * these per affected slot; the mock produces the flat form directly.
+   */
+  simulateOutputSourceChange(output: number, source: MixerOutputSourceRef): void {
+    this.#requireOutput(output).source = { ...source };
+    this.#emit({
+      type: "output-source-changed",
+      output,
       source: { ...source },
     });
   }
@@ -274,6 +303,18 @@ export class MockMixerClient implements MixerClient {
     if (state === undefined) {
       throw new Error(
         `Unknown mixer channel ${channel}: this mock's snapshot has no such channel.`,
+      );
+    }
+    return state;
+  }
+
+  #requireOutput(output: number): MixerOutputState {
+    const state = (this.#snapshot.outputs ?? []).find(
+      (candidate) => candidate.output === output,
+    );
+    if (state === undefined) {
+      throw new Error(
+        `Unknown mixer output ${output}: this mock's snapshot has no such output.`,
       );
     }
     return state;

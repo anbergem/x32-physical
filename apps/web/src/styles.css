@@ -764,6 +764,199 @@ body {
   color: var(--text);
 }
 
+/* --- output section (issue #11) ----------------------------------------- */
+
+/* A stagebox's outputs row, inside the same device frame as its inputs — one
+   physical box, in / out both shown (docs/installation.md "Output
+   topology"). A thin rule + small caption separates it from the inputs grid
+   above without needing a whole second `.device`. */
+.device__outputs {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.device__outputs-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.device--console-outputs {
+  width: fit-content;
+}
+
+/* The wholesale-block distinction (issue #11's headline correctness detail):
+   a socket that carries a block but has nothing cabled to it reads visually
+   distinct from a cabled one — dashed border, dimmer number — so it can
+   never be mistaken for "this feeds a destination"
+   (docs/installation.md "a block is presented wholesale, but only some
+   sockets are patched"). */
+.port.port--uncabled {
+  border-style: dashed;
+  border-color: var(--line-soft);
+}
+
+.port.port--uncabled .port__number {
+  color: var(--text-dim);
+}
+
+/* --- mixer section (issue #11) ------------------------------------------- */
+
+.mixer-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+}
+
+/* --- X32 output slots (issue #11) ---------------------------------------- */
+
+/* Deliberately lighter than `.strip`: an output slot carries less
+   information (a slot number and a source, no name, no meter). */
+.mixer-outputs {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  width: min(100%, 1120px);
+}
+
+.mixer-outputs__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 9px;
+}
+
+.mixer-outputs__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mixer-outputs__meta {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.mixer-outputs__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.output-slot {
+  position: relative; /* anchors this cell's tooltip */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 56px;
+  height: 34px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-variant-numeric: tabular-nums;
+}
+
+.output-slot__number {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.output-slot__source {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text);
+  text-align: center;
+}
+
+.output-slot.output-slot--on-hovered-route,
+.output-slot.output-slot--hovered {
+  border-color: var(--hover);
+  box-shadow: 0 0 0 1px var(--hover-glow);
+}
+
+.output-slot.output-slot--hovered .output-slot__source {
+  color: var(--hover-strong);
+}
+
+/* --- destinations (issue #11) --------------------------------------------- */
+
+.destinations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+  width: min(100%, 1120px);
+}
+
+.destination-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(20, 25, 34, 0.5);
+}
+
+.destination-group__title {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.destination-group__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.destination {
+  position: relative; /* anchors this box's tooltip */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  text-align: center;
+}
+
+.destination__label {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.destination.destination--on-hovered-route,
+.destination.destination--hovered {
+  border-color: var(--hover);
+  box-shadow: 0 0 0 1px var(--hover-glow);
+}
+
+.destination.destination--hovered .destination__label {
+  color: var(--hover-strong);
+}
+
 /* --- dev control surface (mock mode only) ------------------------------- */
 
 /* Docked to a corner, collapsed by default: a debugging aid for *this tool*,

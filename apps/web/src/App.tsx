@@ -15,8 +15,11 @@
 import { deviceId } from "@x32/domain";
 
 import { ConnectionStatus } from "./components/ConnectionStatus";
+import { ConsoleOutputs } from "./components/ConsoleOutputs";
+import { Destinations } from "./components/Destinations";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
 import { Mixer } from "./components/Mixer";
+import { MixerOutputs } from "./components/MixerOutputs";
 import { PhysicalInputPanel } from "./components/PhysicalInputPanel";
 import { Stagebox } from "./components/Stagebox";
 import { SystemStatus } from "./components/SystemStatus";
@@ -57,7 +60,14 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
           <span className="bus__label">AES50-A</span>
         </div>
 
-        <Mixer />
+        <div className="mixer-section">
+          <Mixer />
+          <ConsoleOutputs />
+        </div>
+
+        <MixerOutputs />
+
+        <Destinations />
       </main>
     </div>
   );

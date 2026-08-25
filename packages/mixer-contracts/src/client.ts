@@ -13,6 +13,8 @@ import type {
   Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
   MixerSourceRef,
 } from "@x32/domain";
 
@@ -21,6 +23,13 @@ export type MixerConnectionState = "connecting" | "connected" | "disconnected";
 export interface MixerSnapshot {
   /** Exactly 32 entries — the X32's input channels, 1-based. */
   channels: MixerChannelState[];
+  /**
+   * Exactly 16 entries — the X32's output slots, 1-based (issue #11). A
+   * client that predates this field (an older bridge, a stored baseline)
+   * omits it entirely; consumers treat that the same as `[]` (§Resolution
+   * pattern already established for `aes50LinkState`/`aes50Chain`).
+   */
+  outputs?: MixerOutputState[];
   /** The channel SELECTed on the physical console, if any. */
   selectedChannel: MixerChannelId | null;
   /**
@@ -52,6 +61,12 @@ export type MixerEvent =
       type: "channel-source-changed";
       channel: MixerChannelId;
       source: MixerSourceRef;
+    }
+  /** A console Out slot's resolved source changed (issue #11). */
+  | {
+      type: "output-source-changed";
+      output: number;
+      source: MixerOutputSourceRef;
     }
   | { type: "connection-state-changed"; state: MixerConnectionState }
   /** `/-stat/aes50/state` changed (issue #17) — rare, so a plain `MixerEvent`, unlike meters. */

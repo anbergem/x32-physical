@@ -239,6 +239,11 @@ describe("parseServerMessage: event", () => {
         channel: 12,
         source: { kind: "aes50", bus: "A", channel: 3 },
       },
+      {
+        type: "output-source-changed",
+        output: 7,
+        source: { kind: "bus", bus: 3 },
+      },
       { type: "connection-state-changed", state: "connecting" },
       {
         type: "aes50-link-state-changed",
@@ -294,6 +299,120 @@ describe("parseServerMessage: event", () => {
     const message = { type: "event", event: { type: "channel-teleported" } };
 
     expect(() => parseServerMessage(message)).toThrow(/mixer event type/);
+  });
+});
+
+describe("parseServerMessage: output-source-changed (issue #11)", () => {
+  it("round-trips every documented MixerOutputSourceRef kind", () => {
+    const sources = [
+      { kind: "main", side: "L" },
+      { kind: "main", side: "C" },
+      { kind: "bus", bus: 3 },
+      { kind: "matrix", matrix: 1 },
+      { kind: "direct-out-channel", channel: 12 },
+      { kind: "direct-out-aux", aux: 2 },
+      { kind: "direct-out-fx", ret: 1 },
+      { kind: "monitor", side: "R" },
+      { kind: "talkback" },
+      { kind: "off" },
+    ];
+
+    for (const source of sources) {
+      const message = { type: "event", event: { type: "output-source-changed", output: 13, source } };
+      const expected =
+        source.kind === "direct-out-channel"
+          ? { type: "event", event: { type: "output-source-changed", output: 13, source: { kind: "direct-out-channel", channel: CH12 } } }
+          : message;
+      expect(parseServerMessage(message)).toEqual(expected);
+    }
+  });
+
+  it("rejects an output number out of the 1-16 range", () => {
+    const message = {
+      type: "event",
+      event: { type: "output-source-changed", output: 17, source: { kind: "off" } },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/output/);
+  });
+
+  it("rejects an unknown output source kind", () => {
+    const message = {
+      type: "event",
+      event: { type: "output-source-changed", output: 1, source: { kind: "wormhole" } },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/mixer output source kind/);
+  });
+
+  it("rejects a malformed main side", () => {
+    const message = {
+      type: "event",
+      event: { type: "output-source-changed", output: 1, source: { kind: "main", side: "Q" } },
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/side/);
+  });
+});
+
+describe("parseServerMessage: snapshot outputs (issue #11)", () => {
+  function baseSnapshot() {
+    return {
+      channels: [],
+      selectedChannel: null,
+      aes50LinkState: null,
+      aes50Chain: [],
+    };
+  }
+
+  it("accepts a snapshot carrying 16 output slots", () => {
+    const outputs = Array.from({ length: 16 }, (_, index) => ({
+      output: index + 1,
+      source: { kind: "off" },
+    }));
+    const message = {
+      type: "snapshot",
+      snapshot: { ...baseSnapshot(), outputs },
+      mixerConnection: "connected",
+      baseline: null,
+    };
+
+    const parsed = parseServerMessage(message);
+    expect(parsed.type).toBe("snapshot");
+    expect(parsed.type === "snapshot" ? parsed.snapshot.outputs : undefined).toEqual(outputs);
+  });
+
+  it("tolerates a snapshot with no outputs field (older-peer compatibility)", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: baseSnapshot(),
+      mixerConnection: "connected",
+      baseline: null,
+    };
+
+    expect(() => parseServerMessage(message)).not.toThrow();
+  });
+
+  it("rejects a malformed output entry inside the snapshot", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: { ...baseSnapshot(), outputs: [{ output: 1, source: { kind: "wormhole" } }] },
+      mixerConnection: "connected",
+      baseline: null,
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/mixer output source kind/);
+  });
+
+  it("rejects an output entry with a name that is not a string", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: { ...baseSnapshot(), outputs: [{ output: 1, name: 42, source: { kind: "off" } }] },
+      mixerConnection: "connected",
+      baseline: null,
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/name/);
   });
 });
 

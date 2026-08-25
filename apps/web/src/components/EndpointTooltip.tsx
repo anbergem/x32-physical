@@ -18,6 +18,8 @@ import {
   selectChannels,
   selectDiscrepancies,
   selectInstallation,
+  selectOutputRouteIndex,
+  selectOutputs,
   selectRouteIndex,
 } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
@@ -27,12 +29,16 @@ export function EndpointTooltip({ endpoint }: { endpoint: EndpointId }) {
   const routeIndex = useAppStore(selectRouteIndex);
   const channels = useAppStore(selectChannels);
   const discrepancies = useAppStore(selectDiscrepancies);
+  const outputRouteIndex = useAppStore(selectOutputRouteIndex);
+  const outputs = useAppStore(selectOutputs);
 
   const { title, lines } = describeEndpoint(endpoint, {
     installation,
     routeIndex,
     channels,
     discrepancies,
+    outputRouteIndex,
+    outputs,
   });
 
   return (
