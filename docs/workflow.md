@@ -80,8 +80,10 @@ stays open for the check that actually proves it. The issue's Definition of
 Done must say which keyword to use; when it does not, default to `Fixes #N`.
 (Learned the hard way: #14's fix landed with `Fixes #14`, auto-closing an
 issue whose whole point was that the bug only reproduces against real
-hardware.) It must **stop and report instead of improvising** when the issue is
-ambiguous, contradicts a contract document, or turns out to rest on a wrong
+hardware.)
+
+The implementer must **stop and report instead of improvising** when the issue
+is ambiguous, contradicts a contract document, or turns out to rest on a wrong
 fact — that report is a signal to the author, not a failure.
 
 ## Labels — `agent-ready` is a gate, and its absence is the safe default
