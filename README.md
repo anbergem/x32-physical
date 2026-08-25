@@ -76,9 +76,11 @@ strips pick up a small badge, and the header shows a routing-issue count.
 Hover a badged strip for details: what the baseline expected versus what's
 actually there now. Renaming a channel never triggers a badge (only visible
 in the strip's tooltip) — routing is what this tool guards, not naming.
-Fix the patch, or press **Save as correct** again (it asks you to confirm
-before replacing an existing baseline) to bless the new state, and the
-badges clear.
+Fix the patch, or press **Save as correct** again to bless the new state and
+clear the badges. Either way, a confirmation dialog opens first — explaining
+either that this becomes the reference the app compares against, or, when a
+baseline already exists, that it will be discarded in favour of the new one.
+Nothing saves until you confirm in the dialog.
 
 ## Deploying to the venue (Windows)
 
