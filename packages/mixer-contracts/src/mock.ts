@@ -221,6 +221,15 @@ export class MockMixerClient implements MixerClient {
    * `[0, 1]`. There is no real audio behind this — it only has to read as
    * "alive" on the strip meters. A channel currently `off` always reads 0,
    * matching what a real desk's meter for a disconnected input shows.
+   *
+   * These are **linear amplitude**, the same units the console reports
+   * (docs/x32-protocol.md §Meters, measured against fw 4.06: peak = 1.0,
+   * a live mic in a quiet room ≈ 0.001–0.004). Real programme material
+   * therefore sits far lower than intuition suggests: speech averages
+   * roughly -30dBFS (~0.03) and peaks around -12dBFS (~0.25). The range
+   * below is deliberately in that band so mock mode looks like the desk
+   * does under the dB display curve — an earlier 0.05–0.65 range was tuned
+   * for a since-corrected `sqrt` curve and made every channel read hot.
    */
   #generateLevels(): number[] {
     const levels: number[] = [];
@@ -231,8 +240,10 @@ export class MockMixerClient implements MixerClient {
         continue;
       }
       const phase = channelNumber * 0.7;
-      const wave = 0.35 + 0.3 * Math.sin(this.#meterTick / 6 + phase);
-      const noise = (Math.random() - 0.5) * 0.08;
+      // ~0.012 … ~0.16 linear (≈ -38dBFS … -16dBFS), with occasional
+      // higher excursions from the noise term, as programme material does.
+      const wave = 0.085 + 0.075 * Math.sin(this.#meterTick / 6 + phase);
+      const noise = (Math.random() - 0.5) * 0.05;
       levels.push(Math.min(1, Math.max(0, wave + noise)));
     }
     return levels;
