@@ -20,8 +20,8 @@ import { MockMixerClient } from "@x32/mixer-contracts";
 
 import { X32_OSC_PORT } from "./x32/addresses";
 import { createDgramTransport } from "./x32/dgramTransport";
-import type { X32Discovered } from "./x32/discovery";
-import { discoverX32 } from "./x32/discovery";
+import type { X32Discovered, X32Discoverer } from "./x32/discovery";
+import { createX32Discoverer } from "./x32/discovery";
 import type { UdpTransport } from "./x32/transport";
 import { X32MixerClient } from "./x32/x32MixerClient";
 
@@ -170,18 +170,18 @@ export function pickDiscoveredHost(found: X32Discovered[]): X32Discovered | unde
 /**
  * Runs discovery and logs its outcome (docs/plan.md step 18's exact wording:
  * found one → "Found X32 at <ip> (<model> fw <firmware>)"; found several →
- * log all, then that same line for the chosen one; found none → the
- * actionable "set X32_HOST=<ip>" message). Never throws — `discoverX32`
- * itself already can't, and this function does no I/O beyond that.
+ * log all, then that same line for the chosen one). Found-none logging (the
+ * actionable "set X32_HOST=<ip>" message, socket errors, broadcast denial)
+ * is `discoverer`'s own job — it alone knows the backoff state needed to log
+ * once per escalation rather than once per poll tick (docs/x32-protocol.md
+ * §Discovery). Never throws — `discoverer.discover()` itself already can't,
+ * and this function does no I/O beyond that.
  */
-async function discoverAndLog(discover: typeof discoverX32): Promise<X32Discovered | undefined> {
-  const found = await discover();
+export async function discoverAndLog(discoverer: X32Discoverer): Promise<X32Discovered | undefined> {
+  const found = await discoverer.discover();
   const chosen = pickDiscoveredHost(found);
 
   if (chosen === undefined) {
-    console.warn(
-      "x32-bridge: No X32 found on the network — set X32_HOST=<ip> to point at it directly.",
-    );
     return undefined;
   }
 
@@ -246,11 +246,16 @@ function createPendingTransport(): UdpTransport {
  * §7) *and* for every later reconnect attempt while disconnected — exactly
  * the DHCP-lease-change case docs/plan.md step 18 calls out, with no extra
  * plumbing needed here.
+ *
+ * `discoverer` defaults to a fresh `createX32Discoverer()` per call — one
+ * reusing, backing-off `X32Discoverer` per `X32MixerClient`, its socket
+ * closed via `closeTransportResolver` when that client disconnects (item 2,
+ * docs/x32-protocol.md §Discovery). Overridable for tests.
  */
 export function createMixerClient(
   mode: MixerMode,
   env: NodeJS.ProcessEnv,
-  discover: typeof discoverX32 = discoverX32,
+  discoverer: X32Discoverer = createX32Discoverer(),
 ): MixerClient {
   switch (mode) {
     case "mock":
@@ -265,9 +270,10 @@ export function createMixerClient(
 
       return new X32MixerClient(createPendingTransport(), {
         resolveTransport: async () => {
-          const host = await discoverAndLog(discover);
+          const host = await discoverAndLog(discoverer);
           return host === undefined ? null : createDgramTransport(host.host, port);
         },
+        closeTransportResolver: () => discoverer.close(),
       });
     }
   }

@@ -6,6 +6,7 @@ import {
   createMixerClient,
   DEFAULT_BASELINE_FILE,
   DEFAULT_X32_PORT,
+  discoverAndLog,
   parseSettingsFileContents,
   pickDiscoveredHost,
   resolveBaselineFilePath,
@@ -16,7 +17,7 @@ import {
   resolveX32HostOverride,
   resolveX32Port,
 } from "./config";
-import type { X32Discovered } from "./x32/discovery";
+import type { X32Discoverer, X32Discovered } from "./x32/discovery";
 import { X32MixerClient } from "./x32/x32MixerClient";
 
 function discovered(host: string, overrides: Partial<X32Discovered> = {}): X32Discovered {
@@ -28,6 +29,14 @@ function discovered(host: string, overrides: Partial<X32Discovered> = {}): X32Di
     firmware: "2.08",
     ...overrides,
   };
+}
+
+/** A stub `X32Discoverer` for `createMixerClient` tests — no real socket, no backoff. */
+function stubDiscoverer(found: X32Discovered[] = []) {
+  return {
+    discover: vi.fn().mockResolvedValue(found) as X32Discoverer["discover"],
+    close: vi.fn() as X32Discoverer["close"],
+  } satisfies X32Discoverer;
 }
 
 describe("resolveMixerMode", () => {
@@ -137,37 +146,66 @@ describe("createMixerClient", () => {
   });
 
   it("x32 mode with X32_HOST set returns an X32MixerClient wired to it directly, no discovery", async () => {
-    const discover = vi.fn();
+    const discoverer = stubDiscoverer();
     const client = createMixerClient(
       "x32",
       { X32_HOST: "192.168.1.10", X32_PORT: "10024" },
-      discover,
+      discoverer,
     );
     try {
       expect(client).toBeInstanceOf(X32MixerClient);
       expect(client.getConnectionState()).toBe("disconnected");
-      expect(discover).not.toHaveBeenCalled();
+      expect(discoverer.discover).not.toHaveBeenCalled();
     } finally {
       await client.disconnect();
     }
+    expect(discoverer.close).not.toHaveBeenCalled(); // never wired in — nothing to close
   });
 
   it("x32 mode without X32_HOST returns an X32MixerClient that discovers on connect (step 18)", async () => {
-    const discover = vi.fn().mockResolvedValue([discovered("192.168.1.10")]);
-    const client = createMixerClient("x32", {}, discover);
+    const discoverer = stubDiscoverer([discovered("192.168.1.10")]);
+    const client = createMixerClient("x32", {}, discoverer);
     try {
       expect(client).toBeInstanceOf(X32MixerClient);
       expect(client.getConnectionState()).toBe("disconnected");
       // Discovery is deferred to connect()/reconnect, not construction.
-      expect(discover).not.toHaveBeenCalled();
+      expect(discoverer.discover).not.toHaveBeenCalled();
     } finally {
       await client.disconnect();
     }
+    expect(discoverer.close).toHaveBeenCalledTimes(1); // disconnect() releases the discovery socket
   });
 
   it("x32 mode without X32_HOST or any discovery response still constructs a client (starts disconnected)", () => {
-    const discover = vi.fn().mockResolvedValue([]);
-    expect(() => createMixerClient("x32", {}, discover)).not.toThrow();
+    const discoverer = stubDiscoverer([]);
+    expect(() => createMixerClient("x32", {}, discoverer)).not.toThrow();
+  });
+});
+
+describe("discoverAndLog", () => {
+  it("logs the exact, doc/test-pinned success line for a single responder", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const discoverer = stubDiscoverer([discovered("192.168.1.10", { model: "X32", firmware: "4.06" })]);
+
+    const chosen = await discoverAndLog(discoverer);
+
+    expect(chosen?.host).toBe("192.168.1.10");
+    expect(log).toHaveBeenCalledWith("x32-bridge: Found X32 at 192.168.1.10 (X32 fw 4.06)");
+    log.mockRestore();
+  });
+
+  it("logs nothing itself on failure — that's the discoverer's job, throttled by backoff", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const discoverer = stubDiscoverer([]);
+
+    const chosen = await discoverAndLog(discoverer);
+
+    expect(chosen).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+    warn.mockRestore();
+    log.mockRestore();
   });
 });
 

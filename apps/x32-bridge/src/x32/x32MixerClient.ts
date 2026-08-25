@@ -18,12 +18,16 @@
  *   4. starts the `/xremote` renewal loop (~8s) and the `/xinfo` liveness
  *      poll (~5s) either way.
  *
- * The liveness poll doubles as the reconnect path: while connected it's a
- * single lightweight `/xinfo` read; a missed reply flips the client to
- * "disconnected". While disconnected, each tick instead re-runs the *full*
- * snapshot sequence (§Subscribing: "perform a full resync on reconnect"); on
- * success the client flips back to "connected", which is what
- * `bridgeServer.ts` treats as "re-read and broadcast a fresh snapshot".
+ * The liveness poll doubles as the reconnect path. While connected: any
+ * inbound datagram — a read reply, `/xremote` push, or `/meters/1` blob —
+ * is proof the console is alive, so a tick that already saw traffic inside
+ * the poll window skips the `/xinfo` probe entirely; only a tick that finds
+ * the console silent for that long sends one, and only *that* probe's
+ * failure flips the client to "disconnected" (see `#lastInboundAt`). While
+ * disconnected, each tick instead re-runs the *full* snapshot sequence
+ * (§Subscribing: "perform a full resync on reconnect"); on success the
+ * client flips back to "connected", which is what `bridgeServer.ts` treats
+ * as "re-read and broadcast a fresh snapshot".
  *
  * Every incoming datagram — a reply to one of our reads or an unsolicited
  * live push — goes through the same decode-and-apply path
@@ -101,6 +105,15 @@ export interface X32MixerClientOptions {
    * host behaviour, and what every existing test exercises.
    */
   resolveTransport?: () => Promise<UdpTransport | null>;
+  /**
+   * Called once, from `disconnect()`, to release any resource
+   * `resolveTransport`'s closure owns beyond the `UdpTransport` instances it
+   * hands back — e.g. discovery mode's single reused discovery socket
+   * (`config.ts`, `X32Discoverer.close()`). Optional; a no-op when
+   * `resolveTransport` needs nothing closed, which is every existing test
+   * and fixed-host mode.
+   */
+  closeTransportResolver?: () => void;
 }
 
 /** Exported so tests can regression-proof the renewal interval against the console's 10s subscription expiry. */
@@ -110,7 +123,7 @@ export const DEFAULTS = {
   xremoteRenewalMs: 8000,
   livenessPollMs: 5000,
   meterTimeFactor: 5,
-} as const satisfies Required<Omit<X32MixerClientOptions, "resolveTransport">>;
+} as const satisfies Required<Omit<X32MixerClientOptions, "resolveTransport" | "closeTransportResolver">>;
 
 interface Subscription {
   listener: MixerEventListener;
@@ -153,6 +166,7 @@ export class X32MixerClient implements MixerClient {
   readonly #livenessPollMs: number;
   readonly #meterTimeFactor: number;
   readonly #resolveTransport: (() => Promise<UdpTransport | null>) | undefined;
+  readonly #closeTransportResolver: (() => void) | undefined;
 
   readonly #state = new X32State();
   readonly #subscriptions = new Set<Subscription>();
@@ -165,6 +179,13 @@ export class X32MixerClient implements MixerClient {
   #pendingRead: PendingRead | null = null;
   #xremoteTimer: ReturnType<typeof setInterval> | null = null;
   #livenessTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Timestamp (`Date.now()`) of the most recent decoded datagram from the
+   * console, whether a read reply or an unsolicited push — set in
+   * `#handleIncoming`. `#pollTick` treats anything within `#livenessPollMs`
+   * of now as proof of life and skips the `/xinfo` probe.
+   */
+  #lastInboundAt = 0;
 
   constructor(transport: UdpTransport, options: X32MixerClientOptions = {}) {
     this.#transport = transport;
@@ -174,6 +195,7 @@ export class X32MixerClient implements MixerClient {
     this.#livenessPollMs = options.livenessPollMs ?? DEFAULTS.livenessPollMs;
     this.#meterTimeFactor = options.meterTimeFactor ?? DEFAULTS.meterTimeFactor;
     this.#resolveTransport = options.resolveTransport;
+    this.#closeTransportResolver = options.closeTransportResolver;
     this.#wireTransport(this.#transport);
   }
 
@@ -232,6 +254,7 @@ export class X32MixerClient implements MixerClient {
     this.#rejectPendingRead(new Error("X32MixerClient disconnected"));
     this.#setConnectionState("disconnected");
     this.#transport.close();
+    this.#closeTransportResolver?.();
   }
 
   async getSnapshot(): Promise<MixerSnapshot> {
@@ -375,6 +398,11 @@ export class X32MixerClient implements MixerClient {
       console.warn(`x32-bridge: ignoring malformed OSC datagram: ${errorMessage(error)}`);
       return;
     }
+
+    // Any decoded datagram — reply or unsolicited push — is proof the
+    // console is alive; `#pollTick` uses this to skip the /xinfo probe
+    // while pushed traffic (meters, /xremote) is already flowing.
+    this.#lastInboundAt = Date.now();
 
     if (this.#pendingRead !== null && this.#pendingRead.address === decoded.address) {
       const pending = this.#pendingRead;
@@ -558,17 +586,25 @@ export class X32MixerClient implements MixerClient {
   }
 
   /**
-   * While connected: a single `/xinfo` read is the liveness check — a missed
-   * reply (after its own retries) marks the client disconnected. While
-   * disconnected: re-run the full snapshot sequence; success is the "full
-   * resync on reconnect" the doc calls for, surfaced to `bridgeServer.ts` as
-   * a "connected" transition it re-reads a fresh snapshot on.
+   * While connected: any datagram received from the console within the last
+   * `#livenessPollMs` (`#lastInboundAt`, set in `#handleIncoming`) already
+   * proves it's alive — pushed `/xremote` events and 20Hz meter blobs make
+   * this near-free while metering is active, so the tick does nothing.
+   * Only once the console has been silent for that long does it fall back
+   * to a single `/xinfo` probe (covering the metering-off case); a missed
+   * reply (after its own retries) is what marks the client disconnected —
+   * requiring one specific reply on every tick is what made a connection
+   * with live traffic still flowing look dead. While disconnected: re-run
+   * the full snapshot sequence; success is the "full resync on reconnect"
+   * the doc calls for, surfaced to `bridgeServer.ts` as a "connected"
+   * transition it re-reads a fresh snapshot on.
    */
   async #pollTick(): Promise<void> {
     if (this.#pollInFlight || this.#closed) return;
     this.#pollInFlight = true;
     try {
       if (this.#connectionState === "connected") {
+        if (Date.now() - this.#lastInboundAt < this.#livenessPollMs) return; // recent traffic — no probe needed.
         const ok = await this.#readWithRetry(xinfoAddress());
         if (!ok) this.#setConnectionState("disconnected");
       } else if (this.#connectionState === "disconnected") {

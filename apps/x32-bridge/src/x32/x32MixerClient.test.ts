@@ -499,6 +499,90 @@ describe("retry, disconnect detection, and resync", () => {
     const snapshot = await client.getSnapshot();
     expect(snapshot.channels[0]?.name).toBe("Recovered");
   });
+
+  it("connected + a datagram received within the window: the poll tick sends no /xinfo probe and stays connected", async () => {
+    vi.useFakeTimers();
+
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, {
+      requestTimeoutMs: 10,
+      maxRetries: 1,
+      xremoteRenewalMs: 1_000_000, // stays out of the way for this test
+      livenessPollMs: 50,
+    });
+
+    const connectPromise = client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    await connectPromise;
+    expect(client.getConnectionState()).toBe("connected");
+
+    const xinfoCountAtConnect = transport.sent.filter((r) => r.address === "/xinfo").length;
+
+    // A live push arrives just before the poll tick fires — proof of life.
+    await vi.advanceTimersByTimeAsync(40);
+    transport.push("/-stat/selidx", [{ type: "i", value: 3 }]);
+    await vi.advanceTimersByTimeAsync(20); // crosses the 50ms poll interval
+
+    expect(client.getConnectionState()).toBe("connected");
+    expect(transport.sent.filter((r) => r.address === "/xinfo")).toHaveLength(xinfoCountAtConnect);
+  });
+
+  it("connected + silence past the window: probes with /xinfo, and a reply keeps it connected", async () => {
+    vi.useFakeTimers();
+
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, {
+      requestTimeoutMs: 10,
+      maxRetries: 1,
+      xremoteRenewalMs: 1_000_000,
+      livenessPollMs: 50,
+    });
+
+    const connectPromise = client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    await connectPromise;
+    expect(client.getConnectionState()).toBe("connected");
+
+    const xinfoCountAtConnect = transport.sent.filter((r) => r.address === "/xinfo").length;
+
+    // Nothing arrives — the poll tick has to fall back to an explicit probe.
+    await vi.advanceTimersByTimeAsync(50 + 20);
+
+    expect(client.getConnectionState()).toBe("connected");
+    expect(transport.sent.filter((r) => r.address === "/xinfo").length).toBeGreaterThan(xinfoCountAtConnect);
+  });
+
+  it("a stream of pushed events keeps the client connected indefinitely with zero /xinfo probes sent", async () => {
+    vi.useFakeTimers();
+
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, {
+      requestTimeoutMs: 10,
+      maxRetries: 1,
+      xremoteRenewalMs: 1_000_000,
+      livenessPollMs: 50,
+    });
+
+    const connectPromise = client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    await connectPromise;
+    expect(client.getConnectionState()).toBe("connected");
+
+    const xinfoCountAtConnect = transport.sent.filter((r) => r.address === "/xinfo").length;
+
+    // A meter blob every 30ms — well inside the 50ms liveness window — for
+    // 10 poll intervals' worth of wall-clock time.
+    for (let i = 0; i < 20; i += 1) {
+      await vi.advanceTimersByTimeAsync(30);
+      transport.push(metersReplyAddress(), [{ type: "b", value: meterBlob([0.1]) }]);
+    }
+
+    expect(client.getConnectionState()).toBe("connected");
+    expect(transport.sent.filter((r) => r.address === "/xinfo")).toHaveLength(xinfoCountAtConnect);
+  });
 });
 
 describe("disconnect()", () => {
@@ -558,6 +642,23 @@ describe("disconnect()", () => {
     );
 
     client = null; // already disconnected — afterEach must not double-disconnect
+  });
+
+  it("calls closeTransportResolver exactly once — releasing e.g. discovery mode's reused socket", async () => {
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    const closeTransportResolver = vi.fn();
+    client = new X32MixerClient(transport, {
+      requestTimeoutMs: 20,
+      maxRetries: 1,
+      closeTransportResolver,
+    });
+
+    await client.connect();
+    expect(closeTransportResolver).not.toHaveBeenCalled();
+
+    await client.disconnect();
+    expect(closeTransportResolver).toHaveBeenCalledTimes(1);
   });
 });
 

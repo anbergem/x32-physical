@@ -27,9 +27,16 @@ config node as one plain-text line; optional optimization, not needed for MVP.
   for **10 seconds**; renew it on an interval (we use ~8 s).
 - Changes arrive as ordinary messages: address + new value, e.g.
   `/-stat/selidx ,i 11`.
-- Liveness: `/xinfo` (no args) → reply contains network address/name, model,
-  firmware. Poll it periodically; missing replies ⇒ mark disconnected, keep
-  retrying, and perform a **full resync** (snapshot re-read) on reconnect.
+- Liveness: any decoded datagram from the console — a read reply, a pushed
+  `/xremote` change, a `/meters/1` blob — counts as proof of life. The
+  liveness-poll tick only falls back to an explicit `/xinfo` (no args) probe
+  once the console has been silent for a full poll interval; a missed reply
+  to *that* probe ⇒ mark disconnected, keep retrying, and perform a **full
+  resync** (snapshot re-read) on reconnect. Requiring a fresh `/xinfo` reply
+  on every tick regardless of other traffic caused false disconnects under
+  load even while `/xremote`/meter data was flowing continuously — see
+  §Discovery below for the matching discovery-side fix from the same
+  incident.
 
 ## The messages we track
 
@@ -190,12 +197,13 @@ addressee and semantics:
 
 e.g. `"V2.05", "osc-server", "X32C", "2.08"`.
 
-Implementation (`apps/x32-bridge/src/x32/discovery.ts`, `discoverX32`):
+Implementation (`apps/x32-bridge/src/x32/discovery.ts`):
 
-- Collects replies for **1500ms** by default, then resolves with whatever was
-  found — an empty array if nothing replied. Never throws: a machine that
-  forbids broadcast (permission error enabling `SO_BROADCAST`, no usable
-  interface, etc.) must not crash the bridge, just find nothing.
+- `discoverX32` — one-shot: collects replies for **1500ms** by default, then
+  resolves with whatever was found — an empty array if nothing replied.
+  Never throws: a machine that forbids broadcast (permission error enabling
+  `SO_BROADCAST`, no usable interface, etc.) must not crash the bridge, just
+  find nothing.
 - Dedupes by source IP.
 - Selection when the bridge picks a host to connect to
   (`apps/x32-bridge/src/config.ts`): one responder → use it; several → log
@@ -203,19 +211,53 @@ Implementation (`apps/x32-bridge/src/x32/discovery.ts`, `discoverX32`):
   actionable message (`set X32_HOST=<ip>`) and still start the bridge
   disconnected (architecture.md §7 — the schematic and last-known baseline
   render regardless).
-- Runs both on the bridge's first connect attempt and on every later
-  reconnect attempt while disconnected (the existing `/xinfo` liveness-poll
-  cadence, docs §Subscribing) — this is what recovers from a DHCP lease
-  change on the venue's console, not just "console was off at bridge
-  startup".
 - `X32_HOST`, when set, is an explicit override and skips discovery entirely
   (unchanged fixed-host behaviour).
+
+**The console tolerates only a few subscribed clients at a time** (`/xremote`
+max four, per the doc above) — the client table is small enough that other
+consumers of it (X32-Edit elsewhere in the building, another bridge) are
+affected too, not just this one. Opening a fresh UDP socket per discovery
+attempt presents the console with a *new* client identity every time, and a
+bridge that can't reach the console retries that constantly: confirmed
+operationally on 2026-08-24, probe sockets crowding the desk made an
+unrelated, otherwise-healthy bridge flap, and killing them restored 0
+disconnects/0 resyncs over 50s. So the reconnect path does **not** call
+`discoverX32` repeatedly. Instead:
+
+- `createX32Discoverer()` returns an `X32Discoverer` that owns **one** socket
+  across every `discover()` call for its whole lifetime — repeated discovery
+  presents the console with one identity, not one per attempt. `config.ts`
+  constructs one per `X32MixerClient` in discovery mode and wires its
+  `discover()` into `resolveTransport`, called on the bridge's first connect
+  attempt and on every later reconnect attempt while disconnected (the
+  `/xinfo`-liveness-poll cadence, docs §Subscribing) — this is what recovers
+  from a DHCP lease change on the venue's console, not just "console was off
+  at bridge startup".
+- The discoverer also owns an internal **backoff**, escalating 2s → 4s → 8s →
+  16s → 30s (capped) on each failed attempt and resetting to the base on
+  success. A call made inside the backoff window touches the network not at
+  all and resolves `[]` immediately, so the 5s poll loop can keep calling it
+  on every tick without hammering the console during a genuine outage.
+  Failures are logged once per backoff escalation (distinguishing "no console
+  replied", "could not open/bind the socket", and "broadcast not permitted"),
+  not once per attempt — the strict per-attempt-socket version of this logged
+  the same line 26 times in one session.
+- `X32Discoverer.close()` releases the socket; `X32MixerClient.disconnect()`
+  calls it (via the `closeTransportResolver` constructor option) — no
+  discovery socket outlives the client.
+- `discoverX32` itself is unchanged and still fine for one-shot use; it's
+  simply no longer what the reconnect path calls repeatedly.
 
 `UdpTransport` (the seam `X32MixerClient` reads/writes through) doesn't fit
 discovery: it's unicast to one fixed remote and never exposes a reply's
 sender address. Discovery instead defines its own narrow `DiscoverySocket`
 seam, confined to `discovery.ts` — `node:dgram` still never leaks outside
-`apps/x32-bridge/src/x32/`.
+`apps/x32-bridge/src/x32/`. Reusing the *main* `UdpTransport` socket for the
+broadcast (one identity for everything, not just discovery) was considered
+and left for a future consolidation — `UdpTransport` is a unicast seam with
+no sender-address exposure, and widening it was a bigger change than this
+fix needed.
 
 ## Scenes and stored state (investigated 2026-08-24)
 
