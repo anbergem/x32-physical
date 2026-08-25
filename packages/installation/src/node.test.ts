@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { deriveStaticEdges, endpointId } from "@x32/domain";
+import {
+  buildOutputRouteIndex,
+  deriveStaticEdges,
+  destination,
+  endpointId,
+} from "@x32/domain";
 import { describe, expect, it } from "vitest";
 
 import { loadInstallationFile } from "./node";
@@ -60,6 +65,81 @@ describe("loadInstallationFile", () => {
     const notYaml = fileURLToPath(new URL("./node.ts", import.meta.url));
 
     expect(() => loadInstallationFile(notYaml)).toThrow(/node\.ts/);
+  });
+});
+
+/**
+ * The output side (issue #9). Loads the real `config/installation.yaml`
+ * against docs/installation.md §"Output topology" and traces two routes
+ * end to end through the domain, exactly as the UI's hover/select would.
+ */
+describe("loadInstallationFile: output side", () => {
+  it("carries the venue's 11 destinations and both stageboxes' outputBlocks", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+
+    const destinations = installation.devices.filter(
+      (device) => device.kind === "destination",
+    );
+    expect(destinations).toHaveLength(11);
+    expect(destinations.every((device) => device.inputs === 0)).toBe(true);
+    expect(destinations.map((device) => device.id).sort()).toEqual(
+      [
+        "bak-hoyre",
+        "front-hoyre",
+        "front-venstre",
+        "main-left",
+        "main-right",
+        "piano-hoyre",
+        "piano-venstre",
+        "sidesal",
+        "sub",
+        "venstre-bak",
+        "vip-rom",
+      ].sort(),
+    );
+
+    const stageboxes = installation.devices.filter(
+      (device) => device.kind === "stagebox",
+    );
+    expect(stageboxes.map((device) => ({ id: device.id, outputBlock: device.outputBlock }))).toEqual([
+      { id: "stagebox-1", outputBlock: { start: 9 } },
+      { id: "stagebox-2", outputBlock: { start: 1 } },
+    ]);
+  });
+
+  it("carries the venue's 11 output connections", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+
+    const outputConnections = installation.connections.filter(
+      (edge) => edge.to.kind === "destination",
+    );
+    expect(outputConnections).toHaveLength(11);
+  });
+
+  it("resolves Out 13 -> stagebox-1 out 5 -> front-venstre", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const index = buildOutputRouteIndex(installation, []);
+
+    const route = index.byMixerOutput.get(13);
+    expect(route?.endpoints).toEqual([
+      "out:13",
+      "stagebox-out:stagebox-1:5",
+      "dest:front-venstre",
+    ]);
+    expect(route?.destinations).toEqual([destination("front-venstre")]);
+  });
+
+  it("resolves Out 1 -> console-out:1 -> sidesal", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const index = buildOutputRouteIndex(installation, []);
+
+    const route = index.byMixerOutput.get(1);
+    // Out 1 is presented both on the console XLR (declared) and wholesale on
+    // Stagebox H's block (derived, outputBlock.start = 1) — both physical
+    // outs appear alongside the destination.
+    expect(route?.endpoints).toContain("console-out:1");
+    expect(route?.endpoints).toContain("dest:sidesal");
+    expect(route?.destinations).toEqual([destination("sidesal")]);
   });
 });
 

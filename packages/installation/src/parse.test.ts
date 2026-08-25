@@ -153,11 +153,17 @@ describe("parseInstallationYaml", () => {
   });
 
   describe("schema layer", () => {
-    it("rejects an unknown schema version", () => {
-      const message = failureOf(edited("version: 1", "version: 2"));
+    it("rejects an unsupported schema version", () => {
+      const message = failureOf(edited("version: 1", "version: 3"));
 
       expect(message).toContain("Invalid installation schema");
       expect(message).toContain("version");
+    });
+
+    it("accepts version: 2 with no output content (tolerance rule)", () => {
+      const installation = parseInstallationYaml(edited("version: 1", "version: 2"));
+
+      expect(installation.devices).toHaveLength(3);
     });
 
     it("names the path of a missing field", () => {
@@ -219,10 +225,27 @@ describe("parseInstallationYaml", () => {
 
     it("names the path inside a connection", () => {
       const message = failureOf(
-        edited("to: { device: stagebox-2, input: 7 }", "to: { device: stagebox-2 }"),
+        edited(
+          "to: { device: stagebox-2, input: 7 }",
+          'to: { device: stagebox-2, input: "seven" }',
+        ),
       );
 
       expect(message).toContain("connections[1].to.input");
+    });
+
+    it("passes a `to` with only `device` through shape validation unrejected", () => {
+      // `{ device }` alone is now shape-valid (the destination form). This
+      // document's `stagebox-2` is a stagebox, not a destination, so it is
+      // rejected — but by the *domain* layer (device-kind-mismatch), not
+      // here, proving the shape layer no longer treats a bare `device` as
+      // malformed.
+      const message = failureOf(
+        edited("to: { device: stagebox-2, input: 7 }", "to: { device: stagebox-2 }"),
+      );
+
+      expect(message).toContain("Invalid installation topology");
+      expect(message).toContain("destination");
     });
   });
 
@@ -300,6 +323,197 @@ describe("parseInstallationYaml", () => {
 
       expect(message).toContain("Invalid installation schema");
       expect(message).not.toContain("overlap");
+    });
+  });
+});
+
+/**
+ * The output side (issue #9): a self-contained fixture with one stagebox
+ * presenting a block, one console XLR out, and two destinations — small
+ * enough to isolate the new schema/mapping surface from the input-side
+ * fixture above.
+ */
+const OUTPUT_YAML = `version: 2
+
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 8
+    aes50: { bus: A, offset: 0 }
+    outputs: 8
+    outputBlock: { start: 9 }
+
+  main-left:
+    kind: destination
+    label: "Main Left"
+
+  sidesal:
+    kind: destination
+    label: "Sidesal"
+
+connections:
+  - from: { device: stagebox-1, output: 7 }
+    to: { device: main-left }
+  - from: { consoleOutput: 1 }
+    to: { device: sidesal }
+`;
+
+function outputEdited(anchor: string, replacement: string): string {
+  expect(OUTPUT_YAML).toContain(anchor);
+  return OUTPUT_YAML.replace(anchor, replacement);
+}
+
+function outputFailureOf(yaml: string): string {
+  try {
+    parseInstallationYaml(yaml);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("expected parseInstallationYaml to throw, but it returned");
+}
+
+describe("parseInstallationYaml: output side", () => {
+  it("maps a stagebox's outputs and outputBlock", () => {
+    const installation = parseInstallationYaml(OUTPUT_YAML);
+    const stagebox = installation.devices.find(
+      (device) => device.id === "stagebox-1",
+    );
+
+    expect(stagebox).toMatchObject({ outputs: 8, outputBlock: { start: 9 } });
+  });
+
+  it("gives a destination device inputs: 0 without it ever being authored", () => {
+    const installation = parseInstallationYaml(OUTPUT_YAML);
+    const mainLeft = installation.devices.find((device) => device.id === "main-left");
+
+    expect(mainLeft).toEqual({
+      id: "main-left",
+      kind: "destination",
+      label: "Main Left",
+      inputs: 0,
+    });
+  });
+
+  it("maps stagebox-output → destination and console-output → destination", () => {
+    const installation = parseInstallationYaml(OUTPUT_YAML);
+
+    expect(installation.connections).toContainEqual({
+      from: { kind: "stagebox-output", device: "stagebox-1", output: 7 },
+      to: { kind: "destination", device: "main-left" },
+    });
+    expect(installation.connections).toContainEqual({
+      from: { kind: "console-output", output: 1 },
+      to: { kind: "destination", device: "sidesal" },
+    });
+  });
+
+  it("derives the console XLR's identity edge from mixer-output, never authored in YAML", () => {
+    const installation = parseInstallationYaml(OUTPUT_YAML);
+
+    expect(installation.connections).toContainEqual({
+      from: { kind: "mixer-output", output: 1 },
+      to: { kind: "console-output", output: 1 },
+    });
+  });
+
+  it("loads a version: 1 file with no output content (regression guard)", () => {
+    const installation = parseInstallationYaml(
+      `version: 1
+
+devices:
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections: []
+`,
+    );
+
+    expect(installation.devices).toEqual([
+      { id: "front-left", kind: "passive-panel", label: "Front Left", inputs: 8 },
+    ]);
+  });
+
+  describe("shape rejections", () => {
+    it("rejects a destination carrying inputs", () => {
+      const message = outputFailureOf(
+        outputEdited('    label: "Main Left"', '    label: "Main Left"\n    inputs: 0'),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("devices.main-left");
+      expect(message).toContain("inputs");
+    });
+
+    it("rejects a destination carrying aes50", () => {
+      const message = outputFailureOf(
+        outputEdited(
+          '    label: "Main Left"',
+          '    label: "Main Left"\n    aes50: { bus: A, offset: 0 }',
+        ),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("devices.main-left");
+      expect(message).toContain("aes50");
+    });
+
+    it("rejects a stagebox with outputBlock but no outputs", () => {
+      const message = outputFailureOf(outputEdited("    outputs: 8\n", ""));
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("devices.stagebox-1.outputs");
+    });
+
+    it("rejects a stagebox with outputs but no outputBlock", () => {
+      const message = outputFailureOf(
+        outputEdited("    outputBlock: { start: 9 }\n", ""),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("devices.stagebox-1.outputBlock");
+    });
+
+    it("rejects a connection with both device and consoleOutput in from", () => {
+      const message = outputFailureOf(
+        outputEdited(
+          "  - from: { consoleOutput: 1 }",
+          "  - from: { device: stagebox-1, consoleOutput: 1 }",
+        ),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("connections[1].from");
+    });
+
+    it("rejects output: 0", () => {
+      const message = outputFailureOf(
+        outputEdited("output: 7 }", "output: 0 }"),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("connections[0].from.output");
+    });
+  });
+
+  describe("semantic failures still surface from the domain layer", () => {
+    it("reports overlapping output blocks with the domain's own message prefix", () => {
+      const message = outputFailureOf(
+        outputEdited(
+          "  main-left:\n    kind: destination\n    label: \"Main Left\"",
+          "  stagebox-2:\n    kind: stagebox\n    label: \"Stagebox 2\"\n    inputs: 8\n" +
+            "    aes50: { bus: A, offset: 8 }\n    outputs: 8\n    outputBlock: { start: 9 }\n\n" +
+            "  main-left:\n    kind: destination\n    label: \"Main Left\"",
+        ),
+      );
+
+      expect(message).toContain("Invalid installation topology");
+      expect(message).not.toContain("Invalid installation schema");
+      expect(message).toContain("stagebox-1");
+      expect(message).toContain("stagebox-2");
+      expect(message).toMatch(/overlap/);
     });
   });
 });

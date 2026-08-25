@@ -58,11 +58,16 @@ Norwegian: **V** = venstre (left), **H** = høyre (right).
 - Channel assignments on the sheet (Vokal V1 → C5, …) are live mixer
   configuration, read from the console at runtime — never recorded in YAML.
 
-## `installation.yaml` schema (v1)
+## `installation.yaml` schema (v1/v2)
 
 Validated with Zod at load; invalid topology fails startup with a message
 naming the offending device/connection. **No coordinates, ever** — visual
 layout is a separate concern.
+
+`version: 1` and `version: 2` are accepted and behave **identically**. Every
+v2 addition below is optional, so a v1 file with no output content stays
+valid; `2` is only a signal that the file uses output features — the repo's
+own `config/installation.yaml` is `2` because it does.
 
 ```yaml
 version: 1
@@ -110,6 +115,69 @@ The visual schematic for this venue shows both stagebox areas under AES50-A,
 with sockets dual-labeled `Box 2 / 7 · A23` style, since the AES50 channel
 number is what the X32's own routing screens display when debugging.
 
+### Output additions (v2)
+
+```yaml
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox V"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+    outputs: 8                  # optional: physical XLR outs on the box
+    outputBlock: { start: 9 }   # optional: first console Out slot it presents
+
+  main-left:                    # a powered speaker/zone — no socket of its own
+    kind: destination
+    label: "Main Left"
+
+connections:
+  # stagebox XLR out → destination
+  - from: { device: stagebox-1, output: 7 }
+    to:   { device: main-left }
+  # console XLR out → destination (no console device — addressed by number)
+  - from: { consoleOutput: 1 }
+    to:   { device: sidesal }
+```
+
+- New device kind `destination`: `label` only. It must **not** carry
+  `inputs`, `aes50`, `outputs` or `outputBlock` — a destination is a
+  device-level endpoint with no socket number of its own. `inputs: 0` is an
+  internal detail the loader supplies on the way to the domain; it is never
+  authored in YAML.
+- A stagebox may declare `outputs: int ≥ 1` (its physical XLR out count) and
+  `outputBlock: { start: int }` (the first console Out slot, 1–16, its block
+  presents — Out `start` → the box's XLR out 1, and so on for 8 slots). Both
+  optional, but declaring one without the other is a shape error: a box that
+  presents a block must say how many outs it has, and a declared output count
+  needs a block to sit in. `start`'s range and non-overlap with another box's
+  block are domain rules, not shape ones.
+- A connection's `from` may now also be `{ device: <stagebox>, output: <int
+  ≥ 1> }` (a stagebox XLR out) or `{ consoleOutput: <int ≥ 1> }` (a console
+  XLR out, by number alone — see below). A connection's `to` may now also be
+  `{ device: <destination> }`, with no socket number.
+- **Console XLR outs are addressed by number, not a console device.** A
+  console device is deliberately deferred (it is entangled with modelling the
+  console's own local inputs, a separate future extension) — see "Real panel
+  wiring" above for the desk's local-input sockets.
+- **Slot→physical-output is never written in YAML; it is always derived.**
+  For a stagebox, from `outputBlock.start` (mirroring `aes50.offset` on the
+  input side): mixer-output `start + n − 1` → the box's XLR out `n`, for its
+  8 presented slots. For a console XLR, it is the console's identity default
+  — Out *n* carries on console XLR *n*, which is what this venue uses — and
+  the loader derives that same identity edge for every console XLR number a
+  file references. If `/config/routing/OUT/*` is ever set non-default at a
+  venue, resolving that is an adapter concern (issue #10), not a schema one.
+- A physical output (stagebox XLR out or console XLR out) feeds **at most one
+  destination**; a console Out slot appears on **at most one** console XLR.
+  Both are domain rules (`validateInstallation`), not shape ones.
+
+As on the input side, Zod validates shape only — field names, types, and
+which fields each device kind may carry. Every semantic rule (output-block
+bounds and overlap, in-range socket/output numbers, one destination per
+physical output, one console XLR per Out slot) belongs to
+`validateInstallation` in `@x32/domain` and is not restated in the schema.
+
 ## Editing this file at the venue (issue #3)
 
 In production the bridge reads this file at startup and serves it to the web
@@ -125,8 +193,11 @@ not a live reload.
 ## Output topology (captured 2026-08-25)
 
 From the venue sheet "Betania Lydsystem - Outputs", plus owner clarification.
-**Not yet modelled in `installation.yaml`** — this is the raw material for the
-output milestone (issues #7–#11).
+**Now modelled in `installation.yaml`** (issue #9) — see "Output additions
+(v2)" above for the schema and `config/installation.yaml` for the venue's
+actual cabling. The bus/matrix sources ("Fed from" below) are live mixer
+configuration, read from the console at runtime, and are not recorded in the
+static topology file — only the physical-output → destination cabling is.
 
 | Out | Name | Fed from | Emerges at |
 |---|---|---|---|

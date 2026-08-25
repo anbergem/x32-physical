@@ -12,17 +12,26 @@
  * 3. **Topology** — `@x32/domain` reports the offending device or connection.
  */
 
-import type { Device, Installation, TopologyEdge } from "@x32/domain";
+import type { Device, EndpointRef, Installation, TopologyEdge } from "@x32/domain";
 import {
   assertValidInstallation,
+  consoleOutput,
+  destination,
   deviceId,
+  mixerOutput,
   panelInput,
   stageboxInput,
+  stageboxOutput,
 } from "@x32/domain";
 import { parse as parseYamlText } from "yaml";
 import type { z } from "zod";
 
-import type { DeviceDocument, InstallationDocument } from "./schema";
+import type {
+  DeviceDocument,
+  FromEndpointDocument,
+  InstallationDocument,
+  ToEndpointDocument,
+} from "./schema";
 import { installationDocumentSchema } from "./schema";
 
 /** Used in error messages when the caller does not name the source. */
@@ -125,23 +134,83 @@ function toInstallation(document: InstallationDocument): Installation {
   );
 
   const connections: TopologyEdge[] = document.connections.map((connection) => ({
-    from: panelInput(connection.from.device, connection.from.input),
-    to: stageboxInput(connection.to.device, connection.to.input),
+    from: toFromEndpoint(connection.from),
+    to: toToEndpoint(connection.to),
   }));
+
+  // Console XLR outs are addressed by number alone in YAML (no console
+  // device — docs/installation.md §schema), and slot→XLR is the console's
+  // identity default (Out n carries on console XLR n). That identity edge is
+  // never written in YAML; it is derived here, once per console XLR the file
+  // actually references, so `deriveOutputEdges`'s declared-connections pass
+  // (@x32/domain topology.ts) has a mixer-output→console-output edge to
+  // carry through, exactly as if it had been declared.
+  const consoleOutputNumbers = new Set<number>();
+  for (const connection of document.connections) {
+    if (connection.from.consoleOutput !== undefined) {
+      consoleOutputNumbers.add(connection.from.consoleOutput);
+    }
+  }
+  for (const output of [...consoleOutputNumbers].sort((a, b) => a - b)) {
+    connections.push({ from: mixerOutput(output), to: consoleOutput(output) });
+  }
 
   return { devices, connections };
 }
 
 function toDevice(id: string, document: DeviceDocument): Device {
+  if (document.kind === "destination") {
+    // `inputs: 0` is an internal detail the mapper supplies — the YAML never
+    // asks a human to type it for a loudspeaker (issue #9 decisions).
+    return { id: deviceId(id), kind: "destination", label: document.label, inputs: 0 };
+  }
+
   const base = {
     id: deviceId(id),
     label: document.label,
     inputs: document.inputs,
   };
 
-  return document.kind === "stagebox"
-    ? { ...base, kind: "stagebox", aes50: { ...document.aes50 } }
-    : { ...base, kind: "passive-panel" };
+  if (document.kind === "passive-panel") {
+    return { ...base, kind: "passive-panel" };
+  }
+
+  return {
+    ...base,
+    kind: "stagebox",
+    aes50: { ...document.aes50 },
+    ...(document.outputs !== undefined ? { outputs: document.outputs } : {}),
+    ...(document.outputBlock !== undefined
+      ? { outputBlock: { ...document.outputBlock } }
+      : {}),
+  };
+}
+
+/**
+ * `from` side of a connection: a panel/stagebox input socket (existing form),
+ * a stagebox XLR out, or a console XLR out. Which form a document carries is
+ * already guaranteed by the schema's shape refinement — see
+ * `fromEndpointSchema` — so exactly one branch matches.
+ */
+function toFromEndpoint(document: FromEndpointDocument): EndpointRef {
+  if (document.consoleOutput !== undefined) {
+    return consoleOutput(document.consoleOutput);
+  }
+  if (document.output !== undefined) {
+    return stageboxOutput(document.device as string, document.output);
+  }
+  return panelInput(document.device as string, document.input as number);
+}
+
+/**
+ * `to` side of a connection: a stagebox input socket (existing form, has
+ * `input`) or a destination device (new form, no socket number).
+ */
+function toToEndpoint(document: ToEndpointDocument): EndpointRef {
+  if (document.input !== undefined) {
+    return stageboxInput(document.device, document.input);
+  }
+  return destination(document.device);
 }
 
 function messageOf(cause: unknown): string {
