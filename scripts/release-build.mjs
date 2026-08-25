@@ -37,27 +37,31 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const RELEASE_DIR = join(ROOT, "dist", "release", "app");
 
 /**
- * Windows ships pnpm/npm/npx as `.cmd` batch shims, and Node's spawn cannot
- * execute a batch file directly — Windows' CreateProcess only ever appends
- * `.exe`, so `execFileSync("pnpm", ...)` dies with ENOENT there while working
- * fine on macOS/Linux. Real executables (`git`, and `wix.exe` in
- * build-msi.mjs) resolve normally, so only these shims need the suffix.
- * Using `shell: true` instead would reintroduce argument-quoting hazards for
- * paths containing spaces, which the MSI build genuinely has.
+ * Windows ships pnpm/npm/npx as `.cmd` batch shims, and Node refuses to spawn
+ * them at all without a shell: first ENOENT (CreateProcess only appends
+ * `.exe`, so a bare "pnpm" is not found), then EINVAL once the `.cmd` suffix
+ * is supplied — Node >= 18.20.2 / 20.12.2 blocks direct `.cmd`/`.bat`
+ * execution outright as the fix for CVE-2024-27980. Both were observed on
+ * `windows-latest` (release runs 32756040461 and 32811782261).
+ *
+ * A shell is therefore mandatory for these shims. Arguments are quoted
+ * defensively on that path so a future caller passing a path with spaces
+ * cannot be split by cmd.exe. Real executables (`git` here, `wix.exe` in
+ * build-msi.mjs) spawn normally and deliberately do not take this route.
  */
 const WINDOWS_SHIMS = new Set(["pnpm", "npm", "npx"]);
 
-function resolveCommand(command) {
-  return process.platform === "win32" && WINDOWS_SHIMS.has(command)
-    ? `${command}.cmd`
-    : command;
+function quoteForShell(value) {
+  return /[\s"^&|<>()%!]/.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
 }
 
 function run(command, args, options = {}) {
   console.log(`release:build $ ${command} ${args.join(" ")}`);
-  execFileSync(resolveCommand(command), args, {
+  const useShell = process.platform === "win32" && WINDOWS_SHIMS.has(command);
+  execFileSync(command, useShell ? args.map(quoteForShell) : args, {
     cwd: ROOT,
     stdio: "inherit",
+    shell: useShell,
     ...options,
   });
 }
