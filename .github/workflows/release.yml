@@ -171,7 +171,7 @@ jobs:
           while ((Get-Date) -lt $deadline) {
             try {
               $response = Invoke-WebRequest -Uri "http://localhost:8765/" -UseBasicParsing -TimeoutSec 5
-              if ($response.StatusCode -eq 200 -and $response.Content -match "X32 Routing Visualizer") {
+              if ($response.StatusCode -eq 200 -and $response.Content -match "X32 Physical Routing Visualizer") {
                 Write-Host "App responded 200 with expected title after $((Get-Date) - ($deadline.AddSeconds(-60)))."
                 $ok = $true
                 break
