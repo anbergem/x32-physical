@@ -85,8 +85,8 @@ devices:
     inputs: 16
     aes50: { bus: A, offset: 16 }
 
-  front-left:                 # placeholder — real panels TBD
-    kind: passive-panel
+  front-left:                 # illustrative — the real file's panels are
+    kind: passive-panel       # MK Front V / MK Front H (see above)
     label: "Front Left"
     inputs: 8
 
