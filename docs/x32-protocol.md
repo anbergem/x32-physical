@@ -277,3 +277,73 @@ Parsing a `.scn` USB/X32-Edit export as an alternative expected-state source
 is possible (the file contains exactly our node subset as text lines) but
 deferred — it reintroduces a manual file-handling step the capture workflow
 exists to avoid.
+
+## Output routing (issue #6 — research, no code yet)
+
+Verified against the same Maillot document as the input subset (fetched
+2026-08-23). **Nothing here is implemented**; this section exists so the
+output milestone (#8–#11) rests on read facts rather than assumptions.
+
+### The chain
+
+An output signal leaves the console by one of two independent paths:
+
+```text
+bus / matrix / main / direct-out
+   │
+   ├─► console XLR out N        /outputs/main/[01…16]/src        (0…76 enum)
+   │
+   └─► AES50 output channels    /config/routing/AES50A/<block>   (0…35 enum)
+             │
+             ▼
+       stagebox picks ONE block of 8 for its physical XLR outs
+             │                  ✗ NOT OSC-VISIBLE — see below
+             ▼
+       amp / wedge / zone       ✗ installation.yaml fact
+```
+
+### Tracked addresses
+
+| Address | Type | Meaning |
+|---|---|---|
+| `/outputs/main/[01…16]/src` | int 0–76 | What feeds console XLR out 1–16: 0 = OFF; Main L; Main R; M/C; MixBus 01–16; Matrix 1–6; DirectOut Ch 01–32; DirectOut Aux 1–8; DirectOut FX 1L–4R; Monitor L; Monitor R; Talkback. |
+| `/outputs/main/[01…16]/pos` | int 0–8 | Tap point: `IN/LC, IN/LC+M, <-EQ, <-EQ+M, EQ->, EQ->+M, PRE, PRE+M, POST`. Affects *what* the signal is, not *where* it goes — informational for a routing schematic. |
+| `/outputs/aux/[01…06]/src`, `/outputs/p16/[01…16]/src`, `/outputs/aes/[01…02]/src`, `/outputs/rec/[01…02]/src` | int 0–76 | Same enum, for the aux / P16 (Ultranet) / AES / recorder outputs. |
+| `/config/routing/AES50A/{1-8,9-16,17-24,25-32,33-40,41-48}` (and `AES50B/…`) | int 0–35 | Which internal block of 8 the console **transmits** on those AES50 output channels. Enum: 0–3 `AN1-8…AN25-32`; 4–9 `A1-8…A41-48`; 10–15 `B1-8…B41-48`; 16–19 `CARD1-8…CARD25-32`; 20–21 `OUT1-8, OUT9-16`; 22–23 `P161-8, P169-16`; 24 `AUX1-6/Mon`; 25 `AuxIN1-6/TB`; 26–31 `UOUT1-8…UOUT41-48`; 32–35 `UIN1-8…UIN25-32`. |
+| `/config/routing/OUT/{1-4,5-8,9-12,13-16}` | int 0–35 | Block routing for the console's own XLR outs, in groups of **four** (not eight). Same enum shape but quartered, e.g. `AN1-4, A1-4, …`. Note this coexists with the per-output `/outputs/main/NN/src` patch. |
+| `/config/userrout/out/[01…48]` | int 0–208 | User Out table: 0 = OFF; 1–32 Local In; 33–80 AES50-A 1–48; 81–128 AES50-B 1–48; 129–160 Card In; 161–166 Aux In; 167/168 TB int/ext; **169–184 Outputs 1–16; 185–200 P16 1–16; 201–206 AUX 1–6; 207/208 Monitor L/R**. The output-side analogue of `userrout/in`, reached when a block above is set to a `UOUT…` value. |
+| `/-stat/aes50/[A,B]` | string | **Detected box chain** — `string[4]` of device letters (`A` = S16, `P` = SD16, `N` = DL16, `W` = S32, …), then 6 chars of preamp type. |
+| `/-stat/aes50/state` | int bitfield | bit 0 A audio err, bit 1 B audio err, bit 2 A aux err, bit 3 B aux err, bit 4 lock. |
+
+### The hop OSC cannot see
+
+An S16/SD16-class box has 16 inputs but only **8 analog outputs**, while the
+AES50 link carries 48 output channels. Which block of 8 a given box presents
+on its XLRs is selected **on the box itself** (DIP switch / panel), and a
+search of the protocol document found **no OSC address that reports or sets
+it**. It is therefore a static physical fact and belongs in
+`installation.yaml`, exactly like the input-side cascade offsets — with the
+same caveat that re-ordering or re-configuring a box invalidates it silently.
+
+Confirming each box's setting at the venue is a prerequisite for the output
+milestone (issue #7).
+
+### Two findings worth using independently of outputs
+
+1. **`/-stat/aes50/A` identifies the cascade.** It reports which boxes are
+   detected and in what order, so the console can confirm what
+   `installation.yaml` asserts — the two 16-in boxes, their models (currently
+   recorded as "exact model unknown" in docs/installation.md), and their chain
+   order. That turns the cascade offsets from an unverifiable assumption into
+   something the app could cross-check and warn about. Worth its own issue.
+2. **`/-stat/aes50/state` is a real diagnostic.** Audio-error and lock bits on
+   each AES50 port are precisely the kind of fault this tool exists to surface
+   — a dead snake link currently looks identical to "no signal patched".
+
+### Open questions for the venue (issue #7)
+
+- Each box's output-block setting (the invisible hop above).
+- Whether the console's own XLR outs are in use, and what they feed.
+- Whether P16/Ultranet is in use.
+- Whether output routing goes through `userrout/out` at all, as the input side
+  does through `userrout/in`.
