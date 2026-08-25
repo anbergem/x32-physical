@@ -39,6 +39,16 @@
   <env name="X32_BASELINE_FILE" value="C:\ProgramData\X32RoutingVisualizer\baseline.json"/>
   <env name="X32_SETTINGS_FILE" value="C:\ProgramData\X32RoutingVisualizer\settings.env"/>
 
+  <!-- Venue-local installation.yaml override (issue #3, architecture.md
+       §7): uncomment and point at a ProgramData copy for a one-off on-site
+       cabling fix without a new release. The MSI never creates this file or
+       copies into it — that would let a stale local override silently
+       outrank every future release, so this is opt-in only, same as
+       X32_HOST/X32_BRIDGE_PORT above (or set it in settings.env instead,
+       which is equivalent and needs no service reinstall to change).
+  <env name="X32_INSTALLATION_FILE" value="C:\ProgramData\X32RoutingVisualizer\installation.yaml"/>
+  -->
+
   <logpath>C:\ProgramData\X32RoutingVisualizer</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>5120</sizeThreshold>

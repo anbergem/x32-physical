@@ -40,11 +40,16 @@ import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
+import { defaultInstallationFilePath, loadInstallationText } from "../installationFile";
 import { cloneSnapshot } from "../snapshot";
 import type { UpdateChecker } from "../updateCheck";
 import { startUpdateChecker } from "../updateCheck";
 
-import { createStaticFileHandler, createWsOnlyHandler } from "./staticFileServer";
+import {
+  createInstallationAwareHandler,
+  createStaticFileHandler,
+  createWsOnlyHandler,
+} from "./staticFileServer";
 
 export interface BridgeServerOptions {
   mixerClient: MixerClient;
@@ -60,6 +65,16 @@ export interface BridgeServerOptions {
    * unchanged.
    */
   webDist?: string;
+  /**
+   * Path to `installation.yaml`, served raw at `GET /api/installation`
+   * (issue #3, architecture.md §7). Defaults to
+   * `defaultInstallationFilePath()` (`config/installation.yaml` next to the
+   * server module); `config.ts`'s `resolveInstallationFileOverride` supplies
+   * `X32_INSTALLATION_FILE` here when a venue override is set. A missing or
+   * invalid file is logged once and the route 404s — never fatal to
+   * startup.
+   */
+  installationFilePath?: string;
   /**
    * The in-app update notice's checker (plan step 20, architecture.md §7).
    * Defaults to a real `startUpdateChecker()` (own VERSION file, real
@@ -107,6 +122,17 @@ export async function startBridgeServer(
 ): Promise<BridgeServer> {
   const { mixerClient, baselineStore } = options;
   const updateChecker = options.updateChecker ?? startUpdateChecker({});
+
+  // Loaded once at startup (CLAUDE.md invariant 1 — topology is static, not
+  // a runtime concern); a bad or missing file logs loudly and 404s the
+  // route rather than blocking the bridge from starting (issue #3).
+  const installationFilePath = options.installationFilePath ?? defaultInstallationFilePath();
+  const installationText = loadInstallationText(installationFilePath);
+  console.log(
+    installationText !== null
+      ? `x32-bridge: serving installation topology from ${installationFilePath}`
+      : `x32-bridge: GET /api/installation will 404 until ${installationFilePath} is fixed`,
+  );
 
   // Establish the baseline before subscribing: `getSnapshot()` returns
   // current truth regardless of anything that happened during `connect()`,
@@ -259,10 +285,12 @@ export async function startBridgeServer(
     broadcast({ type: "event", event });
   });
 
-  const httpServer = createServer(
+  const baseHttpHandler =
     options.webDist !== undefined
       ? createStaticFileHandler(options.webDist)
-      : createWsOnlyHandler(),
+      : createWsOnlyHandler();
+  const httpServer = createServer(
+    createInstallationAwareHandler(baseHttpHandler, () => installationText),
   );
   const wss = new WebSocketServer({ server: httpServer });
 

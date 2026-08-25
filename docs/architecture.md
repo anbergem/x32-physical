@@ -407,6 +407,34 @@ to relaying already-read-only data — no mixer write is involved. In mock mode
 `LocalMockGateway` wires `MockMixerClient.subscribeMeters` the same way,
 straight to the store's `meterLevels` slice.
 
+### Installation topology at runtime (issue #3)
+
+`GET /api/installation` — plain HTTP, same port as the WS API and the static
+web app, matched before any static file resolution. The bridge reads
+`installation.yaml` once at startup (`X32_INSTALLATION_FILE`, default
+`config/installation.yaml` resolved next to the server module) via
+`@x32/installation/node`, and serves it back **as raw YAML text**
+(`Content-Type: text/yaml`, `Cache-Control: no-cache`) — never parsed JSON.
+Keeping `parseInstallationYaml` the only thing that turns text into an
+`Installation` means the bridge and the browser can never disagree about what
+a file means.
+
+A missing or invalid file is logged once and the route answers `404` — never
+an empty `200`, and never fatal to startup; the WS API and any configured
+static serving come up regardless. The web app's `loadInstallation`
+(`apps/web/src/installation/loadInstallation.ts`) tries this endpoint first
+and falls back to the copy Vite bundled at build time (`?raw`) on any
+failure — a rejected fetch, a non-2xx status, or an unparseable body — so the
+schematic always renders even if the endpoint is broken. Under the Vite dev
+server the fetch is skipped entirely (`import.meta.env.DEV`), matching how
+`resolveBridgeUrl` already branches on `DEV`: mock-mode development needs no
+bridge running.
+
+This turns a cabling correction at the venue into a file edit plus a service
+restart — no rebuilt release, no MSI reinstall. There is deliberately no file
+watching: a service restart is the trigger a tech will reach for anyway after
+editing (see docs/installation.md for the override path and procedure).
+
 ## 8. End-to-end event flow (live mode)
 
 ```text

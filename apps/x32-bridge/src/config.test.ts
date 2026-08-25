@@ -11,6 +11,7 @@ import {
   pickDiscoveredHost,
   resolveBaselineFilePath,
   resolveDemoMode,
+  resolveInstallationFileOverride,
   resolveMixerMode,
   resolvePort,
   resolveWebDistPath,
@@ -137,6 +138,24 @@ describe("resolveWebDistPath", () => {
 
   it("treats a blank override as unset", () => {
     expect(resolveWebDistPath({ X32_WEB_DIST: "   " })).toBeUndefined();
+  });
+});
+
+describe("resolveInstallationFileOverride (issue #3)", () => {
+  it("is unset by default (the module-relative default applies)", () => {
+    expect(resolveInstallationFileOverride({})).toBeUndefined();
+  });
+
+  it("returns the configured override", () => {
+    expect(
+      resolveInstallationFileOverride({
+        X32_INSTALLATION_FILE: "C:\\ProgramData\\X32RoutingVisualizer\\installation.yaml",
+      }),
+    ).toBe("C:\\ProgramData\\X32RoutingVisualizer\\installation.yaml");
+  });
+
+  it("treats a blank override as unset", () => {
+    expect(resolveInstallationFileOverride({ X32_INSTALLATION_FILE: "   " })).toBeUndefined();
   });
 });
 

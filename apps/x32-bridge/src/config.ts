@@ -12,6 +12,7 @@
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
  * | `X32_BASELINE_FILE`| disk path for the persisted baseline (architecture.md §7) | `data/baseline.json` |
  * | `X32_WEB_DIST`      | static root for the built web app (plan step 16); unset = WS only | unset |
+ * | `X32_INSTALLATION_FILE` | override path for `installation.yaml`, served at `GET /api/installation` (architecture.md §7) | `config/installation.yaml` next to the server module |
  * | `X32_SETTINGS_FILE` | optional `KEY=VALUE` file (plan step 19's MSI venue override path) merged in *underneath* real env vars — see `parseSettingsFileContents`/`applySettingsFileOverrides` | unset |
  */
 
@@ -78,6 +79,19 @@ export function resolveBaselineFilePath(env: NodeJS.ProcessEnv): string {
  */
 export function resolveWebDistPath(env: NodeJS.ProcessEnv): string | undefined {
   const raw = env.X32_WEB_DIST;
+  return raw !== undefined && raw.trim() !== "" ? raw : undefined;
+}
+
+/**
+ * Env override for the installation file path (architecture.md §7):
+ * `%ProgramData%\X32RoutingVisualizer\installation.yaml` for a venue-local
+ * edit, or any other path a tech points it at. `undefined` means "use the
+ * default next to the server module" — `installationFile.ts`'s
+ * `defaultInstallationFilePath()`, which the shipped `%ProgramFiles%` copy
+ * (releases stay the source of truth) resolves to.
+ */
+export function resolveInstallationFileOverride(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = env.X32_INSTALLATION_FILE;
   return raw !== undefined && raw.trim() !== "" ? raw : undefined;
 }
 

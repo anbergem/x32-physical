@@ -13,7 +13,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
@@ -24,6 +24,26 @@ import type { BridgeServer } from "./bridgeServer";
 import { startBridgeServer } from "./bridgeServer";
 
 const CH12 = mixerChannelId(12);
+
+/** A small but complete valid installation document (issue #3's `GET /api/installation` tests). */
+const VALID_INSTALLATION_YAML = `version: 1
+
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+`;
 
 /** A `BaselineStore` for tests that don't care about persistence at all. */
 function inMemoryBaselineStore(initial: MixerSnapshot | null = null): BaselineStore {
@@ -414,13 +434,20 @@ describe("baseline persistence (architecture.md §7)", () => {
 });
 
 /** Raw HTTP GET against the bridge's own port, alongside the WS API (plan step 16). */
-function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
+function httpGet(
+  port: number,
+  path: string,
+): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest({ host: "127.0.0.1", port, path }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (chunk: Buffer) => chunks.push(chunk));
       res.on("end", () =>
-        resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf8"),
+          headers: res.headers,
+        }),
       );
     });
     req.on("error", reject);
@@ -499,6 +526,155 @@ describe("production static serving (plan step 16)", () => {
     const client = await connectClient(bridge.port);
     const message = asSnapshot(await client.next());
     expect(message.snapshot.channels).toHaveLength(32);
+  });
+});
+
+describe("GET /api/installation (issue #3)", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "x32-bridge-installation-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("returns the file's exact bytes with text/yaml when the file loads", async () => {
+    const path = join(dir, "installation.yaml");
+    await writeFile(path, VALID_INSTALLATION_YAML, "utf8");
+
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      installationFilePath: path,
+    });
+
+    const response = await httpGet(bridge.port, "/api/installation");
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(VALID_INSTALLATION_YAML);
+    expect(response.headers["content-type"]).toBe("text/yaml");
+    expect(response.headers["cache-control"]).toBe("no-cache");
+  });
+
+  it("404s on a missing file, and the server still starts and serves the app and WS", async () => {
+    const missingPath = join(dir, "does-not-exist.yaml");
+    const webDist = await mkdtemp(join(tmpdir(), "x32-bridge-web-installation-"));
+    await writeFile(join(webDist, "index.html"), "<html>the app</html>");
+
+    try {
+      const mock = new MockMixerClient();
+      bridge = await startBridgeServer({
+        mixerClient: mock,
+        port: 0,
+        baselineStore: inMemoryBaselineStore(),
+        installationFilePath: missingPath,
+        webDist,
+      });
+
+      const apiResponse = await httpGet(bridge.port, "/api/installation");
+      expect(apiResponse.status).toBe(404);
+
+      const appResponse = await httpGet(bridge.port, "/");
+      expect(appResponse.status).toBe(200);
+      expect(appResponse.body).toBe("<html>the app</html>");
+
+      const client = await connectClient(bridge.port);
+      const message = asSnapshot(await client.next());
+      expect(message.snapshot.channels).toHaveLength(32);
+    } finally {
+      await rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  it("404s on invalid YAML/topology, logs exactly one error, and the server still starts", async () => {
+    const path = join(dir, "installation.yaml");
+    await writeFile(path, "not: [valid, installation, shape", "utf8");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const mock = new MockMixerClient();
+      bridge = await startBridgeServer({
+        mixerClient: mock,
+        port: 0,
+        baselineStore: inMemoryBaselineStore(),
+        installationFilePath: path,
+      });
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0]?.[0]).toContain(path);
+
+      const response = await httpGet(bridge.port, "/api/installation");
+      expect(response.status).toBe(404);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("honors installationFilePath (the resolved X32_INSTALLATION_FILE override)", async () => {
+    const overridePath = join(dir, "venue-override.yaml");
+    await writeFile(overridePath, VALID_INSTALLATION_YAML, "utf8");
+
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      installationFilePath: overridePath,
+    });
+
+    const response = await httpGet(bridge.port, "/api/installation");
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(VALID_INSTALLATION_YAML);
+  });
+
+  it("is matched before static resolution and isn't reachable via traversal tricks", async () => {
+    const path = join(dir, "installation.yaml");
+    await writeFile(path, VALID_INSTALLATION_YAML, "utf8");
+    const webDist = await mkdtemp(join(tmpdir(), "x32-bridge-web-installation-"));
+    await writeFile(join(webDist, "index.html"), "<html>the app</html>");
+
+    try {
+      const mock = new MockMixerClient();
+      bridge = await startBridgeServer({
+        mixerClient: mock,
+        port: 0,
+        baselineStore: inMemoryBaselineStore(),
+        installationFilePath: path,
+        webDist,
+      });
+
+      const direct = await httpGet(bridge.port, "/api/installation");
+      expect(direct.status).toBe(200);
+      expect(direct.body).toBe(VALID_INSTALLATION_YAML);
+
+      // Dot-segment traversal into and back out of the route: the URL
+      // parser collapses this to the exact route path, so it still hits the
+      // installation route rather than the static handler at all.
+      const dotSegment = await httpGet(bridge.port, "/api/../api/installation");
+      expect(dotSegment.status).toBe(200);
+      expect(dotSegment.body).toBe(VALID_INSTALLATION_YAML);
+
+      // URL-encoded dot segment: `URL`'s own parsing normalizes `%2e%2e`
+      // the same way, so this is really just `/api/installation` again —
+      // not a traversal at all, and it "behaves sanely" by serving the same
+      // route rather than doing anything surprising.
+      const encoded = await httpGet(bridge.port, "/api/%2e%2e/api/installation");
+      expect(encoded.status).toBe(200);
+      expect(encoded.body).toBe(VALID_INSTALLATION_YAML);
+
+      // A traversal attempt that does *not* collapse to the route itself
+      // falls through to the static handler's own traversal guard (and, for
+      // an extensionless result, its SPA fallback) — never to the
+      // installation file.
+      const outsideAttempt = await httpGet(bridge.port, "/api/installation/../../../../etc/passwd");
+      expect(outsideAttempt.body).not.toContain(VALID_INSTALLATION_YAML);
+      expect(outsideAttempt.headers["content-type"]).not.toBe("text/yaml");
+    } finally {
+      await rm(webDist, { recursive: true, force: true });
+    }
   });
 });
 

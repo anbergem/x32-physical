@@ -6,24 +6,22 @@
  *   dist/release/app/
  *     server.mjs        esbuild-bundled apps/x32-bridge/src/main.ts
  *     web/               the web app's Vite build, VITE_DEFAULT_MODE=live
- *     config/installation.yaml   copied for future bridge/ops use — see the
- *                                caveat below
+ *     config/installation.yaml   the venue topology the bridge reads at
+ *                                startup and serves at GET /api/installation
+ *                                (issue #3, architecture.md §7)
  *     VERSION            package.json version + git short hash
  *
  * Run the staged server with `node dist/release/app/server.mjs`, pointing
  * `X32_WEB_DIST` at `dist/release/app/web` (or leave it — `main.ts` doesn't
  * default it; step 17's launch scripts will).
  *
- * CAVEAT (deliberately not "fixed" here — see the plan-step-16 report): the
- * web app bakes `config/installation.yaml` into its JS bundle at build time
- * via a Vite `?raw` import (`apps/web/src/installation/loadInstallation.ts`).
- * The bridge itself never reads the YAML — it has no topology/route-index
- * concerns (architecture.md §2/§3). Copying the YAML into the release here
- * gives ops a copy alongside the app and a home for the bridge to read it
- * from if a future step needs to, but it is NOT the copy the running web
- * app actually uses. A change to `installation.yaml` on the venue machine
- * requires a rebuilt-and-restaged release, not a local file edit — editing
- * `dist/release/app/config/installation.yaml` in place does nothing.
+ * `config/installation.yaml` here is the copy the running app actually
+ * uses: the bridge reads it at startup (`X32_INSTALLATION_FILE`, default
+ * this path resolved next to `server.mjs`) and the web app fetches it over
+ * `GET /api/installation`, falling back to its own build-time-bundled copy
+ * only if that fails. A cabling correction at the venue is therefore
+ * editing this staged file (or a `%ProgramData%` override, see README.md)
+ * and restarting the service — not a rebuilt-and-restaged release.
  */
 
 import { execFileSync } from "node:child_process";

@@ -52,10 +52,10 @@ function renderStartupFailure(error: unknown, hint?: string): void {
   );
 }
 
-function start(): void {
+async function start(): Promise<void> {
   let installation: Installation;
   try {
-    installation = loadInstallation();
+    installation = await loadInstallation();
   } catch (error) {
     renderStartupFailure(error, INSTALLATION_ERROR_HINT);
     return;
@@ -104,4 +104,4 @@ function connect(gateway: MixerGateway, store: AppStore): void {
   });
 }
 
-start();
+void start();

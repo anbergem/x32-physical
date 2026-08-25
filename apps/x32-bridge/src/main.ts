@@ -20,6 +20,13 @@
  *   X32_WEB_DIST         static root for the built web app (plan step 16);
  *                        unset serves WebSocket only, matching today's dev
  *                        behaviour.
+ *   X32_INSTALLATION_FILE override path for installation.yaml, served raw at
+ *                        GET /api/installation (issue #3, architecture.md
+ *                        §7); unset defaults to config/installation.yaml
+ *                        next to the server module (the release layout
+ *                        scripts/release-build.mjs stages). A tech points
+ *                        this at a ProgramData copy for a venue-local edit
+ *                        without a new release.
  *   X32_SETTINGS_FILE    optional path to a venue-editable `KEY=VALUE` file
  *                        (plan step 19's MSI override path — WinSW's own
  *                        config sets this to `%ProgramData%\...\settings.env`
@@ -40,6 +47,7 @@ import {
   parseSettingsFileContents,
   resolveBaselineFilePath,
   resolveDemoMode,
+  resolveInstallationFileOverride,
   resolveMixerMode,
   resolvePort,
   resolveWebDistPath,
@@ -73,9 +81,16 @@ async function main(): Promise<void> {
   const demo = resolveDemoMode(env);
   const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(env));
   const webDist = resolveWebDistPath(env);
+  const installationFilePath = resolveInstallationFileOverride(env);
 
   const mixerClient = createMixerClient(mode, env);
-  const bridge = await startBridgeServer({ mixerClient, port, baselineStore, webDist });
+  const bridge = await startBridgeServer({
+    mixerClient,
+    port,
+    baselineStore,
+    webDist,
+    installationFilePath,
+  });
 
   console.log(
     `x32-bridge: listening on ws://localhost:${bridge.port} (mixer: ${mode})`,

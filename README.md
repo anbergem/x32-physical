@@ -144,11 +144,25 @@ Restart the "X32 Routing Visualizer" service (Services app, or `net stop` /
 `net start`) for it to take effect. Any variable actually set in the
 service's own environment always wins over this file — it only fills gaps.
 
-**Changing the physical wiring:** `config/installation.yaml` is baked into
-the web app at build time (see the caveat in `scripts/release-build.mjs`) —
-it is **not** a file to hand-edit on the venue machine. A cabling change
-means editing `config/installation.yaml` in this repo and cutting a new
-release; there is nothing to patch locally.
+**Changing the physical wiring:** the bridge reads `installation.yaml` at
+startup and serves it to the web app over `GET /api/installation` — a
+cabling correction is a file edit plus a service restart, not a new release.
+Edit `%ProgramFiles%\X32 Routing Visualizer\config\installation.yaml` (an
+admin-elevated editor is needed there), then restart the "X32 Routing
+Visualizer" service (Services app, or `net stop` / `net start`) for it to
+take effect.
+
+For a venue-local override that doesn't touch the `%ProgramFiles%` copy —
+useful for a one-off on-site fix before the "real" file gets updated and
+re-released — point `X32_INSTALLATION_FILE` at a copy under
+`%ProgramData%\X32RoutingVisualizer\` (the same `settings.env` file used for
+`X32_HOST` above, e.g.
+`X32_INSTALLATION_FILE=C:\ProgramData\X32RoutingVisualizer\installation.yaml`),
+place your edited copy there by hand, and restart the service. The MSI never
+copies into `%ProgramData%` automatically — an override only takes effect
+once a tech deliberately creates that file. If the file is ever missing or
+invalid, the bridge logs it and falls back automatically to the copy bundled
+in the web app, so the schematic keeps rendering either way.
 
 ## Layout
 
