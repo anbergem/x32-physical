@@ -50,6 +50,17 @@ export function formatEndpoint(
       return `AES50-${ref.bus} ${ref.channel}`;
     case "mixer-channel":
       return `CH${ref.channel}`;
+    // Output-side endpoint kinds (domain issue #8). The output UI is a
+    // separate, not-yet-built milestone (issue #11) — this function never
+    // receives one of these today, since nothing produces an output
+    // `RouteIndex`/`EndpointRef` in the web app yet.
+    case "mixer-output":
+    case "console-output":
+    case "stagebox-output":
+    case "destination":
+      throw new Error(
+        `formatEndpoint does not support output-side endpoint "${ref.kind}" yet (issue #11).`,
+      );
   }
 }
 

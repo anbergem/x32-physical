@@ -3,11 +3,15 @@ import { describe, expect, it } from "vitest";
 import type { EndpointRef } from "./endpoints";
 import {
   aes50Channel,
+  consoleOutput,
+  destination,
   endpointId,
   mixerChannel,
+  mixerOutput,
   panelInput,
   parseEndpointId,
   stageboxInput,
+  stageboxOutput,
 } from "./endpoints";
 
 const CANONICAL: Array<[string, EndpointRef]> = [
@@ -16,6 +20,10 @@ const CANONICAL: Array<[string, EndpointRef]> = [
   ["aes50:A:19", aes50Channel("A", 19)],
   ["aes50:B:48", aes50Channel("B", 48)],
   ["mixer:12", mixerChannel(12)],
+  ["out:13", mixerOutput(13)],
+  ["console-out:1", consoleOutput(1)],
+  ["stagebox-out:stagebox-1:5", stageboxOutput("stagebox-1", 5)],
+  ["dest:main-left", destination("main-left")],
 ];
 
 describe("endpoint constructors", () => {
@@ -37,6 +45,18 @@ describe("endpoint constructors", () => {
 
   it("validates the device id", () => {
     expect(() => panelInput("Front Left", 1)).toThrow(/Invalid device id/);
+  });
+
+  it("validates mixer-output and console-output range", () => {
+    expect(() => mixerOutput(0)).toThrow(/Invalid mixer-output number/);
+    expect(() => mixerOutput(17)).toThrow(/Invalid mixer-output number/);
+    expect(() => consoleOutput(0)).toThrow(/Invalid console-output number/);
+    expect(() => consoleOutput(17)).toThrow(/Invalid console-output number/);
+  });
+
+  it("validates stagebox-output socket numbers", () => {
+    expect(() => stageboxOutput("stagebox-1", 0)).toThrow(/positive integer/);
+    expect(() => stageboxOutput("stagebox-1", -1)).toThrow(/positive integer/);
   });
 });
 
@@ -83,6 +103,22 @@ describe("parseEndpointId", () => {
     "mixer:12:3",
     "socket:front-left:3",
     "PANEL:front-left:3",
+    "out",
+    "out:0",
+    "out:17",
+    "out:013",
+    "out:13:extra",
+    "console-out",
+    "console-out:0",
+    "console-out:17",
+    "console-out:01",
+    "stagebox-out",
+    "stagebox-out:stagebox-1",
+    "stagebox-out:stagebox-1:0",
+    "stagebox-out:stagebox-1:05",
+    "stagebox-out:stagebox-1:5:extra",
+    "dest",
+    "dest:main-left:extra",
   ])("rejects %o", (value) => {
     expect(() => parseEndpointId(value)).toThrow();
   });

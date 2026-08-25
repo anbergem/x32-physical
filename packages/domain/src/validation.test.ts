@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { outputVenueInstallation } from "./__fixtures__/output-venue";
 import { venueInstallation } from "./__fixtures__/venue";
-import { aes50Channel, panelInput, stageboxInput } from "./endpoints";
+import {
+  aes50Channel,
+  consoleOutput,
+  destination,
+  mixerOutput,
+  panelInput,
+  stageboxInput,
+  stageboxOutput,
+} from "./endpoints";
 import { deviceId } from "./ids";
 import type { Installation } from "./topology";
 import {
@@ -17,6 +26,13 @@ function codesOf(installation: Installation): InstallationValidationErrorCode[] 
 /** Applies a purposeful break to a fresh copy of the venue topology. */
 function broken(mutate: (installation: Installation) => void): Installation {
   const installation = venueInstallation();
+  mutate(installation);
+  return installation;
+}
+
+/** Applies a purposeful break to a fresh copy of the output venue topology. */
+function brokenOutput(mutate: (installation: Installation) => void): Installation {
+  const installation = outputVenueInstallation();
   mutate(installation);
   return installation;
 }
@@ -222,6 +238,139 @@ describe("validateInstallation", () => {
         "unknown-device",
       ].sort(),
     );
+  });
+});
+
+describe("validateInstallation: output side", () => {
+  it("accepts the output venue installation", () => {
+    expect(validateInstallation(outputVenueInstallation())).toEqual([]);
+  });
+
+  it("rejects a destination declaring inputs/aes50/outputs/outputBlock", () => {
+    const installation = brokenOutput((topology) => {
+      const dest = topology.devices.find((d) => d.id === "front-venstre")!;
+      dest.inputs = 1;
+    });
+    expect(codesOf(installation)).toEqual(["unexpected-destination-fields"]);
+  });
+
+  it("rejects an outputBlock.start outside 1-16", () => {
+    const installation = brokenOutput((topology) => {
+      topology.devices[0]!.outputBlock = { start: 0 };
+    });
+    expect(codesOf(installation)).toEqual(["invalid-output-block"]);
+  });
+
+  it("rejects an outputBlock whose 8 slots run past 16", () => {
+    const installation = brokenOutput((topology) => {
+      topology.devices[0]!.outputBlock = { start: 10 };
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["invalid-output-block"]);
+    expect(errors[0]?.message).toMatch(/outputBlock\.start=10/);
+  });
+
+  it("accepts an outputBlock ending exactly on slot 16", () => {
+    const installation = brokenOutput((topology) => {
+      topology.devices[0]!.outputBlock = { start: 9 }; // 9-16
+      topology.devices[1]!.outputBlock = { start: 1 }; // 1-8
+    });
+    expect(validateInstallation(installation)).toEqual([]);
+  });
+
+  it("rejects overlapping output blocks", () => {
+    const installation = brokenOutput((topology) => {
+      topology.devices[1]!.outputBlock = { start: 5 }; // collides with H's 1-8
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["output-block-overlap"]);
+    expect(errors[0]?.message).toMatch(/stagebox-h.*stagebox-v/s);
+  });
+
+  it("rejects a connection naming an unknown device", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: stageboxOutput("ghost-box", 1),
+        to: destination("front-venstre"),
+      });
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toContain("unknown-device");
+    expect(errors.some((error) => error.message.includes("ghost-box"))).toBe(
+      true,
+    );
+  });
+
+  it("rejects an endpoint whose device is of the wrong kind", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: stageboxOutput("front-venstre", 1), // a destination used as a stagebox
+        to: destination("sidesal"),
+      });
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toContain("device-kind-mismatch");
+  });
+
+  it("rejects an output number outside 1-16", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: mixerOutput(1),
+        to: consoleOutput(1),
+      });
+      // Bypass the constructor's own range check to simulate a malformed
+      // loaded value.
+      (topology.connections[topology.connections.length - 1]!.from as {
+        output: number;
+      }).output = 17;
+    });
+    expect(codesOf(installation)).toContain("output-out-of-range");
+  });
+
+  it("rejects a stagebox-output number the device does not have", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: stageboxOutput("stagebox-h", 9), // the box has 8 outputs
+        to: destination("sidesal"),
+      });
+    });
+    expect(codesOf(installation)).toEqual(["output-out-of-range"]);
+  });
+
+  it("rejects a console Out slot declared on more than one console XLR", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: mixerOutput(1), // already declared to console-out:1
+        to: consoleOutput(2),
+      });
+    });
+    expect(codesOf(installation)).toEqual(["console-output-multiple-sources"]);
+  });
+
+  it("rejects a physical output cabled to more than one destination", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: stageboxOutput("stagebox-v", 5), // already cabled to front-venstre
+        to: destination("sidesal"),
+      });
+    });
+    expect(codesOf(installation)).toEqual([
+      "physical-output-multiple-destinations",
+    ]);
+  });
+
+  it("rejects connections that are not one of the four valid pairs", () => {
+    const installation = brokenOutput((topology) => {
+      topology.connections.push({
+        from: destination("front-venstre"),
+        to: mixerOutput(2),
+      });
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual([
+      "unsupported-connection",
+      "unsupported-connection",
+    ]);
   });
 });
 

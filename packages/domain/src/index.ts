@@ -6,10 +6,16 @@
  * consumes. Step 5 adds route resolution (`buildRouteIndex`) on top.
  */
 
-export type { Aes50Bus, DeviceId, EndpointId, MixerChannelId } from "./ids";
+export type {
+  Aes50Bus,
+  DeviceId,
+  EndpointId,
+  MixerChannelId,
+} from "./ids";
 export {
   AES50_CHANNEL_COUNT,
   MIXER_CHANNEL_COUNT,
+  MIXER_OUTPUT_COUNT,
   aes50Bus,
   deviceId,
   mixerChannelId,
@@ -17,18 +23,28 @@ export {
 
 export type {
   Aes50ChannelRef,
+  ConsoleOutputRef,
+  DestinationRef,
   EndpointRef,
   MixerChannelRef,
+  MixerOutputRef,
   PanelInputRef,
   StageboxInputRef,
+  StageboxOutputRef,
 } from "./endpoints";
 export {
   aes50Channel,
+  cloneEndpoint,
+  compareEndpoints,
+  consoleOutput,
+  destination,
   endpointId,
   mixerChannel,
+  mixerOutput,
   panelInput,
   parseEndpointId,
   stageboxInput,
+  stageboxOutput,
 } from "./endpoints";
 
 export type {
@@ -40,11 +56,18 @@ export type {
 export {
   aes50ChannelForInput,
   aes50ChannelsByEndpoint,
+  deriveOutputEdges,
   deriveStaticEdges,
 } from "./topology";
 
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
 export { mixerSourceRefEquals } from "./mixer";
+
+export type { MixerOutputSourceRef, MixerOutputState } from "./output-mixer";
+export { mixerOutputSourceRefEquals } from "./output-mixer";
+
+export type { OutputRoute, OutputRouteIndex } from "./output-routing";
+export { buildOutputRouteIndex } from "./output-routing";
 
 export type {
   Aes50BusLinkState,

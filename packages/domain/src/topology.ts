@@ -6,18 +6,36 @@
  */
 
 import type { Aes50ChannelRef, EndpointRef } from "./endpoints";
-import { aes50Channel, endpointId, panelInput, stageboxInput } from "./endpoints";
+import {
+  aes50Channel,
+  endpointId,
+  mixerOutput,
+  panelInput,
+  stageboxInput,
+  stageboxOutput,
+} from "./endpoints";
 import type { Aes50Bus, DeviceId, EndpointId } from "./ids";
 
-export type DeviceKind = "passive-panel" | "stagebox";
+export type DeviceKind = "passive-panel" | "stagebox" | "destination";
 
 export interface Device {
   id: DeviceId;
   kind: DeviceKind;
   label: string;
+  /** Not used by `destination` devices — a destination has no socket number. */
   inputs: number;
   /** Stageboxes only: where this box's inputs land on an AES50 bus. */
   aes50?: { bus: Aes50Bus; offset: number };
+  /** Stageboxes only: how many physical XLR outs the box has. */
+  outputs?: number;
+  /**
+   * Stageboxes only: the first console Out slot (1–16) this box presents on
+   * its XLR outs — Out `start` maps to the box's out 1, `start + 1` to out 2,
+   * and so on for the 8 slots the box's AES50 output block carries. Not
+   * readable over OSC (docs/x32-protocol.md §"Output routing"): the same
+   * silent-invalidation risk as `aes50.offset`.
+   */
+  outputBlock?: { start: number };
 }
 
 /** A directed edge of the static signal graph: `from` feeds `to`. */
@@ -58,16 +76,24 @@ export function aes50ChannelForInput(
 }
 
 /**
- * The complete static edge set of an installation: the explicitly cabled
- * connections plus the stagebox→AES50 edges derived from each stagebox's
- * cascade offset.
+ * The complete static edge set of an installation's *input* side: the
+ * explicitly cabled panel→stagebox connections plus the stagebox→AES50 edges
+ * derived from each stagebox's cascade offset.
+ *
+ * `installation.connections` also carries output-side cabling (declared
+ * console-out/stagebox-out→destination and mixer-output→console-output
+ * connections) once the output milestone's YAML lands; those are filtered out
+ * here and picked up by `deriveOutputEdges` instead, so the input and output
+ * route graphs stay disjoint (architecture.md §3).
  *
  * Route resolution calls this rather than doing the arithmetic itself; the
  * loader leaves `Installation` a record of the declared facts only.
  * Assumes a validated installation — see `validateInstallation`.
  */
 export function deriveStaticEdges(installation: Installation): TopologyEdge[] {
-  const edges: TopologyEdge[] = [...installation.connections];
+  const edges: TopologyEdge[] = installation.connections.filter(
+    (edge) => edge.from.kind === "panel-input",
+  );
 
   for (const device of installation.devices) {
     if (device.kind !== "stagebox") continue;
@@ -75,6 +101,50 @@ export function deriveStaticEdges(installation: Installation): TopologyEdge[] {
       const busChannel = aes50ChannelForInput(device, input);
       if (busChannel === undefined) continue;
       edges.push({ from: stageboxInput(device.id, input), to: busChannel });
+    }
+  }
+
+  return edges;
+}
+
+/**
+ * The output-side derived edges: for each stagebox declaring `outputBlock`,
+ * mixer-output `start + n - 1` → stagebox-output `n` for its 8 presented
+ * slots (`n` 1–8). This is the output-side analogue of `aes50.offset` — see
+ * `deriveStaticEdges` — but deliberately kept in its own function rather than
+ * folded into it: the two edge sets feed disjoint graphs (`buildRouteIndex`
+ * for input routes, `buildOutputRouteIndex` for output routes), and mixing
+ * them into one `deriveStaticEdges` result would leak output-only nodes into
+ * the input route index and vice versa.
+ *
+ * Console XLR outs are *not* derived here — the YAML declares which Out slot
+ * appears on which console XLR as an ordinary connection, exactly like
+ * panel→stagebox cabling, so this also carries the declared
+ * mixer-output→console-output, console-output→destination and
+ * stagebox-output→destination connections through from
+ * `installation.connections` (filtered to output-side pairs, mirroring how
+ * `deriveStaticEdges` filters to input-side ones).
+ *
+ * Assumes a validated installation — see `validateInstallation`.
+ */
+export function deriveOutputEdges(installation: Installation): TopologyEdge[] {
+  const edges: TopologyEdge[] = installation.connections.filter(
+    (edge) =>
+      edge.from.kind === "mixer-output" ||
+      edge.from.kind === "console-output" ||
+      edge.from.kind === "stagebox-output",
+  );
+
+  for (const device of installation.devices) {
+    if (device.kind !== "stagebox" || device.outputBlock === undefined) {
+      continue;
+    }
+    const { start } = device.outputBlock;
+    for (let slot = 1; slot <= 8; slot += 1) {
+      edges.push({
+        from: mixerOutput(start + slot - 1),
+        to: stageboxOutput(device.id, slot),
+      });
     }
   }
 

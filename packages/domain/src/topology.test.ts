@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 
+import { outputVenueInstallation } from "./__fixtures__/output-venue";
 import { venueInstallation } from "./__fixtures__/venue";
 import type { EndpointRef } from "./endpoints";
-import { aes50Channel, endpointId, panelInput, stageboxInput } from "./endpoints";
+import {
+  aes50Channel,
+  endpointId,
+  mixerOutput,
+  panelInput,
+  stageboxInput,
+  stageboxOutput,
+} from "./endpoints";
 import { deviceId } from "./ids";
 import {
   aes50ChannelForInput,
   aes50ChannelsByEndpoint,
+  deriveOutputEdges,
   deriveStaticEdges,
 } from "./topology";
 import type { Device, Installation, TopologyEdge } from "./topology";
@@ -246,5 +255,65 @@ describe("aes50ChannelsByEndpoint", () => {
     expect(uncabledMap.has(endpointId(panelInput("front-left", 2)))).toBe(
       false,
     );
+  });
+});
+
+describe("deriveOutputEdges", () => {
+  it("maps Stagebox V (start 9) onto its output block", () => {
+    const edges = deriveOutputEdges(outputVenueInstallation());
+
+    expect(edgeFrom(edges, mixerOutput(13)).to).toEqual(
+      stageboxOutput("stagebox-v", 5),
+    );
+    expect(edgeFrom(edges, mixerOutput(9)).to).toEqual(
+      stageboxOutput("stagebox-v", 1),
+    );
+    expect(edgeFrom(edges, mixerOutput(16)).to).toEqual(
+      stageboxOutput("stagebox-v", 8),
+    );
+  });
+
+  it("maps Stagebox H (start 1) onto its output block", () => {
+    const edges = deriveOutputEdges(outputVenueInstallation());
+
+    expect(edgeFrom(edges, mixerOutput(6)).to).toEqual(
+      stageboxOutput("stagebox-h", 6),
+    );
+    expect(edgeFrom(edges, mixerOutput(2)).to).toEqual(
+      stageboxOutput("stagebox-h", 2),
+    );
+    expect(edgeFrom(edges, mixerOutput(8)).to).toEqual(
+      stageboxOutput("stagebox-h", 8),
+    );
+  });
+
+  it("keeps every declared output-side connection", () => {
+    const installation = outputVenueInstallation();
+    const edges = deriveOutputEdges(installation);
+
+    for (const connection of installation.connections) {
+      expect(edges).toContainEqual(connection);
+    }
+  });
+
+  it("derives nothing for a stagebox with no outputBlock", () => {
+    const installation: Installation = {
+      devices: [
+        {
+          id: deviceId("stagebox-1"),
+          kind: "stagebox",
+          label: "Stagebox 1",
+          inputs: 4,
+          aes50: { bus: "A", offset: 0 },
+        },
+      ],
+      connections: [],
+    };
+    expect(deriveOutputEdges(installation)).toEqual([]);
+  });
+
+  it("does not leak input-side connections", () => {
+    const edges = deriveOutputEdges(venueInstallation());
+    expect(edges).toEqual([]);
   });
 });

@@ -5,12 +5,25 @@
  * them after parsing YAML and fails fast with the resulting messages. Every
  * message names the offending device or connection so it is actionable
  * without reading code.
+ *
+ * Input-side rules (device ids, AES50 ranges, panel→stagebox cabling) are
+ * untouched by the output milestone. Output-side rules (destination devices,
+ * stagebox output blocks, the three output-side connection pairs) are
+ * additive, dispatched by each connection's `from.kind`.
  */
 
-import type { EndpointRef, PanelInputRef, StageboxInputRef } from "./endpoints";
+import type {
+  ConsoleOutputRef,
+  DestinationRef,
+  EndpointRef,
+  MixerOutputRef,
+  PanelInputRef,
+  StageboxInputRef,
+  StageboxOutputRef,
+} from "./endpoints";
 import { endpointId } from "./endpoints";
 import type { DeviceId, EndpointId } from "./ids";
-import { AES50_CHANNEL_COUNT } from "./ids";
+import { AES50_CHANNEL_COUNT, MIXER_OUTPUT_COUNT } from "./ids";
 import type { Device, DeviceKind, Installation } from "./topology";
 
 export type InstallationValidationErrorCode =
@@ -25,7 +38,13 @@ export type InstallationValidationErrorCode =
   | "unknown-device"
   | "device-kind-mismatch"
   | "input-out-of-range"
-  | "stagebox-input-multiple-sources";
+  | "stagebox-input-multiple-sources"
+  | "output-out-of-range"
+  | "console-output-multiple-sources"
+  | "physical-output-multiple-destinations"
+  | "invalid-output-block"
+  | "output-block-overlap"
+  | "unexpected-destination-fields";
 
 export interface InstallationValidationError {
   code: InstallationValidationErrorCode;
@@ -43,6 +62,12 @@ interface Aes50Range {
   last: number;
 }
 
+interface OutputBlockRange {
+  device: Device;
+  first: number;
+  last: number;
+}
+
 /** How a connection endpoint is described in messages. */
 function describe(ref: EndpointRef): string {
   switch (ref.kind) {
@@ -53,6 +78,14 @@ function describe(ref: EndpointRef): string {
       return `AES50-${ref.bus} channel ${ref.channel}`;
     case "mixer-channel":
       return `mixer channel ${ref.channel}`;
+    case "mixer-output":
+      return `output slot ${ref.output}`;
+    case "console-output":
+      return `console XLR out ${ref.output}`;
+    case "stagebox-output":
+      return `${ref.device} out ${ref.output}`;
+    case "destination":
+      return `destination ${ref.device}`;
   }
 }
 
@@ -66,7 +99,45 @@ function isDeviceEndpoint(
 const DEVICE_KIND_LABEL: Record<DeviceKind, string> = {
   "passive-panel": "passive panel",
   stagebox: "stagebox",
+  destination: "destination",
 };
+
+const VALID_CONNECTION_PAIRS_DESCRIPTION =
+  "panel-input → stagebox-input, mixer-output → console-output, " +
+  "stagebox-output → destination, or console-output → destination";
+
+/**
+ * One of the four connection shapes a `from`/`to` pair may take. `deviceKind`
+ * is absent for endpoints with no device (mixer-output, console-output): a
+ * console Out slot and a console XLR are addressed by number alone.
+ */
+interface ConnectionPair {
+  fromKind: EndpointRef["kind"];
+  toKind: EndpointRef["kind"];
+  fromDeviceKind?: DeviceKind;
+  toDeviceKind?: DeviceKind;
+}
+
+const CONNECTION_PAIRS: ConnectionPair[] = [
+  {
+    fromKind: "panel-input",
+    toKind: "stagebox-input",
+    fromDeviceKind: "passive-panel",
+    toDeviceKind: "stagebox",
+  },
+  { fromKind: "mixer-output", toKind: "console-output" },
+  {
+    fromKind: "stagebox-output",
+    toKind: "destination",
+    fromDeviceKind: "stagebox",
+    toDeviceKind: "destination",
+  },
+  {
+    fromKind: "console-output",
+    toKind: "destination",
+    toDeviceKind: "destination",
+  },
+];
 
 /**
  * Validates an installation against every documented topology rule.
@@ -78,6 +149,7 @@ export function validateInstallation(
   const errors: InstallationValidationError[] = [];
   const devices = new Map<DeviceId, Device>();
   const ranges: Aes50Range[] = [];
+  const outputBlockRanges: OutputBlockRange[] = [];
 
   for (const device of installation.devices) {
     const isDuplicate = devices.has(device.id);
@@ -89,6 +161,26 @@ export function validateInstallation(
       });
     } else {
       devices.set(device.id, device);
+    }
+
+    if (device.kind === "destination") {
+      if (
+        device.inputs !== 0 ||
+        device.aes50 !== undefined ||
+        device.outputs !== undefined ||
+        device.outputBlock !== undefined
+      ) {
+        errors.push({
+          code: "unexpected-destination-fields",
+          device: device.id,
+          message:
+            `Destination "${device.id}" declares inputs/aes50/outputs/` +
+            `outputBlock: a destination is a device-level endpoint with no ` +
+            `sockets of its own (inputs must be 0, and aes50, outputs and ` +
+            `outputBlock must be unset).`,
+        });
+      }
+      continue;
     }
 
     const inputsValid = Number.isInteger(device.inputs) && device.inputs >= 1;
@@ -120,6 +212,38 @@ export function validateInstallation(
           `Passive panel "${device.id}" declares an aes50 mapping: ` +
           `only stageboxes connect to an AES50 bus.`,
       });
+    }
+
+    if (device.kind === "stagebox" && device.outputBlock !== undefined) {
+      const { start } = device.outputBlock;
+      const startValid =
+        Number.isInteger(start) && start >= 1 && start + 8 - 1 <= MIXER_OUTPUT_COUNT;
+      if (!startValid) {
+        errors.push({
+          code: "invalid-output-block",
+          device: device.id,
+          message:
+            `Stagebox "${device.id}" declares outputBlock.start=${start}: ` +
+            `it must be an integer between 1 and ${MIXER_OUTPUT_COUNT - 7} so ` +
+            `the 8 slots it presents (start … start + 7) fit within 1–` +
+            `${MIXER_OUTPUT_COUNT}.`,
+        });
+      } else {
+        const first = start;
+        const last = start + 7;
+        for (const other of outputBlockRanges) {
+          if (first > other.last || last < other.first) continue;
+          errors.push({
+            code: "output-block-overlap",
+            device: device.id,
+            message:
+              `Stageboxes "${other.device.id}" (Out ${other.first}–` +
+              `${other.last}) and "${device.id}" (Out ${first}–${last}) ` +
+              `present overlapping output blocks: adjust outputBlock.start.`,
+          });
+        }
+        outputBlockRanges.push({ device, first, last });
+      }
     }
 
     const aes50 = device.aes50;
@@ -171,13 +295,19 @@ export function validateInstallation(
   }
 
   const fedStageboxInputs = new Map<EndpointId, EndpointRef>();
+  const fedConsoleOutputs = new Map<EndpointId, EndpointRef>();
+  const fedDestinations = new Map<EndpointId, EndpointRef>();
 
   installation.connections.forEach((connection, index) => {
+    const pair =
+      CONNECTION_PAIRS.find((p) => p.fromKind === connection.from.kind) ??
+      CONNECTION_PAIRS[0]!;
+
     const from = checkEndpoint(
       connection.from,
       "from",
-      "panel-input",
-      "passive-panel",
+      pair.fromKind,
+      pair.fromDeviceKind,
       index,
       devices,
       errors,
@@ -185,74 +315,148 @@ export function validateInstallation(
     const to = checkEndpoint(
       connection.to,
       "to",
-      "stagebox-input",
-      "stagebox",
+      pair.toKind,
+      pair.toDeviceKind,
       index,
       devices,
       errors,
     );
 
-    if (to === undefined) return;
-
-    const key = endpointId(to);
-    const existing = fedStageboxInputs.get(key);
-    if (existing !== undefined) {
-      errors.push({
-        code: "stagebox-input-multiple-sources",
-        device: to.device,
-        connectionIndex: index,
-        message:
-          `Stagebox input "${key}" is fed by more than one panel socket ` +
-          `(${describe(existing)} and ${describe(connection.from)}): ` +
-          `a stagebox input can have at most one feeding socket.`,
-      });
+    if (pair === CONNECTION_PAIRS[0]) {
+      // panel-input → stagebox-input: a stagebox input has at most one
+      // feeding panel socket.
+      if (to === undefined) return;
+      const key = endpointId(to);
+      const existing = fedStageboxInputs.get(key);
+      if (existing !== undefined) {
+        errors.push({
+          code: "stagebox-input-multiple-sources",
+          device: (to as StageboxInputRef).device,
+          connectionIndex: index,
+          message:
+            `Stagebox input "${key}" is fed by more than one panel socket ` +
+            `(${describe(existing)} and ${describe(connection.from)}): ` +
+            `a stagebox input can have at most one feeding socket.`,
+        });
+        return;
+      }
+      if (from !== undefined) fedStageboxInputs.set(key, connection.from);
       return;
     }
 
-    if (from !== undefined) fedStageboxInputs.set(key, connection.from);
+    if (pair === CONNECTION_PAIRS[1]) {
+      // mixer-output → console-output: a console Out slot may appear on at
+      // most one console XLR.
+      if (from === undefined || to === undefined) return;
+      const key = endpointId(from);
+      const existing = fedConsoleOutputs.get(key);
+      if (existing !== undefined) {
+        errors.push({
+          code: "console-output-multiple-sources",
+          connectionIndex: index,
+          message:
+            `Output slot "${key}" is declared on more than one console XLR ` +
+            `out (${describe(existing)} and ${describe(to)}): a console Out ` +
+            `slot may appear on at most one console XLR.`,
+        });
+        return;
+      }
+      fedConsoleOutputs.set(key, to);
+      return;
+    }
+
+    // stagebox-output → destination, console-output → destination: a
+    // physical output feeds at most one destination.
+    if (from === undefined || to === undefined) return;
+    const key = endpointId(from);
+    const existing = fedDestinations.get(key);
+    if (existing !== undefined) {
+      errors.push({
+        code: "physical-output-multiple-destinations",
+        connectionIndex: index,
+        message:
+          `Physical output "${key}" is cabled to more than one destination ` +
+          `(${describe(existing)} and ${describe(to)}): a physical output ` +
+          `feeds at most one destination.`,
+      });
+      return;
+    }
+    fedDestinations.set(key, to);
   });
 
   return errors;
 }
 
 /**
- * Checks one side of a connection. Returns the ref when it is usable
- * (right kind, existing device of the right kind, in-range input).
+ * Checks one side of a connection. Returns the ref when it is usable (right
+ * kind, existing device of the right kind when it has one, in-range number).
  */
 function checkEndpoint(
   ref: EndpointRef,
   side: "from" | "to",
-  expectedKind: "panel-input" | "stagebox-input",
-  expectedDeviceKind: DeviceKind,
+  expectedKind: EndpointRef["kind"],
+  expectedDeviceKind: DeviceKind | undefined,
   index: number,
   devices: Map<DeviceId, Device>,
   errors: InstallationValidationError[],
-): PanelInputRef | StageboxInputRef | undefined {
+): EndpointRef | undefined {
   const where = `Connection #${index + 1}`;
 
-  if (ref.kind !== expectedKind || !isDeviceEndpoint(ref)) {
+  if (ref.kind !== expectedKind) {
     errors.push({
       code: "unsupported-connection",
       connectionIndex: index,
       message:
-        `${where}: "${side}" is a ${ref.kind} (${describe(ref)}), ` +
-        `but only ${expectedKind} is supported there — connections must run ` +
-        `panel-input → stagebox-input.`,
+        `${where}: "${side}" is a ${ref.kind} (${describe(ref)}), which is ` +
+        `not valid there — connections must run ` +
+        `${VALID_CONNECTION_PAIRS_DESCRIPTION}.`,
     });
     return undefined;
   }
 
-  const endpoint = ref;
-  const device = devices.get(endpoint.device);
+  // No device on this side (mixer-output, console-output): just the number
+  // range, since there is no device to look up or match kinds against.
+  if (expectedDeviceKind === undefined) {
+    const numbered = ref as MixerOutputRef | ConsoleOutputRef;
+    if (
+      !Number.isInteger(numbered.output) ||
+      numbered.output < 1 ||
+      numbered.output > MIXER_OUTPUT_COUNT
+    ) {
+      errors.push({
+        code: "output-out-of-range",
+        connectionIndex: index,
+        message:
+          `${where}: "${side}" uses output ${numbered.output}, which must ` +
+          `be between 1 and ${MIXER_OUTPUT_COUNT}.`,
+      });
+      return undefined;
+    }
+    return ref;
+  }
+
+  if (!isDeviceEndpoint(ref) && !isOutputDeviceEndpoint(ref)) {
+    // Unreachable given the kind check above (every kind with a
+    // `deviceKind` also carries a `device` field), but keeps this function
+    // total without an unsafe cast.
+    return undefined;
+  }
+
+  const deviceRef = ref as
+    | PanelInputRef
+    | StageboxInputRef
+    | StageboxOutputRef
+    | DestinationRef;
+  const device = devices.get(deviceRef.device);
 
   if (device === undefined) {
     errors.push({
       code: "unknown-device",
       connectionIndex: index,
-      device: endpoint.device,
+      device: deviceRef.device,
       message:
         `${where}: "${side}" references unknown device ` +
-        `"${endpoint.device}".`,
+        `"${deviceRef.device}".`,
     });
     return undefined;
   }
@@ -270,23 +474,39 @@ function checkEndpoint(
     return undefined;
   }
 
-  if (
-    !Number.isInteger(endpoint.input) ||
-    endpoint.input < 1 ||
-    endpoint.input > device.inputs
-  ) {
+  if (deviceRef.kind === "destination") {
+    // A destination has no socket number to range-check.
+    return deviceRef;
+  }
+
+  const maxNumber =
+    deviceRef.kind === "stagebox-output" ? (device.outputs ?? 0) : device.inputs;
+  const number =
+    deviceRef.kind === "stagebox-output" ? deviceRef.output : deviceRef.input;
+  const code =
+    deviceRef.kind === "stagebox-output" ? "output-out-of-range" : "input-out-of-range";
+  const noun = deviceRef.kind === "stagebox-output" ? "output" : "input";
+
+  if (!Number.isInteger(number) || number < 1 || number > maxNumber) {
     errors.push({
-      code: "input-out-of-range",
+      code,
       connectionIndex: index,
       device: device.id,
       message:
-        `${where}: "${side}" uses input ${endpoint.input} of device ` +
-        `"${device.id}", which has inputs 1–${device.inputs}.`,
+        `${where}: "${side}" uses ${noun} ${number} of device ` +
+        `"${device.id}", which has ${noun}s 1–${maxNumber}.`,
     });
     return undefined;
   }
 
-  return endpoint;
+  return deviceRef;
+}
+
+/** Endpoints on the output side that name a device (stagebox-output, destination). */
+function isOutputDeviceEndpoint(
+  ref: EndpointRef,
+): ref is StageboxOutputRef | DestinationRef {
+  return ref.kind === "stagebox-output" || ref.kind === "destination";
 }
 
 /** Fail-fast wrapper for loaders: throws with every message at once. */

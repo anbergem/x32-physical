@@ -24,6 +24,9 @@ export const MIXER_CHANNEL_COUNT = 32;
 /** Channels carried by one AES50 bus, 1-based. */
 export const AES50_CHANNEL_COUNT = 48;
 
+/** X32 output slots (console Out 1–16), 1-based. */
+export const MIXER_OUTPUT_COUNT = 16;
+
 /** Device ids are kebab-case (docs/installation.md §schema). */
 const DEVICE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 

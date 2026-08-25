@@ -92,29 +92,53 @@ panel:front-left:3        # physical panel socket
 stagebox:stagebox-1:3     # stagebox input socket
 aes50:A:19                # AES50 bus channel (bus-level, box-agnostic)
 mixer:12                  # X32 input channel
+out:13                    # X32 output slot (console Out N, 1–16)
+console-out:1             # console XLR out socket
+stagebox-out:stagebox-1:5 # stagebox XLR out socket
+dest:main-left            # destination device (powered speaker/zone)
 ```
 
 ```ts
 type EndpointRef =
-  | { kind: "panel-input";    device: DeviceId; input: number }
-  | { kind: "stagebox-input"; device: DeviceId; input: number }
-  | { kind: "aes50-channel";  bus: "A" | "B";   channel: number } // 1–48
-  | { kind: "mixer-channel";  channel: MixerChannelId };
+  | { kind: "panel-input";     device: DeviceId; input: number }
+  | { kind: "stagebox-input";  device: DeviceId; input: number }
+  | { kind: "aes50-channel";   bus: "A" | "B";   channel: number } // 1–48
+  | { kind: "mixer-channel";   channel: MixerChannelId }
+  | { kind: "mixer-output";    output: number }                   // 1–16
+  | { kind: "console-output";  output: number }                   // 1–16
+  | { kind: "stagebox-output"; device: DeviceId; output: number }
+  | { kind: "destination";     device: DeviceId };
 ```
 
 `aes50-channel` is deliberately distinct from `stagebox-input`: the mixer only
 ever sees bus+channel; which physical box that channel belongs to is a static
 topology fact (cascade offsets), expressed as graph edges.
 
+The output-side kinds (issue #8) mirror this: `mixer-output` is the console Out
+slot the mixer sees (`/outputs/main/[01…16]/src`), distinct from where it
+physically emerges — a `console-output` (no device; console XLRs are
+addressed by number alone until a console device kind exists) or a
+`stagebox-output` (which box's XLR presents it, from the stagebox's
+`outputBlock`). `destination` is a device-level endpoint with no socket
+number: a powered speaker or zone is one thing, not a socket on a thing.
+
+**The input-side and output-side kinds are disjoint** — an `EndpointId` never
+means both an input and an output endpoint, and `RouteIndex` and
+`OutputRouteIndex` (below) each only ever contain nodes of their own side. A UI
+hover consults both indexes and shows whichever one has an entry for the
+endpoint under the cursor.
+
 ### Topology (static)
 
 ```ts
 interface Device {
   id: DeviceId;
-  kind: "passive-panel" | "stagebox";
+  kind: "passive-panel" | "stagebox" | "destination";
   label: string;
-  inputs: number;
-  aes50?: { bus: "A" | "B"; offset: number }; // stageboxes only
+  inputs: number;                                   // unused by "destination"
+  aes50?: { bus: "A" | "B"; offset: number };        // stageboxes only
+  outputs?: number;                                  // stageboxes only
+  outputBlock?: { start: number };                   // stageboxes only, 1–16
 }
 
 interface Installation {
@@ -123,11 +147,31 @@ interface Installation {
 }
 ```
 
+`"destination"` (issue #8) is a powered speaker or zone — no amplifier device
+kind exists because the venue's cabinets are powered. It carries no
+`inputs`/`aes50`/`outputs`/`outputBlock`; the device itself is the endpoint.
+
+`outputBlock.start` names the first console Out slot (1–16) a stagebox
+presents on its XLR outs — Out `start` → the box's out 1, through Out
+`start + 7` → its out 8. Like `aes50.offset`, it is **not** readable over OSC
+(docs/x32-protocol.md §"Output routing"): it is a static physical fact
+(DIP switch / panel setting) that YAML must assert, with the same
+silent-invalidation risk if the box is reconfigured. Console XLR outs are
+**declared, not derived**: which Out slot appears on which console XLR is an
+ordinary `connections` entry (`mixer-output → console-output`), exactly like
+panel→stagebox cabling — introducing a console device kind is deferred to
+issue #2, which needs it for the console's own local inputs too.
+
 The domain derives the stagebox→AES50 edges from `aes50.offset` (box input *n*
 → bus channel *offset + n*) in `deriveStaticEdges`, which route resolution
-(`buildRouteIndex`) calls. `Installation` therefore stays a record of the
-*declared* facts, and YAML only declares the panel→stagebox cabling
-explicitly.
+(`buildRouteIndex`) calls. It derives the stagebox→output edges from
+`outputBlock.start` in `deriveOutputEdges`, which `buildOutputRouteIndex`
+calls — kept as a separate function so the two functions' edges feed disjoint
+graphs rather than leaking output-only nodes into `deriveStaticEdges`'s input
+graph or vice versa (`installation.connections` is one shared list; each
+function filters it to its own side's `from` kinds). `Installation` therefore
+stays a record of the *declared* facts, and YAML only declares the
+panel→stagebox and output-side cabling explicitly.
 
 ### Mixer routing model (`packages/domain`)
 
@@ -198,6 +242,88 @@ function buildRouteIndex(installation: Installation,
 - Traversal is generic over directed edges, not hardcoded to the
   panel→stagebox→aes50→mixer shape, so output routing can reuse it later.
 
+### Mixer output routing model (issue #8)
+
+`MixerOutputSourceRef` is a **separate union from `MixerSourceRef`**, not an
+extension of it: "Bus 3 feeds an output" and "a channel is sourced from Bus 3"
+are different relationships in different semantic spaces, and conflating them
+would let a route resolve nonsense.
+
+```ts
+/** Where a console Out slot (1–16) pulls its signal from. */
+type MixerOutputSourceRef =
+  | { kind: "main"; side: "L" | "R" | "C" }
+  | { kind: "bus"; bus: number }                    // 1–16
+  | { kind: "matrix"; matrix: number }               // 1–6
+  | { kind: "direct-out-channel"; channel: MixerChannelId }
+  | { kind: "direct-out-aux"; aux: number }          // 1–8
+  | { kind: "direct-out-fx"; ret: number }
+  | { kind: "monitor"; side: "L" | "R" }
+  | { kind: "talkback" }
+  | { kind: "off" };
+
+interface MixerOutputState {
+  output: number;      // 1–16
+  name?: string;
+  source: MixerOutputSourceRef;
+}
+```
+
+Unlike `MixerSourceRef`'s `aes50` variant, no `MixerOutputSourceRef` variant
+names a physical endpoint — bus/matrix/main are console-internal, not sockets.
+So route resolution cannot detect "one source feeds several outputs" via a
+shared graph node the way the input side does; it compares `source` values
+structurally instead (see below).
+
+### Output route resolution (issue #8)
+
+A **separate `OutputRouteIndex`, not a widened `RouteIndex`**: the two
+endpoint-kind spaces are disjoint (see "Identifiers" above), so nothing is
+ambiguous, and `SignalRoute`'s `mixerChannels`/`physicalInputs` fields do not
+describe an output route. Forcing one type would either bloat it with
+optional fields or churn the input side's 700+ passing tests for no benefit.
+
+```ts
+interface OutputRoute {
+  /** Upstream → downstream: slot(s) → physical out(s) → destination(s). */
+  endpoints: EndpointId[];
+  mixerOutputs: number[];           // every Out slot sharing this source, ascending
+  destinations: EndpointRef[];      // [] when nothing is cabled downstream
+  /** Present when the slot's source is "off": no destinations were traced. */
+  unroutedSource?: MixerOutputSourceRef;
+}
+
+interface OutputRouteIndex {
+  byMixerOutput: Map<number, OutputRoute>;
+  byEndpoint: Map<EndpointId, OutputRoute[]>;
+}
+
+function buildOutputRouteIndex(installation: Installation,
+                               outputs: MixerOutputState[]): OutputRouteIndex;
+```
+
+- **Reuses the same generic BFS** (`graph.ts`) `buildRouteIndex` is built on
+  — one traversal implementation, not two.
+- Not one-to-one, mirroring the input side: Bus 3 feeding Out 7 and Out 12
+  yields one shared route with `mixerOutputs: [7, 12]`. But the *mechanism*
+  differs: since no endpoint represents "Bus 3", grouping is by **structural
+  equality of `source`**, and the group's route is the union of each slot's
+  independent downstream trace — not one trace from a shared upstream node.
+- A block is presented **wholesale**: a stagebox's XLR outs carry its full
+  8-slot block regardless of which slots are actually patched
+  (docs/installation.md "a block is presented wholesale, but only some
+  sockets are patched"), so the static `mixer-output → stagebox-output` edge
+  exists independent of the slot's source.
+- A slot sourced `off` is the one deliberate exception to that: its route is
+  just the slot itself, no downstream trace, even though the physical XLR
+  still exists as topology — there is no signal to show a path for. That
+  physical endpoint remains hoverable regardless (a static chain no active
+  route claims yet, mirroring the input side's uncabled-panel-socket
+  handling), so a technician can still see the block's wiring.
+- A physical out reaching no declared destination still appears in
+  `byEndpoint` (`destinations: []`) — signal present, nothing plugged in,
+  exactly like an unconnected stagebox input. Never throws.
+
 ### Routing diff (steps 12–14)
 
 Diagnostics compare a **baseline** (the blessed known-good snapshot, see §7)
@@ -228,6 +354,17 @@ Fail fast at load with actionable messages: unique device ids; connection
 endpoints must reference existing devices and in-range inputs; a stagebox
 input has at most one feeding panel socket; AES50 ranges (`offset`,
 `offset + inputs`) must not overlap per bus and must fit in 1–48.
+
+Output-side rules (issue #8), additive: `destination` devices carry no
+`inputs`/`aes50`/`outputs`/`outputBlock`; a stagebox's `outputBlock.start`
+must be 1–16 with its 8 slots fitting in 1–16; two stageboxes must not present
+overlapping output blocks; a console Out slot may appear on at most one
+console XLR; a physical output feeds at most one destination. Connections now
+come in four shapes — `panel-input → stagebox-input`,
+`mixer-output → console-output`, `stagebox-output → destination`,
+`console-output → destination` — dispatched by each connection's `from` kind;
+every shape still checks its endpoints reference existing devices (where the
+shape has one) with in-range numbers.
 
 ## 4. `MixerClient` (`packages/mixer-contracts`)
 

@@ -25,10 +25,14 @@
 import type { Aes50ChannelRef, EndpointRef } from "./endpoints";
 import {
   aes50Channel,
+  cloneEndpoint,
+  compareEndpoints,
   endpointId,
   mixerChannel,
   panelInput,
 } from "./endpoints";
+import type { Graph, GraphNode } from "./graph";
+import { addEdge, addNode, createGraph, sortAdjacency, traceFrom } from "./graph";
 import type { Aes50Bus, EndpointId, MixerChannelId } from "./ids";
 import {
   AES50_CHANNEL_COUNT,
@@ -68,110 +72,8 @@ export interface RouteIndex {
   byEndpoint: Map<EndpointId, SignalRoute[]>;
 }
 
-/** Directed signal graph: static topology edges plus the dynamic mixer edges. */
-interface Graph {
-  nodes: Map<EndpointId, EndpointRef>;
-  outgoing: Map<EndpointId, EndpointRef[]>;
-  incoming: Map<EndpointId, EndpointRef[]>;
-}
-
-interface RouteNode {
-  id: EndpointId;
-  ref: EndpointRef;
-  /** Hops from the anchor: negative upstream, 0 anchor, positive downstream. */
-  depth: number;
-}
-
-/** Upstream → downstream ordering of endpoint kinds. */
-const KIND_ORDER: Record<EndpointRef["kind"], number> = {
-  "panel-input": 0,
-  "stagebox-input": 1,
-  "aes50-channel": 2,
-  "mixer-channel": 3,
-};
-
-/** Device id or bus letter — whatever groups endpoints of one kind. */
-function groupOf(ref: EndpointRef): string {
-  switch (ref.kind) {
-    case "panel-input":
-    case "stagebox-input":
-      return ref.device;
-    case "aes50-channel":
-      return ref.bus;
-    case "mixer-channel":
-      return "";
-  }
-}
-
-function numberOf(ref: EndpointRef): number {
-  switch (ref.kind) {
-    case "panel-input":
-    case "stagebox-input":
-      return ref.input;
-    case "aes50-channel":
-    case "mixer-channel":
-      return ref.channel;
-  }
-}
-
-/**
- * Total order over endpoints: kind, then device/bus, then socket number.
- * Plain string comparison (not `localeCompare`) so ordering cannot vary with
- * the host locale — same inputs must always give the same output.
- */
-function compareEndpoints(a: EndpointRef, b: EndpointRef): number {
-  const byKind = KIND_ORDER[a.kind] - KIND_ORDER[b.kind];
-  if (byKind !== 0) return byKind;
-  const groupA = groupOf(a);
-  const groupB = groupOf(b);
-  if (groupA !== groupB) return groupA < groupB ? -1 : 1;
-  return numberOf(a) - numberOf(b);
-}
-
 function isPhysical(ref: EndpointRef): boolean {
   return ref.kind === "panel-input" || ref.kind === "stagebox-input";
-}
-
-/**
- * A route hands out only its own objects. Part of the graph is built from the
- * caller's `Installation`, and a consumer mutating a ref it got from a route
- * must not be able to corrupt the topology through it.
- */
-function cloneEndpoint(ref: EndpointRef): EndpointRef {
-  switch (ref.kind) {
-    case "panel-input":
-      return { kind: ref.kind, device: ref.device, input: ref.input };
-    case "stagebox-input":
-      return { kind: ref.kind, device: ref.device, input: ref.input };
-    case "aes50-channel":
-      return { kind: ref.kind, bus: ref.bus, channel: ref.channel };
-    case "mixer-channel":
-      return { kind: ref.kind, channel: ref.channel };
-  }
-}
-
-function adjacencyOf(
-  map: Map<EndpointId, EndpointRef[]>,
-  id: EndpointId,
-): EndpointRef[] {
-  const existing = map.get(id);
-  if (existing !== undefined) return existing;
-  const created: EndpointRef[] = [];
-  map.set(id, created);
-  return created;
-}
-
-function addNode(graph: Graph, ref: EndpointRef): EndpointId {
-  const id = endpointId(ref);
-  if (!graph.nodes.has(id)) graph.nodes.set(id, ref);
-  return id;
-}
-
-function addEdge(graph: Graph, from: EndpointRef, to: EndpointRef): void {
-  const fromId = addNode(graph, from);
-  const toId = addNode(graph, to);
-  adjacencyOf(graph.outgoing, fromId).push(to);
-  adjacencyOf(graph.incoming, toId).push(from);
 }
 
 /**
@@ -180,11 +82,7 @@ function addEdge(graph: Graph, from: EndpointRef, to: EndpointRef): void {
  * declared panel socket so that an uncabled one still resolves to something.
  */
 function buildStaticGraph(installation: Installation): Graph {
-  const graph: Graph = {
-    nodes: new Map(),
-    outgoing: new Map(),
-    incoming: new Map(),
-  };
+  const graph: Graph = createGraph();
 
   for (const device of installation.devices) {
     if (device.kind !== "passive-panel") continue;
@@ -204,72 +102,21 @@ function buildStaticGraph(installation: Installation): Graph {
   return graph;
 }
 
-/** Deterministic BFS regardless of the order edges happened to be added. */
-function sortAdjacency(graph: Graph): void {
-  for (const neighbours of graph.outgoing.values()) {
-    neighbours.sort(compareEndpoints);
-  }
-  for (const neighbours of graph.incoming.values()) {
-    neighbours.sort(compareEndpoints);
-  }
-}
-
-/** Breadth-first walk in one direction, recording hop distance per node. */
-function walk(
-  graph: Graph,
-  anchorId: EndpointId,
-  direction: "upstream" | "downstream",
-  collected: Map<EndpointId, RouteNode>,
-): void {
-  const adjacency =
-    direction === "upstream" ? graph.incoming : graph.outgoing;
-  const step = direction === "upstream" ? -1 : 1;
-
-  let frontier: EndpointId[] = [anchorId];
-  let hops = 0;
-
-  while (frontier.length > 0) {
-    hops += 1;
-    const next: EndpointId[] = [];
-    for (const id of frontier) {
-      for (const ref of adjacency.get(id) ?? []) {
-        const neighbourId = endpointId(ref);
-        if (collected.has(neighbourId)) continue;
-        collected.set(neighbourId, {
-          id: neighbourId,
-          ref,
-          depth: hops * step,
-        });
-        next.push(neighbourId);
-      }
-    }
-    frontier = next;
-  }
-}
-
 /**
  * Everything the signal through `anchor` touches: its ancestors, itself and its
  * descendants, ordered upstream → downstream. Endpoints at the same distance
  * are ordered by `compareEndpoints`, so two channels consuming one source
  * always appear in ascending channel order.
  */
-function trace(graph: Graph, anchor: EndpointRef): RouteNode[] {
-  const anchorId = endpointId(anchor);
-  const collected = new Map<EndpointId, RouteNode>([
-    [anchorId, { id: anchorId, ref: anchor, depth: 0 }],
-  ]);
-
-  walk(graph, anchorId, "upstream", collected);
-  walk(graph, anchorId, "downstream", collected);
-
-  return [...collected.values()].sort(
+function trace(graph: Graph, anchor: EndpointRef): GraphNode[] {
+  return traceFrom(graph, anchor, ["upstream", "downstream"]).sort(
     (a, b) => a.depth - b.depth || compareEndpoints(a.ref, b.ref),
   );
 }
 
 function makeRoute(
   graph: Graph,
-  nodes: RouteNode[],
+  nodes: GraphNode[],
   mixerChannels: MixerChannelId[],
 ): SignalRoute {
   // A physical endpoint nothing feeds is where the signal enters the
@@ -388,7 +235,7 @@ export function buildRouteIndex(
     addEdge(graph, ref, mixerChannel(state.channel));
   }
 
-  sortAdjacency(graph);
+  sortAdjacency(graph, compareEndpoints);
 
   const index: RouteIndex = {
     byMixerChannel: new Map(),
