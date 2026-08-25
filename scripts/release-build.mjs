@@ -36,9 +36,30 @@ import { fileURLToPath } from "node:url";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const RELEASE_DIR = join(ROOT, "dist", "release", "app");
 
+/**
+ * Windows ships pnpm/npm/npx as `.cmd` batch shims, and Node's spawn cannot
+ * execute a batch file directly — Windows' CreateProcess only ever appends
+ * `.exe`, so `execFileSync("pnpm", ...)` dies with ENOENT there while working
+ * fine on macOS/Linux. Real executables (`git`, and `wix.exe` in
+ * build-msi.mjs) resolve normally, so only these shims need the suffix.
+ * Using `shell: true` instead would reintroduce argument-quoting hazards for
+ * paths containing spaces, which the MSI build genuinely has.
+ */
+const WINDOWS_SHIMS = new Set(["pnpm", "npm", "npx"]);
+
+function resolveCommand(command) {
+  return process.platform === "win32" && WINDOWS_SHIMS.has(command)
+    ? `${command}.cmd`
+    : command;
+}
+
 function run(command, args, options = {}) {
   console.log(`release:build $ ${command} ${args.join(" ")}`);
-  execFileSync(command, args, { cwd: ROOT, stdio: "inherit", ...options });
+  execFileSync(resolveCommand(command), args, {
+    cwd: ROOT,
+    stdio: "inherit",
+    ...options,
+  });
 }
 
 async function buildWeb() {
