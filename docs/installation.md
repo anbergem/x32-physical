@@ -172,13 +172,42 @@ box's setting and every output label is wrong with nothing to detect it.
    source feeding several mixer channels, which the route index already models
    as a single shared route — the same treatment should apply.
 
-### Still to capture
+### Answered 2026-08-25
 
-- Whether amplifiers sit between the stagebox outs and the speakers, or the
-  cabinets are powered. Determines whether amps deserve their own device kind
-  (#9) or the box output feeds a named zone directly.
-- Whether the console's own XLR outs beyond 1–2 are in use.
-- Whether P16/Ultranet is in use.
+- **The cabinets are powered** — there are no amplifiers between a stagebox
+  output and a speaker. A box output therefore feeds a named destination
+  directly, and the schema (#9) needs **no amplifier device kind**.
+- **No console XLR outs beyond 1–2 are in use**, with two caveats below.
+- **P16/Ultranet is in use** and will need modelling eventually. It is a
+  different class of destination from the room speakers — 16 channels feeding
+  musicians' personal mixers, addressed via `/outputs/p16/[01…16]/src` — so it
+  is deliberately deferred rather than folded into the first output pass.
+
+### Deliberately not modelled
+
+- **The legacy recording path.** An aux L/R pair carried Matrix 1/2 into a
+  computer's mic input. It has been superseded by an X-Live card taking all 32
+  inputs over USB-B. Neither is a route through the venue's speakers, so
+  modelling them would add devices that answer no question a technician asks.
+- **A possible third output for the hearing loop** ("teleslynge" — an
+  induction loop for hearing aids). Unconfirmed; to be captured later.
+
+### Consequence of the X-Live card worth knowing
+
+With an X-Live card fitted, **virtual soundcheck** is possible: every channel
+re-sourced from `Card` instead of AES50 to rehearse against a recording. The
+app already handles card sources correctly — they resolve as unmapped, which
+is truthful — but two things would look alarming and are worth deciding on
+before it happens for real:
+
+1. Every channel would read "No mapped physical input" at once.
+2. Against a blessed baseline, all 32 channels would report a
+   `source-mismatch`, filling the header with routing issues, even though
+   nothing is wrong.
+
+A future refinement could recognise "all channels on Card" as a playback mode
+and say so, rather than reporting it 32 times. Not built; noted so the first
+virtual soundcheck is not a surprise.
 
 ### On physical placement
 
