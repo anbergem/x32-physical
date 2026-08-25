@@ -71,3 +71,6 @@ tautologies. -->
 - [ ] Every test case above exists and asserts real behavior
 - [ ] Docs updated: <!-- name them, or "none" -->
 - [ ] Committed with a conventional prefix and `Fixes #<this issue>`
+      <!-- Use `Refs #<this issue>` instead if landing the code does not
+           prove the fix — e.g. it needs hardware or the venue to verify.
+           `Fixes` auto-closes on merge; `Refs` leaves it open. -->

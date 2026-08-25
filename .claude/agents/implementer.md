@@ -89,8 +89,12 @@ issues. No speculative abstractions, no drive-by refactors.
 2. Every test case the issue enumerates exists and asserts real behavior.
 3. Any doc updates the issue calls for are made.
 4. Committed with a conventional prefix (`feat:`, `fix:`, `test:`, `chore:`,
-   `docs:`), an imperative subject, and **`Fixes #<N>`** in the body so the
-   issue closes when the commit lands on main.
+   `docs:`), an imperative subject, and the closing keyword the issue's
+   Definition of Done specifies. Default to **`Fixes #<N>`**, which closes the
+   issue when the commit lands on main — but use **`Refs #<N>`** when the
+   issue says so, or when it plainly cannot be verified here (it needs the
+   venue, the console, or a production machine). Auto-closing an issue whose
+   claim is still unproven hides work that is not actually done.
 5. Your final report states: what was built, verbatim pass/fail of the gates,
    any doc or spec conflicts found, and anything you could not verify in this
    environment (e.g. Windows-only or hardware-dependent behavior). Be

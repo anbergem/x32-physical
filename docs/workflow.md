@@ -73,7 +73,14 @@ Either path works and both follow
 - **Direct session**: `gh issue view <N>`, then implement per the same rules.
 
 The implementer commits with `Fixes #N` in the body so merging closes the
-issue. It must **stop and report instead of improvising** when the issue is
+issue — **except** when the issue cannot be verified where the code is
+written. Work that only a venue, a console, or a production machine can
+confirm should use `Refs #N` instead, so the issue survives the merge and
+stays open for the check that actually proves it. The issue's Definition of
+Done must say which keyword to use; when it does not, default to `Fixes #N`.
+(Learned the hard way: #14's fix landed with `Fixes #14`, auto-closing an
+issue whose whole point was that the bug only reproduces against real
+hardware.) It must **stop and report instead of improvising** when the issue is
 ambiguous, contradicts a contract document, or turns out to rest on a wrong
 fact — that report is a signal to the author, not a failure.
 
