@@ -102,6 +102,12 @@ async function main() {
     // extension wix build fails with WIX0200 "unhandled extension element".
     "-ext",
     "WixToolset.UI.wixext",
+    // Product.wxs binds two files by paths relative to the authoring dir
+    // (winsw\\X32RoutingVisualizer.xml, and License.rtf via WixUILicenseRtf).
+    // wix resolves those against its bindpaths, not against the .wxs location,
+    // so deploy/msi must be one — otherwise WIX0103 "Cannot find the File".
+    "-bindpath",
+    MSI_SOURCE_DIR,
     "-arch",
     "x64",
     "-d",
@@ -110,12 +116,6 @@ async function main() {
     `NodeExePath=${nodeExe}`,
     "-d",
     `WinSwExePath=${winswExe}`,
-    // License.rtf and winsw\X32RoutingVisualizer.xml are referenced from
-    // Product.wxs with paths relative to that file — wix resolves relative
-    // Source paths against the directory of the .wxs that declares them, so
-    // no extra `-b` bind path is needed as long as `wix build` is invoked
-    // with Product.wxs's own directory intact (it is, via the absolute path
-    // above).
     "-out",
     msiPath,
   ];
