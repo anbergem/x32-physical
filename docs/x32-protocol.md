@@ -112,16 +112,24 @@ lists with 4-byte alignment. A small hand-rolled codec (~100 lines) with
 byte-level fixture tests is preferred over pulling in an OSC dependency;
 revisit if needs grow.
 
-## Meters (step 15)
+## Meters (step 15, corrected #13)
 
-Verified against the Maillot document. Subscribing:
+Verified against the real console (fw 4.06, 2026-08-24). Subscribing:
 
 ```text
-/meters ,si "/meters/1" <time_factor>
+/meters ,siii "/meters/1" 0 0 <time_factor>
 ```
 
 - The string argument is the reply address the console will push blobs to
   (`/meters/1` — the "block 1" input-channel meters).
+- **`time_factor` is the FOURTH argument**, not the second. The Maillot
+  document's `,si` form (`["/meters/1", time_factor]`) was tried first and is
+  **silently ignored by the console** — it falls back to its 50ms (~20Hz)
+  default regardless of the value sent, 5x the intended traffic. `,sii`
+  (3 args) is likewise ignored. Only `,siii "/meters/1" 0 0 <time_factor>`
+  actually paces the reply rate; measured over 2s at `time_factor = 5`:
+  **4.0Hz (250ms)**, matching the doc's intent. The two integer zeros ahead
+  of `time_factor` are the unused `chn_meter_id`/`grp_meter_id` slots.
 - `time_factor` paces the reply rate; we use **5** (~250ms cadence — the doc's
   range is roughly 4–5 for ~200–250ms). Set console-side, not something the
   client throttles.
@@ -151,6 +159,13 @@ The block 1 reply carries **96 floats**; the adapter takes only the **first
 `decodeMeterBlob` in `apps/x32-bridge/src/x32/meters.ts` — kept separate from
 the generic OSC blob envelope in `osc.ts` precisely because of that
 endianness flip.
+
+Values are **linear amplitude in 0.0–1.0**, where **1.0 = full scale** —
+verified against the real console (fw 4.06, 2026-08-24): a channel driven to
+peak read exactly `1.0`; a live mic in a quiet room read `0.001–0.004`
+(≈ −60…−50 dBFS, consistent with linear amplitude). The web app converts to a
+visual bar height with a dB mapping and a −60 dBFS floor
+(`apps/web/src/format/meter.ts`), not a plain linear or power-curve scale.
 
 Meters intentionally never touch `MixerEvent`/the WebSocket `event` message
 (architecture.md §4/§7): they update several times a second, which would make

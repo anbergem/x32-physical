@@ -320,7 +320,10 @@ describe("live pushes", () => {
 });
 
 describe("meters (plan step 15)", () => {
-  it("subscribes /meters ,si \"/meters/1\" <time_factor> on the same tick as the initial /xremote renewal", async () => {
+  it("subscribes /meters ,siii \"/meters/1\" 0 0 <time_factor> on the same tick as the initial /xremote renewal", async () => {
+    // time_factor is the 4th argument (docs/x32-protocol.md §Meters, #13):
+    // the console silently ignores it as the 2nd (`,si`) and falls back to
+    // its 50ms default, 5x the intended traffic.
     const transport = new FakeTransport();
     transport.autoReply = defaultAutoReply();
     client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
@@ -333,9 +336,34 @@ describe("meters (plan step 15)", () => {
       address: metersSubscribeAddress(),
       args: [
         { type: "s", value: metersReplyAddress() },
+        { type: "i", value: 0 },
+        { type: "i", value: 0 },
         { type: "i", value: DEFAULTS.meterTimeFactor },
       ],
     });
+  });
+
+  it("renews /meters with the same ,siii form as the initial subscribe", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+    await vi.advanceTimersByTimeAsync(8000); // one renewal tick (default xremoteRenewalMs)
+
+    const metersRequests = transport.sent.filter(
+      (r) => r.address === metersSubscribeAddress(),
+    );
+    expect(metersRequests.length).toBeGreaterThanOrEqual(2); // initial + at least one renewal
+    for (const request of metersRequests) {
+      expect(request.args).toEqual([
+        { type: "s", value: metersReplyAddress() },
+        { type: "i", value: 0 },
+        { type: "i", value: 0 },
+        { type: "i", value: DEFAULTS.meterTimeFactor },
+      ]);
+    }
   });
 
   it("renews the /meters subscription on the same cadence as /xremote — comfortably inside the console's ~10s expiry", async () => {

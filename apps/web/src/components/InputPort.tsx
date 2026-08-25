@@ -82,14 +82,13 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
 
 function PortMeterBar({ level }: { level: number }) {
   const heightPercent = meterBarHeightPercent(level);
-  const classNames = ["port__meter"];
-  if (isMeterHot(heightPercent)) classNames.push("port__meter--hot");
+  const classNames = ["port__meter-fill"];
+  if (isMeterHot(heightPercent)) classNames.push("port__meter-fill--hot");
 
+  // Same track + fill split as `MixerChannel`'s `MeterBar` — see there.
   return (
-    <span
-      className={classNames.join(" ")}
-      style={{ height: `${heightPercent}%` }}
-      aria-hidden="true"
-    />
+    <span className="port__meter" aria-hidden="true">
+      <span className={classNames.join(" ")} style={{ height: `${heightPercent}%` }} />
+    </span>
   );
 }

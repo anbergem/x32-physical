@@ -71,14 +71,16 @@ export function MixerChannel({ channel }: { channel: MixerChannelId }) {
 
 function MeterBar({ level }: { level: number }) {
   const heightPercent = meterBarHeightPercent(level);
-  const classNames = ["strip__meter"];
-  if (isMeterHot(heightPercent)) classNames.push("strip__meter--hot");
+  const classNames = ["strip__meter-fill"];
+  if (isMeterHot(heightPercent)) classNames.push("strip__meter-fill--hot");
 
+  // The track is always rendered (dim, full height) so silence and "no
+  // meter data at all" stay visually distinct: the caller only mounts
+  // `MeterBar` when this channel has data, so the track's presence itself
+  // is the "data is arriving" signal, independent of the fill's height.
   return (
-    <span
-      className={classNames.join(" ")}
-      style={{ height: `${heightPercent}%` }}
-      aria-hidden="true"
-    />
+    <span className="strip__meter" aria-hidden="true">
+      <span className={classNames.join(" ")} style={{ height: `${heightPercent}%` }} />
+    </span>
   );
 }

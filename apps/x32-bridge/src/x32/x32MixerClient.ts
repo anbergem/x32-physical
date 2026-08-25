@@ -540,6 +540,8 @@ export class X32MixerClient implements MixerClient {
       this.#transport.send(
         encodeOscMessage(metersSubscribeAddress(), [
           { type: "s", value: metersReplyAddress() },
+          { type: "i", value: 0 },
+          { type: "i", value: 0 },
           { type: "i", value: this.#meterTimeFactor },
         ]),
       );

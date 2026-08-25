@@ -52,6 +52,11 @@
      diagnostics error. */
   --meter: #3a6b7a;
   --meter-hot: #e0a458;
+  /* The unlit track (plan step 15 follow-up, #13): permanently visible so a
+     silent channel reads as "no signal", not "meter broken". Dim enough to
+     recede behind the lit fill, still visible against the strip/socket
+     background. */
+  --meter-track: #232b38;
 
   color-scheme: dark;
 }
@@ -237,13 +242,22 @@ body {
   right: 2px;
   bottom: 3px;
   width: 2px;
-  max-height: calc(100% - 6px);
-  background: var(--meter);
+  height: calc(100% - 6px);
+  background: var(--meter-track);
   border-radius: 1px;
   pointer-events: none;
 }
 
-.port__meter--hot {
+.port__meter-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--meter);
+  border-radius: 1px;
+}
+
+.port__meter-fill--hot {
   background: var(--meter-hot);
 }
 
@@ -497,13 +511,22 @@ body {
   right: 3px;
   bottom: 4px;
   width: 3px;
-  max-height: calc(100% - 8px);
-  background: var(--meter);
+  height: calc(100% - 8px);
+  background: var(--meter-track);
   border-radius: 1px;
   pointer-events: none;
 }
 
-.strip__meter--hot {
+.strip__meter-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--meter);
+  border-radius: 1px;
+}
+
+.strip__meter-fill--hot {
   background: var(--meter-hot);
 }
 
