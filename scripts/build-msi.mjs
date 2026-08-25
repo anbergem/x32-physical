@@ -98,6 +98,10 @@ async function main() {
     harvestFragment,
     "-ext",
     "WixToolset.Util.wixext",
+    // Product.wxs uses <ui:WixUI> for the minimal install UI; without this
+    // extension wix build fails with WIX0200 "unhandled extension element".
+    "-ext",
+    "WixToolset.UI.wixext",
     "-arch",
     "x64",
     "-d",

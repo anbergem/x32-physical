@@ -130,7 +130,11 @@
           <CreateFolder>
             <util:PermissionEx User="Users" GenericAll="yes" />
           </CreateFolder>
-          <RemoveFolder Id="RemoveAppDataFolder" On="never" />
+          <!-- Deliberately NO <RemoveFolder>: this directory holds the
+               blessed baseline and logs, which are venue data and must
+               survive both upgrade and uninstall. WiX has no On="never"
+               (only install|uninstall|both) - omitting the element IS
+               how a folder is kept. -->
           <RegistryValue
             Root="HKLM"
             Key="Software\Betania\X32RoutingVisualizer"

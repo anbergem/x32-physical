@@ -112,6 +112,7 @@ jobs:
           # deliberately, together with re-verifying the .wxs still builds.
           dotnet tool install --global wix --version 5.0.2
           wix extension add WixToolset.Util.wixext/5.0.2 --global
+          wix extension add WixToolset.UI.wixext/5.0.2 --global
 
       - name: Build the MSI
         shell: bash
