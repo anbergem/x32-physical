@@ -35,6 +35,8 @@ function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {
         name: `CH${index + 1}`,
         source: { kind: "aes50" as const, bus: "A" as const, channel: index + 1 },
       })),
+      aes50LinkState: null,
+      aes50Chain: [],
     },
     baseline: null,
     updateAvailable: null,

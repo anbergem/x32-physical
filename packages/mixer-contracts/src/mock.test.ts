@@ -429,3 +429,90 @@ describe("MockMixerClient snapshot isolation", () => {
     expect(snapshot.selectedChannel).toBeNull();
   });
 });
+
+describe("MockMixerClient AES50 simulation (issue #17)", () => {
+  it("starts with the healthy default: both buses clear, the venue's 2-box AES50-A chain", async () => {
+    const client = new MockMixerClient();
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.aes50LinkState).toEqual({
+      buses: [
+        { bus: "A", audioError: false, auxError: false },
+        { bus: "B", audioError: false, auxError: false },
+      ],
+      locked: true,
+    });
+    expect(snapshot.aes50Chain).toEqual([
+      {
+        bus: "A",
+        boxes: [
+          { position: 1, model: "S16", rawLetter: "A" },
+          { position: 2, model: "S16", rawLetter: "A" },
+        ],
+      },
+      { bus: "B", boxes: [] },
+    ]);
+  });
+
+  it("simulateAes50LinkError sets the given bus's audioError and emits aes50-link-state-changed", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateAes50LinkError("A");
+
+    expect(events).toEqual([
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: true, auxError: false },
+            { bus: "B", audioError: false, auxError: false },
+          ],
+          locked: true,
+        },
+      },
+    ]);
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.aes50LinkState?.buses[0]).toEqual({
+      bus: "A",
+      audioError: true,
+      auxError: false,
+    });
+    // The other bus is untouched.
+    expect(snapshot.aes50LinkState?.buses[1]).toEqual({
+      bus: "B",
+      audioError: false,
+      auxError: false,
+    });
+  });
+
+  it("simulateAes50LinkError(bus, { audioError: false }) clears it back to healthy", async () => {
+    const client = new MockMixerClient();
+    client.simulateAes50LinkError("A");
+
+    client.simulateAes50LinkError("A", { audioError: false });
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.aes50LinkState?.buses[0]?.audioError).toBe(false);
+  });
+
+  it("simulateAes50ChainChange replaces one bus's chain and emits aes50-chain-changed", async () => {
+    const client = new MockMixerClient();
+    const { events } = recorder(client);
+
+    client.simulateAes50ChainChange("A", [{ position: 1, model: "S32", rawLetter: "W" }]);
+
+    expect(events).toEqual([
+      {
+        type: "aes50-chain-changed",
+        chain: { bus: "A", boxes: [{ position: 1, model: "S32", rawLetter: "W" }] },
+      },
+    ]);
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.aes50Chain).toContainEqual({
+      bus: "A",
+      boxes: [{ position: 1, model: "S32", rawLetter: "W" }],
+    });
+    // Bus B's entry is untouched.
+    expect(snapshot.aes50Chain).toContainEqual({ bus: "B", boxes: [] });
+  });
+});

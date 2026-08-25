@@ -15,6 +15,9 @@
 
 import type {
   Aes50Bus,
+  Aes50Chain,
+  Aes50ChainBox,
+  Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
   MixerSourceRef,
@@ -156,6 +159,77 @@ function parseMixerChannelState(
   };
 }
 
+function requireBoolean(value: unknown, context: string): boolean {
+  if (typeof value !== "boolean") throw malformed(context, "a boolean", value);
+  return value;
+}
+
+function parseAes50Bus(value: unknown, context: string): Aes50Bus {
+  if (typeof value !== "string" || !AES50_BUSES.has(value)) {
+    throw malformed(context, '"A" | "B"', value);
+  }
+  return value as Aes50Bus;
+}
+
+/** `/-stat/aes50/state`, decoded (issue #17). `null` means "not read yet" — never a guess at "healthy". */
+function parseAes50LinkState(value: unknown, context: string): Aes50LinkState {
+  if (!isRecord(value)) {
+    throw malformed(context, "an AES50 link state object", value);
+  }
+  if (!Array.isArray(value.buses)) {
+    throw malformed(`${context}.buses`, "an array", value.buses);
+  }
+  const buses = value.buses.map((busState, index) => {
+    const busContext = `${context}.buses[${index}]`;
+    if (!isRecord(busState)) throw malformed(busContext, "an AES50 bus link state object", busState);
+    return {
+      bus: parseAes50Bus(busState.bus, `${busContext}.bus`),
+      audioError: requireBoolean(busState.audioError, `${busContext}.audioError`),
+      auxError: requireBoolean(busState.auxError, `${busContext}.auxError`),
+    };
+  });
+  return { buses, locked: requireBoolean(value.locked, `${context}.locked`) };
+}
+
+function parseNullableAes50LinkState(value: unknown, context: string): Aes50LinkState | null {
+  return value === null || value === undefined ? null : parseAes50LinkState(value, context);
+}
+
+function parseAes50ChainBox(value: unknown, context: string): Aes50ChainBox {
+  if (!isRecord(value)) {
+    throw malformed(context, "an AES50 chain box object", value);
+  }
+  const rawModel = value.model;
+  if (rawModel !== null && typeof rawModel !== "string") {
+    throw malformed(`${context}.model`, "a string or null", rawModel);
+  }
+  return {
+    position: requireNumber(value.position, `${context}.position`),
+    model: rawModel,
+    rawLetter: requireString(value.rawLetter, `${context}.rawLetter`),
+  };
+}
+
+function parseAes50Chain(value: unknown, context: string): Aes50Chain {
+  if (!isRecord(value)) {
+    throw malformed(context, "an AES50 chain object", value);
+  }
+  if (!Array.isArray(value.boxes)) {
+    throw malformed(`${context}.boxes`, "an array", value.boxes);
+  }
+  return {
+    bus: parseAes50Bus(value.bus, `${context}.bus`),
+    boxes: value.boxes.map((box, index) => parseAes50ChainBox(box, `${context}.boxes[${index}]`)),
+  };
+}
+
+/** Absent/undefined means "no chain data yet" — tolerated so an older snapshot still parses. */
+function parseAes50ChainList(value: unknown, context: string): Aes50Chain[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw malformed(context, "an array", value);
+  return value.map((chain, index) => parseAes50Chain(chain, `${context}[${index}]`));
+}
+
 /**
  * Validates a plain `MixerSnapshot` object. Exported (not just used
  * internally by the message guards) because the bridge's `DiskBaselineStore`
@@ -181,7 +255,13 @@ export function parseMixerSnapshot(value: unknown, context: string): MixerSnapsh
       ? null
       : parseChannelId(rawSelected, `${context}.selectedChannel`);
 
-  return { channels, selectedChannel };
+  const aes50LinkState = parseNullableAes50LinkState(
+    value.aes50LinkState,
+    `${context}.aes50LinkState`,
+  );
+  const aes50Chain = parseAes50ChainList(value.aes50Chain, `${context}.aes50Chain`);
+
+  return { channels, selectedChannel, aes50LinkState, aes50Chain };
 }
 
 function parseMixerEvent(value: unknown, context: string): MixerEvent {
@@ -216,6 +296,16 @@ function parseMixerEvent(value: unknown, context: string): MixerEvent {
       return {
         type: "connection-state-changed",
         state: parseConnectionState(value.state, `${context}.state`),
+      };
+    case "aes50-link-state-changed":
+      return {
+        type: "aes50-link-state-changed",
+        state: parseAes50LinkState(value.state, `${context}.state`),
+      };
+    case "aes50-chain-changed":
+      return {
+        type: "aes50-chain-changed",
+        chain: parseAes50Chain(value.chain, `${context}.chain`),
       };
     default:
       throw malformed(`${context}.type`, "a known mixer event type", value.type);

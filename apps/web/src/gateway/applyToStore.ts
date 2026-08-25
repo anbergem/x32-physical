@@ -80,6 +80,12 @@ export function applyMixerEvent(store: AppStore, event: MixerEvent): void {
     case "connection-state-changed":
       state.setConnection(event.state);
       return;
+    case "aes50-link-state-changed":
+      state.setAes50LinkState(event.state);
+      return;
+    case "aes50-chain-changed":
+      state.setAes50Chain(event.chain);
+      return;
     default:
       // Exhaustive at compile time. At runtime an event type this build does
       // not know (an older client against a newer bridge) is ignored rather

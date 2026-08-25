@@ -646,6 +646,31 @@ body {
   filter: brightness(1.08);
 }
 
+/* --- AES50 system status (issue #17) ------------------------------------ */
+
+/* The link-error case is the headline this issue exists for: a dead AES50
+   snake must never read as merely "quiet" — loud on purpose, unlike the
+   quieter chain-mismatch text next to it. */
+.system-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.system-status__link-error {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--bad);
+  color: #fff;
+  font-weight: 700;
+}
+
+.system-status__chain-warning {
+  color: var(--diag-error);
+  cursor: default;
+}
+
 /* --- connection status ------------------------------------------------- */
 
 .status {

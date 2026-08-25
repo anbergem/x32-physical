@@ -49,6 +49,16 @@ export function selidxAddress(): string {
   return "/-stat/selidx";
 }
 
+/** `/-stat/aes50/[A,B]` — detected box chain + preamps (docs/x32-protocol.md §The messages we track). */
+export function aes50ChainAddress(bus: "A" | "B"): string {
+  return `/-stat/aes50/${bus}`;
+}
+
+/** `/-stat/aes50/state` — audio/aux error + lock bitfield. */
+export function aes50StateAddress(): string {
+  return "/-stat/aes50/state";
+}
+
 /** The outgoing subscribe address (docs/x32-protocol.md §Meters): `/meters ,si <replyAddress> <timeFactor>`. */
 export function metersSubscribeAddress(): string {
   return "/meters";
@@ -68,6 +78,8 @@ export type ParsedAddress =
   | { kind: "channel-source"; channel: number }
   | { kind: "selidx" }
   | { kind: "meters" }
+  | { kind: "aes50-chain"; bus: "A" | "B" }
+  | { kind: "aes50-state" }
   | { kind: "unknown" };
 
 const USER_ROUT_PATTERN = /^\/config\/userrout\/in\/(\d{2})$/;
@@ -79,6 +91,9 @@ export function parseAddress(address: string): ParsedAddress {
   if (address === "/config/routing/routswitch") return { kind: "routswitch" };
   if (address === "/-stat/selidx") return { kind: "selidx" };
   if (address === "/meters/1") return { kind: "meters" };
+  if (address === "/-stat/aes50/A") return { kind: "aes50-chain", bus: "A" };
+  if (address === "/-stat/aes50/B") return { kind: "aes50-chain", bus: "B" };
+  if (address === "/-stat/aes50/state") return { kind: "aes50-state" };
 
   const inBlockPrefix = "/config/routing/IN/";
   if (address.startsWith(inBlockPrefix)) {

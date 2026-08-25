@@ -50,6 +50,8 @@ config node as one plain-text line; optional optimization, not needed for MVP.
 | `/config/routing/routswitch` | int 0/1 | 0 = REC (the `IN` blocks are active), 1 = PLAY (the `PLAY` blocks are active). MVP: bridge logs a clear warning when PLAY is active and keeps resolving IN/REC blocks; an operator-visible UI notice is deferred (needs a protocol field). |
 | `/config/userrout/in/[01…32]` | int 0–168 | User In slot mapping: 0 = OFF; 1–32 = Local In; **33–80 = AES50-A 1–48**; 81–128 = AES50-B 1–48; 129–160 = Card In 1–32; 161–166 = Aux In 1–6; 167 = TB Internal; 168 = TB External. |
 | `/xinfo` | 4 strings | Liveness + console model/firmware for the status display. |
+| `/-stat/aes50/[A,B]` | string | Detected box chain and preamps (issue #17): `string[4]` of device letters (`A`…`Z`, `a`), one per chain position, followed by 6 chars of preamp type. Device letters: `A` S16, `B` X32C, `C` X32, `D` DL251, `E` DL251HA, `F` S16B, `G` Z32, `H` T8, `I` X32P, `J` X32RACK, `K` X32CORE, `L` M32, `M` M32R, `N` DL16, `O` DL16B, `P` SD16, `Q` SD16B, `R` SD8, `S` SD8B, `T` DL15X, `U` DL15XHA, `V` DL231, `W` S32, `X` S32B, `Y` DL32, `Z` DL32B, `a` M32C. Preamp types (parsed and kept, not yet surfaced): `0` digital, `1` 8chin_A, `2` 8chin_C, `3` DL251, `4` Z32. Parsed defensively (`apps/x32-bridge/src/x32/aes50.ts`): a character that *is* a letter but isn't in this table is a real, undercatalogued box (kept as `model: null`, `rawLetter` retained); a character that isn't a letter at all — the doc does not say what the console pads an empty chain position with — is filler and the position is omitted. The raw string is logged once per snapshot (`x32MixerClient.ts`) so the real filler format can eventually be read off the venue console. |
+| `/-stat/aes50/state` | int bitfield | Audio/aux error + lock (issue #17): bit 0 A audio error, bit 1 B audio error, bit 2 A aux error, bit 3 B aux error, bit 4 lock. Valid range 0–31; anything else (including negative) is out of spec and ignored with one logged warning, never guessed at. |
 
 Doc footnote worth remembering: with `/-prefs/autosel` ON the console
 generates `/-stat/selidx` for all strips except L/R on its own (fader-touch
@@ -94,7 +96,11 @@ On (re)connect, in order:
 3. `/config/userrout/in/01…32` (32 reads).
 4. `/ch/01…32/config/name` and `/ch/01…32/config/source` (64 reads).
 5. `/-stat/selidx`.
-6. Start the `/xremote` renewal loop.
+6. `/-stat/aes50/A`, `/-stat/aes50/B`, `/-stat/aes50/state` (issue #17 — same
+   family as `/-stat/selidx`; both buses are read even though the venue only
+   uses AES50-A, so the adapter can tell "B genuinely has no boxes" from "we
+   never asked").
+7. Start the `/xremote` renewal loop.
 
 ~100 small UDP request/replies; replies are decoded by the same handler as
 live updates, then the resolved snapshot is normalized into `MixerSnapshot`.
@@ -281,8 +287,12 @@ exists to avoid.
 ## Output routing (issue #6 — research, no code yet)
 
 Verified against the same Maillot document as the input subset (fetched
-2026-08-23). **Nothing here is implemented**; this section exists so the
-output milestone (#8–#11) rests on read facts rather than assumptions.
+2026-08-23). **Nothing in this section is implemented**; it exists so the
+output milestone (#8–#11) rests on read facts rather than assumptions. The
+two AES50 diagnostic addresses this research turned up (`/-stat/aes50/[A,B]`
+and `/-stat/aes50/state`) are the exception — they're input-side diagnostics,
+not output routing, and issue #17 implemented them; see §The messages we
+track above for their tracked shape.
 
 ### The chain
 
@@ -312,8 +322,6 @@ bus / matrix / main / direct-out
 | `/config/routing/AES50A/{1-8,9-16,17-24,25-32,33-40,41-48}` (and `AES50B/…`) | int 0–35 | Which internal block of 8 the console **transmits** on those AES50 output channels. Enum: 0–3 `AN1-8…AN25-32`; 4–9 `A1-8…A41-48`; 10–15 `B1-8…B41-48`; 16–19 `CARD1-8…CARD25-32`; 20–21 `OUT1-8, OUT9-16`; 22–23 `P161-8, P169-16`; 24 `AUX1-6/Mon`; 25 `AuxIN1-6/TB`; 26–31 `UOUT1-8…UOUT41-48`; 32–35 `UIN1-8…UIN25-32`. |
 | `/config/routing/OUT/{1-4,5-8,9-12,13-16}` | int 0–35 | Block routing for the console's own XLR outs, in groups of **four** (not eight). Same enum shape but quartered, e.g. `AN1-4, A1-4, …`. Note this coexists with the per-output `/outputs/main/NN/src` patch. |
 | `/config/userrout/out/[01…48]` | int 0–208 | User Out table: 0 = OFF; 1–32 Local In; 33–80 AES50-A 1–48; 81–128 AES50-B 1–48; 129–160 Card In; 161–166 Aux In; 167/168 TB int/ext; **169–184 Outputs 1–16; 185–200 P16 1–16; 201–206 AUX 1–6; 207/208 Monitor L/R**. The output-side analogue of `userrout/in`, reached when a block above is set to a `UOUT…` value. |
-| `/-stat/aes50/[A,B]` | string | **Detected box chain** — `string[4]` of device letters (`A` = S16, `P` = SD16, `N` = DL16, `W` = S32, …), then 6 chars of preamp type. |
-| `/-stat/aes50/state` | int bitfield | bit 0 A audio err, bit 1 B audio err, bit 2 A aux err, bit 3 B aux err, bit 4 lock. |
 
 ### The hop OSC cannot see
 
@@ -328,17 +336,23 @@ same caveat that re-ordering or re-configuring a box invalidates it silently.
 Confirming each box's setting at the venue is a prerequisite for the output
 milestone (issue #7).
 
-### Two findings worth using independently of outputs
+### Two findings, now implemented independently of outputs (issue #17)
 
 1. **`/-stat/aes50/A` identifies the cascade.** It reports which boxes are
    detected and in what order, so the console can confirm what
-   `installation.yaml` asserts — the two 16-in boxes, their models (currently
-   recorded as "exact model unknown" in docs/installation.md), and their chain
-   order. That turns the cascade offsets from an unverifiable assumption into
-   something the app could cross-check and warn about. Worth its own issue.
+   `installation.yaml` asserts — the two 16-in boxes, their models (previously
+   recorded as "exact model unknown" in docs/installation.md — now readable
+   from the console), and their chain order. `compareAes50Chain`
+   (`packages/domain/src/aes50.ts`) cross-checks the detected chain against
+   the declared stageboxes and surfaces a mismatch in the UI as "Stage boxes
+   differ from configuration"; it never auto-corrects `installation.yaml`.
 2. **`/-stat/aes50/state` is a real diagnostic.** Audio-error and lock bits on
    each AES50 port are precisely the kind of fault this tool exists to surface
-   — a dead snake link currently looks identical to "no signal patched".
+   — a dead snake link previously looked identical to "no signal patched".
+   The bridge tracks it and the web app shows a prominent warning
+   ("AES50-A: link error — check the stage boxes") when there's an audio
+   error on a bus the installation actually declares stageboxes on; an error
+   on an unused bus (this venue's AES50-B) is deliberately silent.
 
 ### Open questions for the venue (issue #7)
 

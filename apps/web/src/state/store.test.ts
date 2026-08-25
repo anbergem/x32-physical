@@ -412,6 +412,122 @@ describe("baseline / discrepancies slice", () => {
 });
 
 /**
+ * AES50 link state + detected chain (issue #17): config lifecycle, like
+ * `baseline` — never the fast runtime path, and neither ever touches
+ * `routeIndex`.
+ */
+describe("aes50 slice", () => {
+  it("starts with no link state and no chain data", () => {
+    const state = createStore().getState();
+    expect(state.aes50LinkState).toBeNull();
+    expect(state.aes50Chain).toEqual([]);
+    expect(state.aes50ChainDiscrepancies).toEqual([]);
+  });
+
+  it("setAes50LinkState sets the slice and leaves routeIndex/discrepancies untouched", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store.getState().setAes50LinkState({
+      buses: [
+        { bus: "A", audioError: true, auxError: false },
+        { bus: "B", audioError: false, auxError: false },
+      ],
+      locked: false,
+    });
+
+    const after = store.getState();
+    expect(after.aes50LinkState?.buses[0]).toEqual({ bus: "A", audioError: true, auxError: false });
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+  });
+
+  it("setAes50Chain replaces one bus's entry and recomputes aes50ChainDiscrepancies, without touching routeIndex", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    // Only 1 box detected on AES50-A, but the venue fixture declares 2 stageboxes.
+    store.getState().setAes50Chain({
+      bus: "A",
+      boxes: [{ position: 1, model: "S16", rawLetter: "A" }],
+    });
+
+    const after = store.getState();
+    expect(after.aes50ChainDiscrepancies).toEqual([
+      { kind: "box-count-mismatch", bus: "A", expected: 2, actual: 1 },
+    ]);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.discrepancies).toBe(before.discrepancies);
+  });
+
+  it("applySnapshot populates aes50LinkState/aes50Chain from the snapshot", () => {
+    const store = createStore();
+    const snapshot: MixerSnapshot = {
+      channels: [channel(7, "OH R", 7), channel(12, "Keys R", 12)],
+      selectedChannel: null,
+      aes50LinkState: {
+        buses: [
+          { bus: "A", audioError: false, auxError: false },
+          { bus: "B", audioError: false, auxError: false },
+        ],
+        locked: true,
+      },
+      aes50Chain: [
+        {
+          bus: "A",
+          boxes: [
+            { position: 1, model: "S16", rawLetter: "A" },
+            { position: 2, model: "S16", rawLetter: "A" },
+          ],
+        },
+      ],
+    };
+
+    store.getState().applySnapshot(snapshot, "connected");
+
+    const state = store.getState();
+    expect(state.aes50LinkState?.locked).toBe(true);
+    expect(state.aes50Chain).toEqual(snapshot.aes50Chain);
+    expect(state.aes50ChainDiscrepancies).toEqual([]); // 2 declared, 2 detected S16 — matches
+  });
+
+  it("applySnapshot without aes50 fields defaults to null/[] (older bridge / mock without the fields)", () => {
+    const store = createStore();
+    const snapshot: MixerSnapshot = {
+      channels: [channel(7, "OH R", 7), channel(12, "Keys R", 12)],
+      selectedChannel: null,
+    };
+
+    store.getState().applySnapshot(snapshot, "connected");
+
+    const state = store.getState();
+    expect(state.aes50LinkState).toBeNull();
+    expect(state.aes50Chain).toEqual([]);
+  });
+
+  it("selection/hover/connection changes preserve aes50 slice identity", () => {
+    const store = createStore();
+    store.getState().setAes50LinkState({
+      buses: [
+        { bus: "A", audioError: false, auxError: false },
+        { bus: "B", audioError: false, auxError: false },
+      ],
+      locked: false,
+    });
+    const before = store.getState();
+
+    store.getState().setSelectedChannel(CH7);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 1)));
+    store.getState().setConnection("connecting");
+
+    const after = store.getState();
+    expect(after.aes50LinkState).toBe(before.aes50LinkState);
+    expect(after.aes50Chain).toBe(before.aes50Chain);
+    expect(after.aes50ChainDiscrepancies).toBe(before.aes50ChainDiscrepancies);
+  });
+});
+
+/**
  * `updateAvailable` (architecture.md §7, plan step 20): config lifecycle,
  * like `baseline` — it changes at most a couple of times a day, so it must
  * never sit in the fast runtime path, and setting it must never touch

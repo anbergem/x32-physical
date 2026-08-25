@@ -25,6 +25,9 @@
  */
 
 import type {
+  Aes50Chain,
+  Aes50ChainDiscrepancy,
+  Aes50LinkState,
   EndpointId,
   Installation,
   MixerChannelId,
@@ -33,7 +36,13 @@ import type {
   RouteIndex,
   RoutingDiscrepancy,
 } from "@x32/domain";
-import { buildRouteIndex, compareRouting, mixerSourceRefEquals } from "@x32/domain";
+import {
+  aes50LinkStateEquals,
+  buildRouteIndex,
+  compareAes50Chain,
+  compareRouting,
+  mixerSourceRefEquals,
+} from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 import type { UpdateAvailable } from "@x32/protocol";
 import type { StoreApi } from "zustand/vanilla";
@@ -78,6 +87,18 @@ export interface AppState {
   // routeIndex/channels/discrepancies/baseline/selection/hover, and none of
   // those setters ever touch it (`store.test.ts` asserts both directions).
   meterLevels: number[] | null;
+
+  // Config lifecycle (issue #17): `/-stat/aes50/state` and
+  // `/-stat/aes50/[A,B]` change on the order of "console reboots or a box
+  // is swapped" — never the fast runtime path, and neither ever touches
+  // `routeIndex`. `aes50LinkState` is `null` until the first read/mock tick
+  // ("not yet known", never treated as "healthy"); `aes50Chain` is `[]` the
+  // same way. `aes50ChainDiscrepancies` is the one derived value here,
+  // recomputed only when `installation` or `aes50Chain` change
+  // (`compareAes50Chain`) — independent of `routeIndex`/`discrepancies`.
+  aes50LinkState: Aes50LinkState | null;
+  aes50Chain: Aes50Chain[];
+  aes50ChainDiscrepancies: Aes50ChainDiscrepancy[];
 }
 
 /**
@@ -110,6 +131,11 @@ export interface AppActions {
 
   // Fourth path — never composed with any other slice's patch (architecture.md §5).
   setMeterLevels(levels: number[] | null): void;
+
+  // Config lifecycle (issue #17) — never touches routeIndex/discrepancies.
+  setAes50LinkState(state: Aes50LinkState | null): void;
+  /** Replaces one bus's chain entry (matching the adapter's per-bus reads/pushes) and recomputes `aes50ChainDiscrepancies`. */
+  setAes50Chain(chain: Aes50Chain): void;
 }
 
 export type AppStoreState = AppState & AppActions;
@@ -140,6 +166,18 @@ function discrepancyPatch(
   return {
     discrepancies: baseline === null ? [] : compareRouting(baseline.channels, channels),
   };
+}
+
+/**
+ * `aes50ChainDiscrepancies`' own patch (issue #17), the same independence
+ * discipline as `discrepancyPatch`: depends on `installation` and
+ * `aes50Chain` alone, merged as its own key so it never rebuilds
+ * `routeIndex`.
+ */
+type Aes50ChainPatch = Pick<AppState, "aes50Chain" | "aes50ChainDiscrepancies">;
+
+function aes50ChainPatch(installation: Installation, chain: Aes50Chain[]): Aes50ChainPatch {
+  return { aes50Chain: chain, aes50ChainDiscrepancies: compareAes50Chain(installation, chain) };
 }
 
 /**
@@ -211,6 +249,8 @@ export function createAppStore(
     hoveredEndpoint: null,
     baselineSaveError: null,
     meterLevels: null,
+    aes50LinkState: null,
+    ...aes50ChainPatch(installation, []),
 
     applySnapshot(snapshot, connection) {
       const state = get();
@@ -218,8 +258,10 @@ export function createAppStore(
       set({
         ...configurationPatch(state.installation, nextChannels),
         ...discrepancyPatch(nextChannels, state.baseline),
+        ...aes50ChainPatch(state.installation, snapshot.aes50Chain ?? []),
         selectedChannel: snapshot.selectedChannel,
         connection,
+        aes50LinkState: snapshot.aes50LinkState ?? null,
       });
     },
 
@@ -295,6 +337,21 @@ export function createAppStore(
      */
     setMeterLevels(levels) {
       set({ meterLevels: levels });
+    },
+
+    /** Never touches routeIndex/discrepancies — config-lifecycle only. */
+    setAes50LinkState(state) {
+      const current = get().aes50LinkState;
+      if (current === state) return;
+      if (current !== null && state !== null && aes50LinkStateEquals(current, state)) return;
+      set({ aes50LinkState: state });
+    },
+
+    /** Replaces one bus's entry and recomputes `aes50ChainDiscrepancies`; other buses' entries keep their identity. */
+    setAes50Chain(chain) {
+      const state = get();
+      const rest = state.aes50Chain.filter((entry) => entry.bus !== chain.bus);
+      set(aes50ChainPatch(state.installation, [...rest, chain]));
     },
   }));
 }

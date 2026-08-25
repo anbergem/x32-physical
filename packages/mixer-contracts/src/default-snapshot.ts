@@ -18,7 +18,7 @@
  * snapshot) rather than leaning on the default.
  */
 
-import type { MixerChannelState, MixerSourceRef } from "@x32/domain";
+import type { Aes50Chain, Aes50LinkState, MixerChannelState, MixerSourceRef } from "@x32/domain";
 import { mixerChannelId } from "@x32/domain";
 
 import type { MixerSnapshot } from "./client";
@@ -71,6 +71,41 @@ const DEFAULT_CHANNELS: ReadonlyArray<{
 ];
 
 /**
+ * A healthy default AES50 state (issue #17): both buses clear, locked (the
+ * console reports lock once the link is stable). Matches the venue's real
+ * cascade (docs/installation.md) — two 16-in boxes on AES50-A, AES50-B
+ * unused — so the mock's default renders no warning, same as a healthy
+ * console would.
+ */
+function defaultAes50LinkState(): Aes50LinkState {
+  return {
+    buses: [
+      { bus: "A", audioError: false, auxError: false },
+      { bus: "B", audioError: false, auxError: false },
+    ],
+    locked: true,
+  };
+}
+
+/**
+ * Two detected boxes on AES50-A, matching `config/installation.yaml`'s
+ * `stagebox-1`/`stagebox-2` (both 16-in, model unknown at the venue —
+ * `"S16"` here is the mock's stand-in). AES50-B stays empty: unused.
+ */
+function defaultAes50Chain(): Aes50Chain[] {
+  return [
+    {
+      bus: "A",
+      boxes: [
+        { position: 1, model: "S16", rawLetter: "A" },
+        { position: 2, model: "S16", rawLetter: "A" },
+      ],
+    },
+    { bus: "B", boxes: [] },
+  ];
+}
+
+/**
  * A fresh default snapshot per call — callers (and the mock) own the result and
  * may mutate it freely. Nothing is selected initially; a selection only ever
  * comes from the physical console.
@@ -84,5 +119,10 @@ export function createDefaultMockSnapshot(): MixerSnapshot {
     }),
   );
 
-  return { channels, selectedChannel: null };
+  return {
+    channels,
+    selectedChannel: null,
+    aes50LinkState: defaultAes50LinkState(),
+    aes50Chain: defaultAes50Chain(),
+  };
 }

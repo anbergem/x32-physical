@@ -46,6 +46,15 @@ export {
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
 export { mixerSourceRefEquals } from "./mixer";
 
+export type {
+  Aes50BusLinkState,
+  Aes50Chain,
+  Aes50ChainBox,
+  Aes50ChainDiscrepancy,
+  Aes50LinkState,
+} from "./aes50";
+export { aes50ChainEquals, aes50LinkStateEquals, compareAes50Chain } from "./aes50";
+
 export type { RoutingDiscrepancy } from "./routing-diff";
 export { compareRouting } from "./routing-diff";
 

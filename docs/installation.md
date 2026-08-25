@@ -3,7 +3,12 @@
 ## Confirmed facts (from the owner, 2026-08-23)
 
 - Two stageboxes, each **16 in / 8 out** (S16/SD16-class; exact model unknown
-  and irrelevant to the input model — labeled generically for now).
+  and irrelevant to the input model — labeled generically for now). The exact
+  model no longer has to be taken on faith: the console reports the detected
+  chain over OSC (`/-stat/aes50/A`, docs/x32-protocol.md §Output routing
+  "Two findings"), and the app cross-checks it against this file
+  (`compareAes50Chain`, issue #17), surfacing a mismatch rather than
+  guessing or auto-correcting.
 - The boxes are **daisy-chained on AES50-A**: stagebox-1 connects to the
   console's AES50-A port, stagebox-2 cascades through stagebox-1. The console
   therefore sees one AES50-A bus with 32 active input channels:

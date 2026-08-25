@@ -110,6 +110,10 @@ function describeEvent(event: MixerEvent): string {
       return `CH${event.channel} source changed (${event.source.kind})`;
     case "connection-state-changed":
       return `mixer connection -> ${event.state}`;
+    case "aes50-link-state-changed":
+      return `AES50 link state changed (locked=${event.state.locked})`;
+    case "aes50-chain-changed":
+      return `AES50-${event.chain.bus} chain changed (${event.chain.boxes.length} box(es) detected)`;
   }
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aes50ChainAddress,
+  aes50StateAddress,
   channelNameAddress,
   channelSourceAddress,
   inBlockAddress,
@@ -22,6 +24,12 @@ describe("address builders", () => {
     expect(selidxAddress()).toBe("/-stat/selidx");
     expect(metersSubscribeAddress()).toBe("/meters");
     expect(metersReplyAddress()).toBe("/meters/1");
+    expect(aes50StateAddress()).toBe("/-stat/aes50/state");
+  });
+
+  it("builds the AES50 chain addresses per bus", () => {
+    expect(aes50ChainAddress("A")).toBe("/-stat/aes50/A");
+    expect(aes50ChainAddress("B")).toBe("/-stat/aes50/B");
   });
 
   it("builds the 4 IN block addresses", () => {
@@ -45,6 +53,12 @@ describe("parseAddress", () => {
     expect(parseAddress("/config/routing/routswitch")).toEqual({ kind: "routswitch" });
     expect(parseAddress("/-stat/selidx")).toEqual({ kind: "selidx" });
     expect(parseAddress("/meters/1")).toEqual({ kind: "meters" });
+    expect(parseAddress("/-stat/aes50/state")).toEqual({ kind: "aes50-state" });
+  });
+
+  it("classifies the AES50 chain addresses with their bus", () => {
+    expect(parseAddress("/-stat/aes50/A")).toEqual({ kind: "aes50-chain", bus: "A" });
+    expect(parseAddress("/-stat/aes50/B")).toEqual({ kind: "aes50-chain", bus: "B" });
   });
 
   it("classifies IN block addresses with their 0-based index", () => {
@@ -71,6 +85,9 @@ describe("parseAddress", () => {
     expect(parseAddress(routswitchAddress())).toEqual({ kind: "routswitch" });
     expect(parseAddress(selidxAddress())).toEqual({ kind: "selidx" });
     expect(parseAddress(metersReplyAddress())).toEqual({ kind: "meters" });
+    expect(parseAddress(aes50StateAddress())).toEqual({ kind: "aes50-state" });
+    expect(parseAddress(aes50ChainAddress("A"))).toEqual({ kind: "aes50-chain", bus: "A" });
+    expect(parseAddress(aes50ChainAddress("B"))).toEqual({ kind: "aes50-chain", bus: "B" });
     for (let i = 0; i < 4; i += 1) {
       expect(parseAddress(inBlockAddress(i as 0 | 1 | 2 | 3))).toEqual({
         kind: "in-block",

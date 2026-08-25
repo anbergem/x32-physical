@@ -14,6 +14,8 @@ function validSnapshot(): MixerSnapshot {
       { channel: CH28, name: "Playback", source: { kind: "card", input: 1 } },
     ],
     selectedChannel: null,
+    aes50LinkState: null,
+    aes50Chain: [],
   };
 }
 
@@ -108,6 +110,8 @@ describe("parseServerMessage: snapshot", () => {
         snapshot: {
           channels: [{ channel: 1, name: "CH1", source }],
           selectedChannel: null,
+          aes50LinkState: null,
+          aes50Chain: [],
         },
         mixerConnection: "disconnected",
         baseline: null,
@@ -129,7 +133,7 @@ describe("parseServerMessage: snapshot", () => {
     const parsed = parseServerMessage(message);
     expect(parsed).toEqual({
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: CH12 },
+      snapshot: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: null,
@@ -148,9 +152,9 @@ describe("parseServerMessage: snapshot", () => {
     const parsed = parseServerMessage(message);
     expect(parsed).toEqual({
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: null },
+      snapshot: { channels: [], selectedChannel: null, aes50LinkState: null, aes50Chain: [] },
       mixerConnection: "connected",
-      baseline: { channels: [], selectedChannel: CH12 },
+      baseline: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
       updateAvailable: null,
     });
   });
@@ -236,6 +240,20 @@ describe("parseServerMessage: event", () => {
         source: { kind: "aes50", bus: "A", channel: 3 },
       },
       { type: "connection-state-changed", state: "connecting" },
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: true, auxError: false },
+            { bus: "B", audioError: false, auxError: false },
+          ],
+          locked: false,
+        },
+      },
+      {
+        type: "aes50-chain-changed",
+        chain: { bus: "A", boxes: [{ position: 1, model: "S16", rawLetter: "A" }] },
+      },
     ];
 
     for (const event of events) {
@@ -243,6 +261,21 @@ describe("parseServerMessage: event", () => {
       const parsed = parseServerMessage(message);
       expect(parsed.type).toBe("event");
     }
+  });
+
+  it("round-trips an aes50-link-state-changed event, including a null model kept as a distinct box", () => {
+    const message = {
+      type: "event",
+      event: {
+        type: "aes50-chain-changed",
+        chain: {
+          bus: "A",
+          boxes: [{ position: 1, model: null, rawLetter: "?" }],
+        },
+      },
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
   });
 
   it("re-brands the channel id on selected-channel-changed", () => {
@@ -279,7 +312,7 @@ describe("parseServerMessage: baseline-changed", () => {
 
     expect(parseServerMessage(message)).toEqual({
       type: "baseline-changed",
-      baseline: { channels: [], selectedChannel: CH12 },
+      baseline: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
     });
   });
 

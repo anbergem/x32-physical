@@ -49,7 +49,7 @@
  */
 
 import type { MixerSourceRef } from "@x32/domain";
-import { mixerChannelId, MIXER_CHANNEL_COUNT } from "@x32/domain";
+import { aes50ChainEquals, aes50LinkStateEquals, mixerChannelId, MIXER_CHANNEL_COUNT } from "@x32/domain";
 import type {
   MixerClient,
   MixerConnectionState,
@@ -59,7 +59,10 @@ import type {
   Unsubscribe,
 } from "@x32/mixer-contracts";
 
+import { parseAes50Chain, parseAes50State } from "./aes50";
 import {
+  aes50ChainAddress,
+  aes50StateAddress,
   channelNameAddress,
   channelSourceAddress,
   inBlockAddress,
@@ -306,6 +309,11 @@ export class X32MixerClient implements MixerClient {
       addresses.push(channelSourceAddress(channel));
     }
     addresses.push(selidxAddress());
+    // Same family as /-stat/selidx (docs/x32-protocol.md, issue #17): both
+    // buses are read even though the venue only uses AES50-A, so the
+    // adapter can tell "AES50-B genuinely has no boxes" from "we never
+    // asked" — the domain/UI layers are what decide not to warn about B.
+    addresses.push(aes50ChainAddress("A"), aes50ChainAddress("B"), aes50StateAddress());
     return addresses;
   }
 
@@ -498,6 +506,39 @@ export class X32MixerClient implements MixerClient {
           type: "selected-channel-changed",
           channel: this.#state.selectedChannel(),
         });
+        return;
+      }
+
+      case "aes50-chain": {
+        const value = firstString(args);
+        if (value === undefined) return;
+        // Logged once per reply (snapshot reads happen once per (re)connect;
+        // live pushes are rare) so the real filler format for an empty
+        // chain position can be read off the venue console later
+        // (docs/x32-protocol.md §Verified facts: the doc does not specify it).
+        console.log(`x32-bridge: /-stat/aes50/${parsed.bus} raw = ${JSON.stringify(value)}`);
+        const chain = parseAes50Chain(parsed.bus, value);
+        const previous = this.#state.aes50Chain(parsed.bus);
+        this.#state.setAes50Chain(chain);
+        if (this.#suppressEvents) return;
+        if (previous !== undefined && aes50ChainEquals(previous, chain)) return;
+        this.#emit({ type: "aes50-chain-changed", chain });
+        return;
+      }
+
+      case "aes50-state": {
+        const value = firstInt(args);
+        if (value === undefined) return;
+        const state = parseAes50State(value);
+        if (state === null) {
+          console.warn(`x32-bridge: ignoring out-of-range /-stat/aes50/state value ${value}`);
+          return;
+        }
+        const previous = this.#state.aes50LinkState();
+        this.#state.setAes50LinkState(state);
+        if (this.#suppressEvents) return;
+        if (previous !== null && aes50LinkStateEquals(previous, state)) return;
+        this.#emit({ type: "aes50-link-state-changed", state });
         return;
       }
 

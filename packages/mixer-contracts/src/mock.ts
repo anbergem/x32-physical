@@ -12,6 +12,10 @@
  */
 
 import type {
+  Aes50Bus,
+  Aes50Chain,
+  Aes50ChainBox,
+  Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
   MixerSourceRef,
@@ -58,10 +62,28 @@ function cloneChannel(channel: MixerChannelState): MixerChannelState {
   };
 }
 
+function cloneAes50LinkState(state: Aes50LinkState | null | undefined): Aes50LinkState | null {
+  if (state === null || state === undefined) return null;
+  return {
+    buses: state.buses.map((bus) => ({ ...bus })),
+    locked: state.locked,
+  };
+}
+
+function cloneAes50Chain(chains: Aes50Chain[] | undefined): Aes50Chain[] {
+  if (chains === undefined) return [];
+  return chains.map((chain) => ({
+    bus: chain.bus,
+    boxes: chain.boxes.map((box) => ({ ...box })),
+  }));
+}
+
 function cloneSnapshot(snapshot: MixerSnapshot): MixerSnapshot {
   return {
     channels: snapshot.channels.map(cloneChannel),
     selectedChannel: snapshot.selectedChannel,
+    aes50LinkState: cloneAes50LinkState(snapshot.aes50LinkState),
+    aes50Chain: cloneAes50Chain(snapshot.aes50Chain),
   };
 }
 
@@ -169,6 +191,56 @@ export class MockMixerClient implements MixerClient {
 
   simulateReconnect(): void {
     this.#setConnectionState("connected");
+  }
+
+  /**
+   * Simulates an AES50 audio/aux link error on one bus (issue #17's
+   * headline scenario — a dead snake, indistinguishable from silence
+   * without this). Only the given bus's error flags change; `locked` and
+   * the other bus are left as-is. `active: false` clears it back to
+   * healthy. Always emits, even with no change, matching the real
+   * adapter's "every read/push re-applies" discipline — this is a dev
+   * action, not a wire replay, so idempotence isn't expected of it.
+   */
+  simulateAes50LinkError(
+    bus: Aes50Bus,
+    options: { audioError?: boolean; auxError?: boolean } = { audioError: true },
+  ): void {
+    const current = this.#snapshot.aes50LinkState ?? {
+      buses: [
+        { bus: "A" as Aes50Bus, audioError: false, auxError: false },
+        { bus: "B" as Aes50Bus, audioError: false, auxError: false },
+      ],
+      locked: false,
+    };
+    const state: Aes50LinkState = {
+      locked: current.locked,
+      buses: current.buses.map((busState) =>
+        busState.bus === bus
+          ? {
+              bus,
+              audioError: options.audioError ?? busState.audioError,
+              auxError: options.auxError ?? busState.auxError,
+            }
+          : { ...busState },
+      ),
+    };
+    this.#snapshot.aes50LinkState = state;
+    this.#emit({
+      type: "aes50-link-state-changed",
+      state: { locked: state.locked, buses: state.buses.map((busState) => ({ ...busState })) },
+    });
+  }
+
+  /** Replaces one bus's detected chain (issue #17) — dev-only, for exercising the chain-mismatch UI without a console. */
+  simulateAes50ChainChange(bus: Aes50Bus, boxes: Aes50ChainBox[]): void {
+    const chain: Aes50Chain = { bus, boxes: boxes.map((box) => ({ ...box })) };
+    const rest = (this.#snapshot.aes50Chain ?? []).filter((entry) => entry.bus !== bus);
+    this.#snapshot.aes50Chain = [...rest, chain];
+    this.#emit({
+      type: "aes50-chain-changed",
+      chain: { bus: chain.bus, boxes: chain.boxes.map((box) => ({ ...box })) },
+    });
   }
 
   /**

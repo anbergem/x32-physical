@@ -96,6 +96,9 @@ function defaultAutoReply(overrides: Record<string, OscArgument[] | undefined> =
       return [{ type: "i", value: channel }];
     }
     if (address === "/-stat/selidx") return [{ type: "i", value: 40 }]; // FX return -> no channel selected
+    if (address === "/-stat/aes50/A") return [{ type: "s", value: "AA00000000" }]; // 2 x S16
+    if (address === "/-stat/aes50/B") return [{ type: "s", value: "" }]; // unused
+    if (address === "/-stat/aes50/state") return [{ type: "i", value: 0 }]; // all clear
     return undefined;
   };
 }
@@ -111,6 +114,9 @@ const EXPECTED_READ_SEQUENCE = [
   ...Array.from({ length: 32 }, (_, i) => `/ch/${pad2(i + 1)}/config/name`),
   ...Array.from({ length: 32 }, (_, i) => `/ch/${pad2(i + 1)}/config/source`),
   "/-stat/selidx",
+  "/-stat/aes50/A",
+  "/-stat/aes50/B",
+  "/-stat/aes50/state",
 ];
 
 let client: X32MixerClient | null = null;
@@ -316,6 +322,177 @@ describe("live pushes", () => {
     expect(playbackWarnings).toHaveLength(1);
 
     warn.mockRestore();
+  });
+});
+
+describe("AES50 link state + chain (issue #17)", () => {
+  it("both addresses appear in the snapshot read sequence", async () => {
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+
+    const addresses = transport.sent.map((r) => r.address);
+    expect(addresses).toContain("/-stat/aes50/A");
+    expect(addresses).toContain("/-stat/aes50/B");
+    expect(addresses).toContain("/-stat/aes50/state");
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.aes50LinkState).toEqual({
+      buses: [
+        { bus: "A", audioError: false, auxError: false },
+        { bus: "B", audioError: false, auxError: false },
+      ],
+      locked: false,
+    });
+    expect(snapshot.aes50Chain).toEqual([
+      {
+        bus: "A",
+        boxes: [
+          { position: 1, model: "S16", rawLetter: "A" },
+          { position: 2, model: "S16", rawLetter: "A" },
+        ],
+      },
+      { bus: "B", boxes: [] },
+    ]);
+  });
+
+  it("/-stat/aes50/state bitfield: bit 0 -> A audio error only", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push("/-stat/aes50/state", [{ type: "i", value: 0b00001 }]);
+
+    expect(events).toEqual([
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: true, auxError: false },
+            { bus: "B", audioError: false, auxError: false },
+          ],
+          locked: false,
+        },
+      },
+    ]);
+  });
+
+  it("/-stat/aes50/state bitfield: bit 1 -> B audio error only", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push("/-stat/aes50/state", [{ type: "i", value: 0b00010 }]);
+
+    expect(events).toEqual([
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: false, auxError: false },
+            { bus: "B", audioError: true, auxError: false },
+          ],
+          locked: false,
+        },
+      },
+    ]);
+  });
+
+  it("/-stat/aes50/state bitfield: bits 0+2 -> A audio + A aux error", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push("/-stat/aes50/state", [{ type: "i", value: 0b00101 }]);
+
+    expect(events).toEqual([
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: true, auxError: true },
+            { bus: "B", audioError: false, auxError: false },
+          ],
+          locked: false,
+        },
+      },
+    ]);
+  });
+
+  it("/-stat/aes50/state bitfield: bit 4 -> locked", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push("/-stat/aes50/state", [{ type: "i", value: 0b10000 }]);
+
+    expect(events).toEqual([
+      {
+        type: "aes50-link-state-changed",
+        state: {
+          buses: [
+            { bus: "A", audioError: false, auxError: false },
+            { bus: "B", audioError: false, auxError: false },
+          ],
+          locked: true,
+        },
+      },
+    ]);
+  });
+
+  it("an out-of-range/negative /-stat/aes50/state value is ignored with one warning, no event", async () => {
+    const { transport, events } = await connectedClient();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    transport.push("/-stat/aes50/state", [{ type: "i", value: -1 }]);
+
+    expect(events).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("re-pushing the same /-stat/aes50/state value emits zero events", async () => {
+    const { transport, events } = await connectedClient();
+
+    // The default snapshot's state is already 0 (all clear).
+    transport.push("/-stat/aes50/state", [{ type: "i", value: 0 }]);
+
+    expect(events).toEqual([]);
+  });
+
+  it("a chain string change on either bus emits aes50-chain-changed exactly once", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push("/-stat/aes50/A", [{ type: "s", value: "AW00000000" }]); // box 2 replaced by an S32
+
+    expect(events).toEqual([
+      {
+        type: "aes50-chain-changed",
+        chain: {
+          bus: "A",
+          boxes: [
+            { position: 1, model: "S16", rawLetter: "A" },
+            { position: 2, model: "S32", rawLetter: "W" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("re-pushing the same chain string emits zero events", async () => {
+    const { transport, events } = await connectedClient();
+
+    // The default snapshot's AES50-A chain string is already "AA00000000".
+    transport.push("/-stat/aes50/A", [{ type: "s", value: "AA00000000" }]);
+
+    expect(events).toEqual([]);
+  });
+
+  it("logs the raw chain string once at snapshot time", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply();
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+
+    const rawLogs = log.mock.calls.filter(([message]) => String(message).includes("/-stat/aes50/"));
+    expect(rawLogs).toHaveLength(2); // one per bus (A, B)
+    log.mockRestore();
   });
 });
 

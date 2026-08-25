@@ -230,6 +230,49 @@ function MetersControl({ mock }: { mock: MockMixerClient }) {
   );
 }
 
+/**
+ * AES50 link/chain simulation (issue #17) — exercises `SystemStatus`
+ * without a console, per CLAUDE.md invariant 4. Only AES50-A is offered:
+ * it's the only bus the venue's `installation.yaml` declares stageboxes on,
+ * so it's the only one whose warnings are ever visible.
+ */
+function Aes50Control({ mock }: { mock: MockMixerClient }) {
+  const [linkErrorActive, setLinkErrorActive] = useState(false);
+  const [chainMismatch, setChainMismatch] = useState(false);
+
+  function toggleLinkError(): void {
+    mock.simulateAes50LinkError("A", { audioError: !linkErrorActive });
+    setLinkErrorActive((current) => !current);
+  }
+
+  function toggleChainMismatch(): void {
+    mock.simulateAes50ChainChange(
+      "A",
+      chainMismatch
+        ? [
+            { position: 1, model: "S16", rawLetter: "A" },
+            { position: 2, model: "S16", rawLetter: "A" },
+          ]
+        : [{ position: 1, model: "S16", rawLetter: "A" }], // only 1 of the 2 declared boxes
+    );
+    setChainMismatch((current) => !current);
+  }
+
+  return (
+    <div className="devtools__section">
+      <span className="devtools__section-title">AES50-A · simulated</span>
+      <div className="devtools__buttons">
+        <button type="button" onClick={toggleLinkError}>
+          {linkErrorActive ? "Clear link error" : "Simulate link error"}
+        </button>
+        <button type="button" onClick={toggleChainMismatch}>
+          {chainMismatch ? "Clear chain mismatch" : "Simulate chain mismatch"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ConnectionControl({ mock }: { mock: MockMixerClient }) {
   const connection = useAppStore(selectConnection);
 
@@ -268,6 +311,7 @@ export function DevControlSurface({ mock }: { mock: MockMixerClient }) {
           <RenameControl mock={mock} />
           <SourceControl mock={mock} />
           <MetersControl mock={mock} />
+          <Aes50Control mock={mock} />
           <ConnectionControl mock={mock} />
         </div>
       )}

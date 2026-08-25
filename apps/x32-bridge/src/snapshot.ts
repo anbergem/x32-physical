@@ -4,7 +4,7 @@
  * `MockMixerClient`'s and the web store's own clone helpers).
  */
 
-import type { MixerChannelState } from "@x32/domain";
+import type { Aes50Chain, Aes50LinkState, MixerChannelState } from "@x32/domain";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 
 function cloneChannel(channel: MixerChannelState): MixerChannelState {
@@ -15,9 +15,23 @@ function cloneChannel(channel: MixerChannelState): MixerChannelState {
   };
 }
 
+function cloneAes50LinkState(state: Aes50LinkState | null | undefined): Aes50LinkState | null {
+  if (state === null || state === undefined) return null;
+  return { buses: state.buses.map((bus) => ({ ...bus })), locked: state.locked };
+}
+
+function cloneAes50Chain(chains: Aes50Chain[] | undefined): Aes50Chain[] {
+  return (chains ?? []).map((chain) => ({
+    bus: chain.bus,
+    boxes: chain.boxes.map((box) => ({ ...box })),
+  }));
+}
+
 export function cloneSnapshot(snapshot: MixerSnapshot): MixerSnapshot {
   return {
     channels: snapshot.channels.map(cloneChannel),
     selectedChannel: snapshot.selectedChannel,
+    aes50LinkState: cloneAes50LinkState(snapshot.aes50LinkState),
+    aes50Chain: cloneAes50Chain(snapshot.aes50Chain),
   };
 }

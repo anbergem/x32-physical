@@ -15,6 +15,9 @@
  */
 
 import type {
+  Aes50Bus,
+  Aes50ChainDiscrepancy,
+  Aes50LinkState,
   Device,
   DeviceId,
   EndpointId,
@@ -221,6 +224,57 @@ export function selectUpdateAvailable(state: AppState): UpdateAvailable | null {
 
 export function selectBaselineSaveError(state: AppState): string | null {
   return state.baselineSaveError;
+}
+
+// --- AES50 link + chain (issue #17) -----------------------------------------
+
+export function selectAes50LinkState(state: AppState): Aes50LinkState | null {
+  return state.aes50LinkState;
+}
+
+export function selectAes50ChainDiscrepancies(state: AppState): Aes50ChainDiscrepancy[] {
+  return state.aes50ChainDiscrepancies;
+}
+
+/**
+ * The set of AES50 buses `installation` actually declares stageboxes on.
+ * Computed fresh per call — a `Set` isn't stable-identity output, but every
+ * caller below only ever asks membership questions, never renders it, so
+ * that's fine.
+ */
+function busesInUse(installation: Installation): ReadonlySet<Aes50Bus> {
+  const buses = new Set<Aes50Bus>();
+  for (const device of installation.devices) {
+    if (device.kind === "stagebox" && device.aes50 !== undefined) {
+      buses.add(device.aes50.bus);
+    }
+  }
+  return buses;
+}
+
+/**
+ * The headline warning (issue #17): the bus with an active audio error, but
+ * only when the installation actually declares stageboxes on it — an error
+ * on an unused bus (this venue's AES50-B) must never surface, or a
+ * permanently-red indicator would train operators to ignore it. Returns a
+ * primitive (`Aes50Bus | null`), matching this file's per-value selector
+ * discipline: no data yet (`aes50LinkState === null`) or a healthy link both
+ * read as `null` here — deliberately indistinguishable, since neither is
+ * "something to warn about".
+ */
+export function selectAes50LinkWarningBus(state: AppState): Aes50Bus | null {
+  const link = state.aes50LinkState;
+  if (link === null) return null;
+  const used = busesInUse(state.installation);
+  for (const busState of link.buses) {
+    if (used.has(busState.bus) && busState.audioError) return busState.bus;
+  }
+  return null;
+}
+
+/** The quieter warning (issue #17): the detected AES50 chain disagrees with `installation.yaml`. */
+export function selectAes50ChainWarning(state: AppState): boolean {
+  return state.aes50ChainDiscrepancies.length > 0;
 }
 
 /** Stable action identity: subscribing to it never causes a rerender. */

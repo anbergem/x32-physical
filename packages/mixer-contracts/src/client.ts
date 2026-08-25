@@ -9,6 +9,8 @@
  */
 
 import type {
+  Aes50Chain,
+  Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
   MixerSourceRef,
@@ -21,6 +23,18 @@ export interface MixerSnapshot {
   channels: MixerChannelState[];
   /** The channel SELECTed on the physical console, if any. */
   selectedChannel: MixerChannelId | null;
+  /**
+   * `/-stat/aes50/state` decoded (issue #17). `null`/absent means "not read
+   * yet" — never treated as "healthy", so a client that predates this field
+   * (an older bridge, a stored baseline) never renders a false-clean status.
+   */
+  aes50LinkState?: Aes50LinkState | null;
+  /**
+   * `/-stat/aes50/[A,B]` decoded, one entry per bus that has replied
+   * (issue #17). Absent/empty means "no chain data yet" — absence is not
+   * evidence, so it produces no warning and no cross-check finding.
+   */
+  aes50Chain?: Aes50Chain[];
 }
 
 /**
@@ -39,7 +53,11 @@ export type MixerEvent =
       channel: MixerChannelId;
       source: MixerSourceRef;
     }
-  | { type: "connection-state-changed"; state: MixerConnectionState };
+  | { type: "connection-state-changed"; state: MixerConnectionState }
+  /** `/-stat/aes50/state` changed (issue #17) — rare, so a plain `MixerEvent`, unlike meters. */
+  | { type: "aes50-link-state-changed"; state: Aes50LinkState }
+  /** `/-stat/aes50/[A,B]` changed for one bus (issue #17); each bus reads/pushes independently. */
+  | { type: "aes50-chain-changed"; chain: Aes50Chain };
 
 export type MixerEventListener = (event: MixerEvent) => void;
 

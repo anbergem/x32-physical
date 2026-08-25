@@ -31,6 +31,8 @@ function snapshot(): MixerSnapshot {
       },
     ],
     selectedChannel: null,
+    aes50LinkState: null,
+    aes50Chain: [],
   };
 }
 

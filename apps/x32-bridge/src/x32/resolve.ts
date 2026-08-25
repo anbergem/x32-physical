@@ -12,7 +12,14 @@
  * nowhere else in the repo.
  */
 
-import type { MixerChannelId, MixerChannelState, MixerSourceRef } from "@x32/domain";
+import type {
+  Aes50Bus,
+  Aes50Chain,
+  Aes50LinkState,
+  MixerChannelId,
+  MixerChannelState,
+  MixerSourceRef,
+} from "@x32/domain";
 import {
   MIXER_CHANNEL_COUNT,
   mixerChannelId,
@@ -202,6 +209,10 @@ export class X32State {
   #routSwitch = 0;
   /** -1 = "not yet known" — resolves to no selection via `selIdxToChannel`. */
   #selIdx = -1;
+  /** `null` = not read yet (issue #17) — never treated as "healthy". */
+  #aes50LinkState: Aes50LinkState | null = null;
+  /** One entry per bus that has replied; keyed to make per-bus replace/read O(1). */
+  #aes50Chain = new Map<Aes50Bus, Aes50Chain>();
 
   setChannelName(channel: number, name: string): void {
     requireChannel(channel);
@@ -242,6 +253,22 @@ export class X32State {
     this.#selIdx = value;
   }
 
+  setAes50LinkState(state: Aes50LinkState): void {
+    this.#aes50LinkState = state;
+  }
+
+  aes50LinkState(): Aes50LinkState | null {
+    return this.#aes50LinkState;
+  }
+
+  setAes50Chain(chain: Aes50Chain): void {
+    this.#aes50Chain.set(chain.bus, chain);
+  }
+
+  aes50Chain(bus: Aes50Bus): Aes50Chain | undefined {
+    return this.#aes50Chain.get(bus);
+  }
+
   selectedChannel(): MixerChannelId | null {
     const channel = selIdxToChannel(this.#selIdx);
     return channel === null ? null : mixerChannelId(channel);
@@ -275,6 +302,11 @@ export class X32State {
         source: this.resolveChannel(channel),
       });
     }
-    return { channels, selectedChannel: this.selectedChannel() };
+    return {
+      channels,
+      selectedChannel: this.selectedChannel(),
+      aes50LinkState: this.#aes50LinkState,
+      aes50Chain: [...this.#aes50Chain.values()],
+    };
   }
 }
