@@ -121,3 +121,71 @@ venue-local copy under `%ProgramData%\X32RoutingVisualizer\`) for a one-off
 on-site fix that doesn't touch the release-shipped `%ProgramFiles%` copy.
 There is deliberately no file watching — a service restart is the trigger,
 not a live reload.
+
+## Output topology (captured 2026-08-25)
+
+From the venue sheet "Betania Lydsystem - Outputs", plus owner clarification.
+**Not yet modelled in `installation.yaml`** — this is the raw material for the
+output milestone (issues #7–#11).
+
+| Out | Name | Fed from | Emerges at |
+|---|---|---|---|
+| 1 | Sidesal | Matrix | console XLR 1 |
+| 2 | Vip Rom | Matrix | console XLR 2 |
+| 6 | Bak Høyre (rear right) | Bus 5 | Stagebox H out 6 |
+| 7 | Piano Høyre | Bus 3 | Stagebox H out 7 |
+| 8 | Front Høyre | Bus 2 | Stagebox H out 8 |
+| 11 | Venstre Bak (rear left) | Bus 4 | Stagebox V out 3 |
+| 12 | Piano Venstre | Bus 3 | Stagebox V out 4 |
+| 13 | Front Venstre | Bus 1 | Stagebox V out 5 |
+| 14 | Sub | **M/C** | Stagebox V out 6 |
+| 15 | Main Left | **Main L** | Stagebox V out 7 |
+| 16 | Main Right | **Main R** | Stagebox V out 8 |
+
+Outputs 3, 4, 5, 9, 10 are unused.
+
+### The output-block assignment — the hop OSC cannot see
+
+docs/x32-protocol.md §Output routing records that a stagebox's choice of
+*which block of 8* AES50 output channels it presents on its XLRs is set on the
+box and is **not** readable over OSC. The venue sheet reveals it directly:
+
+- **Stagebox H presents `OUT1-8`** — console Out *n* → its XLR out *n*.
+- **Stagebox V presents `OUT9-16`** — console Out *n* → its XLR out *n − 8*
+  (so Out 13 "Front Venstre" is physically that box's 5th XLR out).
+
+This is the output-side analogue of `aes50.offset` and belongs in the schema
+(#9) as a per-stagebox fact, with the same silent-invalidation risk: change a
+box's setting and every output label is wrong with nothing to detect it.
+
+### Two consequences for the domain model
+
+1. **A block is presented wholesale, but only some sockets are patched.**
+   Stagebox H presents all of `OUT1-8`, so Out 1 "Sidesal" and Out 2 "Vip Rom"
+   are physically present on its XLR outs 1–2 as well as on the console's own
+   XLRs — the sheet lists the console because that is where they are actually
+   *used*. "Signal is present here" and "something is plugged in here" are
+   different facts, exactly as an unconnected stagebox input is on the input
+   side.
+2. **One source can feed several outputs.** Bus 3 feeds *both* Out 7 "Piano
+   Høyre" and Out 12 "Piano Venstre". This is the output mirror of one input
+   source feeding several mixer channels, which the route index already models
+   as a single shared route — the same treatment should apply.
+
+### Still to capture
+
+- Whether amplifiers sit between the stagebox outs and the speakers, or the
+  cabinets are powered. Determines whether amps deserve their own device kind
+  (#9) or the box output feeds a named zone directly.
+- Whether the console's own XLR outs beyond 1–2 are in use.
+- Whether P16/Ultranet is in use.
+
+### On physical placement
+
+Speaker positions (Main L on the left, Main R on the right, Sub to the left of
+Main L) are deliberately **not** recorded here and will not enter the schema.
+The names already carry the spatial meaning a technician needs, and the
+question the tool answers is "where does this come from?", not "where is it in
+the room". Screen arrangement mirrors physical reality through hard-coded
+layout, exactly as the stage-left/stage-right input areas already do —
+CLAUDE.md invariant 6 (no coordinates in `installation.yaml`) stands.
