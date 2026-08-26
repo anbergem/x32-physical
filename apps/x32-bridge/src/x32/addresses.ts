@@ -12,6 +12,9 @@ export const X32_OSC_PORT = 10023;
 
 const IN_BLOCK_RANGES = ["1-8", "9-16", "17-24", "25-32"] as const;
 
+/** `/config/routing/OUT/*` block ranges — quartered, unlike the IN blocks' eighths (docs/x32-protocol.md §Output routing). */
+const OUT_ROUTING_RANGES = ["1-4", "5-8", "9-12", "13-16"] as const;
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -49,6 +52,19 @@ export function selidxAddress(): string {
   return "/-stat/selidx";
 }
 
+/** `output` is 1–16, matching the doc's `[01…16]` bracket notation. */
+export function outputMainSourceAddress(output: number): string {
+  return `/outputs/main/${pad2(output)}/src`;
+}
+
+/**
+ * `/config/routing/OUT/{1-4,5-8,9-12,13-16}` — gathered and logged only
+ * (issue #10 scope item 5); nothing in resolution depends on these values.
+ */
+export function outRoutingBlockAddress(blockIndex: 0 | 1 | 2 | 3): string {
+  return `/config/routing/OUT/${OUT_ROUTING_RANGES[blockIndex]}`;
+}
+
 /** `/-stat/aes50/[A,B]` — detected box chain + preamps (docs/x32-protocol.md §The messages we track). */
 export function aes50ChainAddress(bus: "A" | "B"): string {
   return `/-stat/aes50/${bus}`;
@@ -77,6 +93,8 @@ export type ParsedAddress =
   | { kind: "channel-name"; channel: number }
   | { kind: "channel-source"; channel: number }
   | { kind: "selidx" }
+  | { kind: "output-main-src"; output: number }
+  | { kind: "out-routing-block"; blockIndex: 0 | 1 | 2 | 3 }
   | { kind: "meters" }
   | { kind: "aes50-chain"; bus: "A" | "B" }
   | { kind: "aes50-state" }
@@ -84,6 +102,7 @@ export type ParsedAddress =
 
 const USER_ROUT_PATTERN = /^\/config\/userrout\/in\/(\d{2})$/;
 const CHANNEL_PATTERN = /^\/ch\/(\d{2})\/config\/(name|source)$/;
+const OUTPUT_MAIN_SRC_PATTERN = /^\/outputs\/main\/(\d{2})\/src$/;
 
 /** Classifies an incoming address; addresses we don't track come back `"unknown"`. */
 export function parseAddress(address: string): ParsedAddress {
@@ -101,6 +120,21 @@ export function parseAddress(address: string): ParsedAddress {
     const blockIndex = IN_BLOCK_RANGES.indexOf(range as (typeof IN_BLOCK_RANGES)[number]);
     if (blockIndex !== -1) return { kind: "in-block", blockIndex: blockIndex as 0 | 1 | 2 | 3 };
     return { kind: "unknown" }; // e.g. /config/routing/IN/AUX — out of MVP scope
+  }
+
+  const outRoutingPrefix = "/config/routing/OUT/";
+  if (address.startsWith(outRoutingPrefix)) {
+    const range = address.slice(outRoutingPrefix.length);
+    const blockIndex = OUT_ROUTING_RANGES.indexOf(range as (typeof OUT_ROUTING_RANGES)[number]);
+    if (blockIndex !== -1) return { kind: "out-routing-block", blockIndex: blockIndex as 0 | 1 | 2 | 3 };
+    return { kind: "unknown" };
+  }
+
+  const outputMatch = OUTPUT_MAIN_SRC_PATTERN.exec(address);
+  if (outputMatch?.[1] !== undefined) {
+    const output = Number(outputMatch[1]);
+    if (output >= 1 && output <= 16) return { kind: "output-main-src", output };
+    return { kind: "unknown" };
   }
 
   const userRoutMatch = USER_ROUT_PATTERN.exec(address);

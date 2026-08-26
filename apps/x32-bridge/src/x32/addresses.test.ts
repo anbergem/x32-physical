@@ -8,6 +8,8 @@ import {
   inBlockAddress,
   metersReplyAddress,
   metersSubscribeAddress,
+  outputMainSourceAddress,
+  outRoutingBlockAddress,
   parseAddress,
   routswitchAddress,
   selidxAddress,
@@ -45,6 +47,18 @@ describe("address builders", () => {
     expect(channelNameAddress(1)).toBe("/ch/01/config/name");
     expect(channelSourceAddress(12)).toBe("/ch/12/config/source");
   });
+
+  it("zero-pads output source addresses to 2 digits", () => {
+    expect(outputMainSourceAddress(1)).toBe("/outputs/main/01/src");
+    expect(outputMainSourceAddress(16)).toBe("/outputs/main/16/src");
+  });
+
+  it("builds the 4 OUT routing block addresses", () => {
+    expect(outRoutingBlockAddress(0)).toBe("/config/routing/OUT/1-4");
+    expect(outRoutingBlockAddress(1)).toBe("/config/routing/OUT/5-8");
+    expect(outRoutingBlockAddress(2)).toBe("/config/routing/OUT/9-12");
+    expect(outRoutingBlockAddress(3)).toBe("/config/routing/OUT/13-16");
+  });
 });
 
 describe("parseAddress", () => {
@@ -80,6 +94,20 @@ describe("parseAddress", () => {
     expect(parseAddress("/ch/32/config/source")).toEqual({ kind: "channel-source", channel: 32 });
   });
 
+  it("classifies output source addresses with their 1-based output", () => {
+    expect(parseAddress("/outputs/main/01/src")).toEqual({ kind: "output-main-src", output: 1 });
+    expect(parseAddress("/outputs/main/16/src")).toEqual({ kind: "output-main-src", output: 16 });
+  });
+
+  it("classifies OUT routing block addresses with their 0-based index", () => {
+    expect(parseAddress("/config/routing/OUT/1-4")).toEqual({ kind: "out-routing-block", blockIndex: 0 });
+    expect(parseAddress("/config/routing/OUT/13-16")).toEqual({ kind: "out-routing-block", blockIndex: 3 });
+  });
+
+  it("ignores an OUT routing range outside the tracked subset", () => {
+    expect(parseAddress("/config/routing/OUT/17-20")).toEqual({ kind: "unknown" });
+  });
+
   it("round-trips every builder through the parser", () => {
     expect(parseAddress(xinfoAddress())).toEqual({ kind: "xinfo" });
     expect(parseAddress(routswitchAddress())).toEqual({ kind: "routswitch" });
@@ -104,6 +132,18 @@ describe("parseAddress", () => {
         channel,
       });
     }
+    for (let output = 1; output <= 16; output += 1) {
+      expect(parseAddress(outputMainSourceAddress(output))).toEqual({
+        kind: "output-main-src",
+        output,
+      });
+    }
+    for (let block = 0; block < 4; block += 1) {
+      expect(parseAddress(outRoutingBlockAddress(block as 0 | 1 | 2 | 3))).toEqual({
+        kind: "out-routing-block",
+        blockIndex: block,
+      });
+    }
   });
 
   it("ignores addresses outside the tracked subset", () => {
@@ -112,5 +152,7 @@ describe("parseAddress", () => {
     expect(parseAddress("/config/userrout/in/33")).toEqual({ kind: "unknown" }); // out of range
     expect(parseAddress("/ch/00/config/name")).toEqual({ kind: "unknown" }); // out of range
     expect(parseAddress("/ch/33/config/source")).toEqual({ kind: "unknown" }); // out of range
+    expect(parseAddress("/outputs/main/00/src")).toEqual({ kind: "unknown" }); // out of range
+    expect(parseAddress("/outputs/main/17/src")).toEqual({ kind: "unknown" }); // out of range
   });
 });

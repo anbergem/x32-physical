@@ -124,3 +124,46 @@ export function selIdxToChannel(value: number): number | null {
   if (value >= 0 && value <= 31) return value + 1;
   return null;
 }
+
+/**
+ * `/outputs/main/NN/src`, classified per docs/x32-protocol.md §Output
+ * routing's enum table (0–76, read verbatim from the protocol document —
+ * issue #10). `"invalid"` is kept distinct from `"off"` so `resolve.ts` can
+ * warn once when degrading a genuinely out-of-spec wire value, without
+ * warning on the console's ordinary 0 = OFF.
+ */
+export type OutputSourceCategory =
+  | { kind: "off" }
+  | { kind: "main"; side: "L" | "R" | "C" }
+  | { kind: "bus"; bus: number } // 1–16
+  | { kind: "matrix"; matrix: number } // 1–6
+  | { kind: "direct-out-channel"; channel: number } // 1–32
+  | { kind: "direct-out-aux"; aux: number } // 1–8
+  | { kind: "direct-out-fx"; ret: number } // 1L…4R encoded 1–8
+  | { kind: "monitor"; side: "L" | "R" }
+  | { kind: "talkback" }
+  | { kind: "invalid" }; // out-of-range or non-integer — never thrown, degrades to off
+
+/**
+ * 0 = OFF; 1–3 = Main L/R, M/C; 4–19 = MixBus 01–16; 20–25 = Matrix 1–6;
+ * 26–57 = DirectOut Ch 01–32; 58–65 = DirectOut Aux 1–8; 66–73 = DirectOut
+ * FX 1L–4R; 74/75 = Monitor L/R; 76 = Talkback. Anything else (including
+ * negatives and non-integers) is out of spec — `"invalid"`, degraded to off
+ * by the caller with a single warning, never thrown.
+ */
+export function classifyOutputSourceValue(value: number): OutputSourceCategory {
+  if (!Number.isInteger(value)) return { kind: "invalid" };
+  if (value === 0) return { kind: "off" };
+  if (value === 1) return { kind: "main", side: "L" };
+  if (value === 2) return { kind: "main", side: "R" };
+  if (value === 3) return { kind: "main", side: "C" };
+  if (value >= 4 && value <= 19) return { kind: "bus", bus: value - 3 };
+  if (value >= 20 && value <= 25) return { kind: "matrix", matrix: value - 19 };
+  if (value >= 26 && value <= 57) return { kind: "direct-out-channel", channel: value - 25 };
+  if (value >= 58 && value <= 65) return { kind: "direct-out-aux", aux: value - 57 };
+  if (value >= 66 && value <= 73) return { kind: "direct-out-fx", ret: value - 65 };
+  if (value === 74) return { kind: "monitor", side: "L" };
+  if (value === 75) return { kind: "monitor", side: "R" };
+  if (value === 76) return { kind: "talkback" };
+  return { kind: "invalid" };
+}

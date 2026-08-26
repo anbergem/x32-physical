@@ -18,6 +18,8 @@ import type {
   Aes50LinkState,
   MixerChannelId,
   MixerChannelState,
+  MixerOutputSourceRef,
+  MixerOutputState,
   MixerSourceRef,
 } from "@x32/domain";
 import {
@@ -29,6 +31,7 @@ import type { MixerSnapshot } from "@x32/mixer-contracts";
 
 import {
   classifyChannelSourceValue,
+  classifyOutputSourceValue,
   IN_BLOCK_TABLE,
   inBlockPositionOf,
   inBlockQuarterOf,
@@ -37,6 +40,8 @@ import {
 } from "./osc-tables";
 
 export const IN_BLOCK_COUNT = 4;
+export const MIXER_OUTPUT_COUNT = 16;
+export const OUT_ROUTING_BLOCK_COUNT = 4;
 
 /** The 4 raw `/config/routing/IN/*` values, index 0 = `1-8` … index 3 = `25-32`. */
 export type InBlockValues = readonly [number, number, number, number];
@@ -106,6 +111,42 @@ export function resolveChannelSource(inputs: ChannelResolutionInputs): MixerSour
         }
       }
     }
+  }
+}
+
+/**
+ * `/outputs/main/NN/src` → `MixerOutputSourceRef` (docs/x32-protocol.md
+ * §Output routing, issue #10). Never throws: an out-of-range or non-integer
+ * wire value degrades to `{ kind: "off" }`, exactly like the input side's
+ * stance on hostile wire data, but logs one warning first — unlike the input
+ * side, this is new-to-the-adapter surface, so a firmware-newer or corrupt
+ * value shouldn't degrade silently.
+ */
+export function resolveOutputSource(value: number): MixerOutputSourceRef {
+  const category = classifyOutputSourceValue(value);
+
+  switch (category.kind) {
+    case "off":
+      return { kind: "off" };
+    case "invalid":
+      console.warn(`x32-bridge: ignoring out-of-range /outputs/main/*/src value ${value} — treating as off`);
+      return { kind: "off" };
+    case "main":
+      return { kind: "main", side: category.side };
+    case "bus":
+      return { kind: "bus", bus: category.bus };
+    case "matrix":
+      return { kind: "matrix", matrix: category.matrix };
+    case "direct-out-channel":
+      return { kind: "direct-out-channel", channel: mixerChannelId(category.channel) };
+    case "direct-out-aux":
+      return { kind: "direct-out-aux", aux: category.aux };
+    case "direct-out-fx":
+      return { kind: "direct-out-fx", ret: category.ret };
+    case "monitor":
+      return { kind: "monitor", side: category.side };
+    case "talkback":
+      return { kind: "talkback" };
   }
 }
 
@@ -193,6 +234,18 @@ function requireUserRoutSlot(slot: number): void {
   }
 }
 
+function requireOutput(output: number): void {
+  if (!Number.isInteger(output) || output < 1 || output > MIXER_OUTPUT_COUNT) {
+    throw new Error(`Invalid X32 output ${output}: expected an integer between 1 and ${MIXER_OUTPUT_COUNT}.`);
+  }
+}
+
+function requireOutRoutingBlockIndex(blockIndex: number): asserts blockIndex is 0 | 1 | 2 | 3 {
+  if (!Number.isInteger(blockIndex) || blockIndex < 0 || blockIndex > 3) {
+    throw new Error(`Invalid OUT routing block index ${blockIndex}: expected an integer between 0 and 3.`);
+  }
+}
+
 /**
  * The bridge's mutable copy of everything docs/x32-protocol.md tracks.
  * Setters validate their own structural parameters (channel/block/slot
@@ -206,6 +259,13 @@ export class X32State {
   #channelSources: number[] = Array.from({ length: MIXER_CHANNEL_COUNT }, () => 0);
   #inBlocks: [number, number, number, number] = [0, 0, 0, 0];
   #userRoutIn: number[] = Array.from({ length: MIXER_CHANNEL_COUNT }, () => 0);
+  #outputSources: number[] = Array.from({ length: MIXER_OUTPUT_COUNT }, () => 0);
+  /**
+   * `/config/routing/OUT/{1-4,5-8,9-12,13-16}` raw values — gathered and
+   * logged only (issue #10 scope item 5). Stored for convenience; nothing in
+   * `resolveOutput`/`toSnapshot` reads this array.
+   */
+  #outRoutingBlocks: number[] = Array.from({ length: OUT_ROUTING_BLOCK_COUNT }, () => 0);
   #routSwitch = 0;
   /** -1 = "not yet known" — resolves to no selection via `selIdxToChannel`. */
   #selIdx = -1;
@@ -232,6 +292,27 @@ export class X32State {
   setUserRoutIn(slot: number, value: number): void {
     requireUserRoutSlot(slot);
     this.#userRoutIn[slot - 1] = value;
+  }
+
+  setOutputSource(output: number, value: number): void {
+    requireOutput(output);
+    this.#outputSources[output - 1] = value;
+  }
+
+  resolveOutput(output: number): MixerOutputSourceRef {
+    requireOutput(output);
+    return resolveOutputSource(this.#outputSources[output - 1] ?? 0);
+  }
+
+  /** Gather-only (issue #10 scope item 5) — never read back by resolution. */
+  setOutRoutingBlock(blockIndex: number, value: number): void {
+    requireOutRoutingBlockIndex(blockIndex);
+    this.#outRoutingBlocks[blockIndex] = value;
+  }
+
+  outRoutingBlock(blockIndex: number): number {
+    requireOutRoutingBlockIndex(blockIndex);
+    return this.#outRoutingBlocks[blockIndex] ?? 0;
   }
 
   /** `routswitch`: 0 = REC (the `IN` blocks are active), 1 = PLAY. */
@@ -302,8 +383,16 @@ export class X32State {
         source: this.resolveChannel(channel),
       });
     }
+    const outputs: MixerOutputState[] = [];
+    for (let output = 1; output <= MIXER_OUTPUT_COUNT; output += 1) {
+      outputs.push({
+        output,
+        source: this.resolveOutput(output),
+      });
+    }
     return {
       channels,
+      outputs,
       selectedChannel: this.selectedChannel(),
       aes50LinkState: this.#aes50LinkState,
       aes50Chain: [...this.#aes50Chain.values()],

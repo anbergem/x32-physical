@@ -8,8 +8,10 @@
  *   1. "connecting"
  *   2. runs the full snapshot read sequence (§Initial snapshot, in order):
  *      xinfo, routswitch, the 4 IN blocks, userrout 1–32, then name+source
- *      for channels 1–32, then selidx — each an address-only read with its
- *      own timeout + limited retries (UDP is lossy).
+ *      for channels 1–32, then the 16 output sources and the 4
+ *      `/config/routing/OUT/*` blocks (gathered/logged only — issue #10),
+ *      then selidx — each an address-only read with its own timeout +
+ *      limited retries (UDP is lossy).
  *   3. "connected" on success, "disconnected" on failure — either way
  *      `connect()` resolves; it never hangs waiting for a console that may
  *      never answer, because `apps/x32-bridge/src/server/bridgeServer.ts`
@@ -49,7 +51,13 @@
  */
 
 import type { MixerSourceRef } from "@x32/domain";
-import { aes50ChainEquals, aes50LinkStateEquals, mixerChannelId, MIXER_CHANNEL_COUNT } from "@x32/domain";
+import {
+  aes50ChainEquals,
+  aes50LinkStateEquals,
+  mixerChannelId,
+  mixerOutputSourceRefEquals,
+  MIXER_CHANNEL_COUNT,
+} from "@x32/domain";
 import type {
   MixerClient,
   MixerConnectionState,
@@ -68,6 +76,8 @@ import {
   inBlockAddress,
   metersReplyAddress,
   metersSubscribeAddress,
+  outputMainSourceAddress,
+  outRoutingBlockAddress,
   parseAddress,
   routswitchAddress,
   selidxAddress,
@@ -78,7 +88,7 @@ import {
 import { decodeMeterBlob } from "./meters";
 import type { OscArgument, OscMessage } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
-import { sourceRefEquals, X32State } from "./resolve";
+import { MIXER_OUTPUT_COUNT, OUT_ROUTING_BLOCK_COUNT, sourceRefEquals, X32State } from "./resolve";
 import type { UdpTransport } from "./transport";
 
 export interface X32MixerClientOptions {
@@ -293,7 +303,7 @@ export class X32MixerClient implements MixerClient {
 
   // --- snapshot sequence -----------------------------------------------------
 
-  /** docs/x32-protocol.md §Initial snapshot, in order — ~103 address-only reads. */
+  /** docs/x32-protocol.md §Initial snapshot, in order — ~126 address-only reads. */
   #snapshotReadSequence(): string[] {
     const addresses: string[] = [xinfoAddress(), routswitchAddress()];
     for (let block = 0; block < 4; block += 1) {
@@ -307,6 +317,15 @@ export class X32MixerClient implements MixerClient {
     }
     for (let channel = 1; channel <= MIXER_CHANNEL_COUNT; channel += 1) {
       addresses.push(channelSourceAddress(channel));
+    }
+    // Output routing (issue #10): the 16 console Out slots' sources, then
+    // the 4 /config/routing/OUT/* blocks — gathered and logged only, per
+    // scope item 5; nothing in resolution depends on them.
+    for (let output = 1; output <= MIXER_OUTPUT_COUNT; output += 1) {
+      addresses.push(outputMainSourceAddress(output));
+    }
+    for (let block = 0; block < OUT_ROUTING_BLOCK_COUNT; block += 1) {
+      addresses.push(outRoutingBlockAddress(block as 0 | 1 | 2 | 3));
     }
     addresses.push(selidxAddress());
     // Same family as /-stat/selidx (docs/x32-protocol.md, issue #17): both
@@ -494,6 +513,37 @@ export class X32MixerClient implements MixerClient {
         const before = this.#resolveBefore([parsed.channel]);
         this.#state.setChannelSource(parsed.channel, value);
         this.#emitChangedChannelSources(before);
+        return;
+      }
+
+      case "output-main-src": {
+        const value = firstInt(args);
+        if (value === undefined) return;
+        if (this.#suppressEvents) {
+          this.#state.setOutputSource(parsed.output, value);
+          return;
+        }
+        const before = this.#state.resolveOutput(parsed.output);
+        this.#state.setOutputSource(parsed.output, value);
+        const source = this.#state.resolveOutput(parsed.output);
+        // Same no-op suppression as the input side (`sourceRefEquals` above):
+        // a scene recall commonly re-sends an unchanged output source.
+        if (mixerOutputSourceRefEquals(before, source)) return;
+        this.#emit({ type: "output-source-changed", output: parsed.output, source });
+        return;
+      }
+
+      case "out-routing-block": {
+        const value = firstInt(args);
+        if (value === undefined) return;
+        // Gathered and logged only (issue #10 scope item 5) — the venue's
+        // real default for these blocks isn't known from the protocol
+        // document, so nothing may depend on this value yet. Logged once
+        // per reply, like the /-stat/aes50/[A,B] raw values above.
+        console.log(
+          `x32-bridge: /config/routing/OUT/* block ${parsed.blockIndex} raw = ${JSON.stringify(value)}`,
+        );
+        this.#state.setOutRoutingBlock(parsed.blockIndex, value);
         return;
       }
 

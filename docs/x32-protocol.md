@@ -52,6 +52,8 @@ config node as one plain-text line; optional optimization, not needed for MVP.
 | `/xinfo` | 4 strings | Liveness + console model/firmware for the status display. |
 | `/-stat/aes50/[A,B]` | string | Detected box chain and preamps (issue #17): `string[4]` of device letters (`A`…`Z`, `a`), one per chain position, followed by 6 chars of preamp type. Device letters: `A` S16, `B` X32C, `C` X32, `D` DL251, `E` DL251HA, `F` S16B, `G` Z32, `H` T8, `I` X32P, `J` X32RACK, `K` X32CORE, `L` M32, `M` M32R, `N` DL16, `O` DL16B, `P` SD16, `Q` SD16B, `R` SD8, `S` SD8B, `T` DL15X, `U` DL15XHA, `V` DL231, `W` S32, `X` S32B, `Y` DL32, `Z` DL32B, `a` M32C. Preamp types (parsed and kept, not yet surfaced): `0` digital, `1` 8chin_A, `2` 8chin_C, `3` DL251, `4` Z32. Parsed defensively (`apps/x32-bridge/src/x32/aes50.ts`): a character that *is* a letter but isn't in this table is a real, undercatalogued box (kept as `model: null`, `rawLetter` retained); a character that isn't a letter at all — the doc does not say what the console pads an empty chain position with — is filler and the position is omitted. The raw string is logged once per snapshot (`x32MixerClient.ts`) so the real filler format can eventually be read off the venue console. |
 | `/-stat/aes50/state` | int bitfield | Audio/aux error + lock (issue #17): bit 0 A audio error, bit 1 B audio error, bit 2 A aux error, bit 3 B aux error, bit 4 lock. Valid range 0–31; anything else (including negative) is out of spec and ignored with one logged warning, never guessed at. |
+| `/outputs/main/[01…16]/src` | int 0–76 | What feeds console XLR out 1–16 (issue #10): 0 = OFF; 1–3 Main L, Main R, M/C; 4–19 MixBus 01–16; 20–25 Matrix 1–6; 26–57 DirectOut Ch 01–32; 58–65 DirectOut Aux 1–8; 66–73 DirectOut FX 1L–4R; 74/75 Monitor L/R; 76 Talkback. Out-of-range or non-integer values degrade to `{ off }` with one logged warning, never thrown — the input side's stance on hostile wire data. |
+| `/config/routing/OUT/{1-4,5-8,9-12,13-16}` | int 0–35 | Block routing for the console's own XLR outs, in groups of four (issue #10). **Read and logged at snapshot only — nothing in resolution depends on it.** `installation.yaml` assumes console XLR *n* carries Out *n* (the console default); the actual default value is not known from the protocol document, so a warning here would risk a false alarm rather than a real finding. A follow-up can add one once the default is verified at the venue. |
 
 Doc footnote worth remembering: with `/-prefs/autosel` ON the console
 generates `/-stat/selidx` for all strips except L/R on its own (fader-touch
@@ -95,14 +97,16 @@ On (re)connect, in order:
 2. `/config/routing/routswitch`, `/config/routing/IN/{1-8,9-16,17-24,25-32}`.
 3. `/config/userrout/in/01…32` (32 reads).
 4. `/ch/01…32/config/name` and `/ch/01…32/config/source` (64 reads).
-5. `/-stat/selidx`.
-6. `/-stat/aes50/A`, `/-stat/aes50/B`, `/-stat/aes50/state` (issue #17 — same
+5. `/outputs/main/01…16/src` (16 reads) and `/config/routing/OUT/{1-4,5-8,9-12,13-16}`
+   (4 reads, gathered/logged only — issue #10).
+6. `/-stat/selidx`.
+7. `/-stat/aes50/A`, `/-stat/aes50/B`, `/-stat/aes50/state` (issue #17 — same
    family as `/-stat/selidx`; both buses are read even though the venue only
    uses AES50-A, so the adapter can tell "B genuinely has no boxes" from "we
    never asked").
-7. Start the `/xremote` renewal loop.
+8. Start the `/xremote` renewal loop.
 
-~100 small UDP request/replies; replies are decoded by the same handler as
+~125 small UDP request/replies; replies are decoded by the same handler as
 live updates, then the resolved snapshot is normalized into `MixerSnapshot`.
 UDP is lossy: snapshot reads need per-request timeout + retry, and the
 periodic `/xinfo` poll doubles as the disconnect detector.
@@ -284,15 +288,23 @@ is possible (the file contains exactly our node subset as text lines) but
 deferred — it reintroduces a manual file-handling step the capture workflow
 exists to avoid.
 
-## Output routing (issue #6 — research, no code yet)
+## Output routing (issue #6 — research; issue #10 implemented `/outputs/main/*/src`)
 
 Verified against the same Maillot document as the input subset (fetched
-2026-08-23). **Nothing in this section is implemented**; it exists so the
-output milestone (#8–#11) rests on read facts rather than assumptions. The
-two AES50 diagnostic addresses this research turned up (`/-stat/aes50/[A,B]`
-and `/-stat/aes50/state`) are the exception — they're input-side diagnostics,
-not output routing, and issue #17 implemented them; see §The messages we
-track above for their tracked shape.
+2026-08-23). This research underpins the output milestone (#8–#11). Three
+pieces are now implemented, per §The messages we track above:
+
+- `/outputs/main/[01…16]/src` — read at snapshot and tracked live (issue #10).
+- `/config/routing/OUT/{1-4,5-8,9-12,13-16}` — read at snapshot and logged
+  only; nothing resolves from it yet (issue #10 scope item 5 — the console's
+  actual default is not known from the document, and building a warning on a
+  guessed default would risk a false alarm at the venue).
+- `/-stat/aes50/[A,B]` and `/-stat/aes50/state` — input-side diagnostics, not
+  output routing strictly speaking, implemented by issue #17.
+
+Everything else below (`AES50A`/`AES50B` block routing, the aux/P16/AES/rec
+output addresses, `userrout/out`, and the OSC-invisible stagebox hop) remains
+research only — no code reads it yet.
 
 ### The chain
 

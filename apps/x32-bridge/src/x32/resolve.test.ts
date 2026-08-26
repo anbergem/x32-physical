@@ -4,10 +4,11 @@
  * track).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyChannelSourceValue,
+  classifyOutputSourceValue,
   resolveUserRoutValue,
   selIdxToChannel,
 } from "./osc-tables";
@@ -16,6 +17,7 @@ import {
   affectedChannelsForInBlockChange,
   affectedChannelsForUserRoutChange,
   resolveChannelSource,
+  resolveOutputSource,
   sourceRefEquals,
   X32State,
 } from "./resolve";
@@ -117,6 +119,107 @@ describe("selIdxToChannel", () => {
   it("out-of-spec values -> null", () => {
     expect(selIdxToChannel(-1)).toBeNull();
     expect(selIdxToChannel(72)).toBeNull();
+  });
+});
+
+describe("classifyOutputSourceValue", () => {
+  it("0 -> off", () => {
+    expect(classifyOutputSourceValue(0)).toEqual({ kind: "off" });
+  });
+
+  it("1, 2, 3 -> main L, R, M/C", () => {
+    expect(classifyOutputSourceValue(1)).toEqual({ kind: "main", side: "L" });
+    expect(classifyOutputSourceValue(2)).toEqual({ kind: "main", side: "R" });
+    expect(classifyOutputSourceValue(3)).toEqual({ kind: "main", side: "C" });
+  });
+
+  it("4..19 -> bus 1..16", () => {
+    expect(classifyOutputSourceValue(4)).toEqual({ kind: "bus", bus: 1 });
+    expect(classifyOutputSourceValue(19)).toEqual({ kind: "bus", bus: 16 });
+  });
+
+  it("20..25 -> matrix 1..6", () => {
+    expect(classifyOutputSourceValue(20)).toEqual({ kind: "matrix", matrix: 1 });
+    expect(classifyOutputSourceValue(25)).toEqual({ kind: "matrix", matrix: 6 });
+  });
+
+  it("26..57 -> direct-out channel 1..32", () => {
+    expect(classifyOutputSourceValue(26)).toEqual({ kind: "direct-out-channel", channel: 1 });
+    expect(classifyOutputSourceValue(57)).toEqual({ kind: "direct-out-channel", channel: 32 });
+  });
+
+  it("58..65 -> direct-out aux 1..8", () => {
+    expect(classifyOutputSourceValue(58)).toEqual({ kind: "direct-out-aux", aux: 1 });
+    expect(classifyOutputSourceValue(65)).toEqual({ kind: "direct-out-aux", aux: 8 });
+  });
+
+  it("66..73 -> direct-out fx 1..8 (1L..4R encoded)", () => {
+    expect(classifyOutputSourceValue(66)).toEqual({ kind: "direct-out-fx", ret: 1 });
+    expect(classifyOutputSourceValue(73)).toEqual({ kind: "direct-out-fx", ret: 8 });
+  });
+
+  it("74, 75 -> monitor L, R", () => {
+    expect(classifyOutputSourceValue(74)).toEqual({ kind: "monitor", side: "L" });
+    expect(classifyOutputSourceValue(75)).toEqual({ kind: "monitor", side: "R" });
+  });
+
+  it("76 -> talkback", () => {
+    expect(classifyOutputSourceValue(76)).toEqual({ kind: "talkback" });
+  });
+
+  it("out-of-range and non-integer values are invalid, distinct from off", () => {
+    expect(classifyOutputSourceValue(-1)).toEqual({ kind: "invalid" });
+    expect(classifyOutputSourceValue(77)).toEqual({ kind: "invalid" });
+    expect(classifyOutputSourceValue(999)).toEqual({ kind: "invalid" });
+    expect(classifyOutputSourceValue(1.5)).toEqual({ kind: "invalid" });
+  });
+});
+
+describe("resolveOutputSource", () => {
+  it("maps every boundary of the enum table to the matching MixerOutputSourceRef", () => {
+    expect(resolveOutputSource(0)).toEqual({ kind: "off" });
+    expect(resolveOutputSource(1)).toEqual({ kind: "main", side: "L" });
+    expect(resolveOutputSource(2)).toEqual({ kind: "main", side: "R" });
+    expect(resolveOutputSource(3)).toEqual({ kind: "main", side: "C" });
+    expect(resolveOutputSource(4)).toEqual({ kind: "bus", bus: 1 });
+    expect(resolveOutputSource(19)).toEqual({ kind: "bus", bus: 16 });
+    expect(resolveOutputSource(20)).toEqual({ kind: "matrix", matrix: 1 });
+    expect(resolveOutputSource(25)).toEqual({ kind: "matrix", matrix: 6 });
+    expect(resolveOutputSource(26)).toEqual({ kind: "direct-out-channel", channel: 1 });
+    expect(resolveOutputSource(57)).toEqual({ kind: "direct-out-channel", channel: 32 });
+    expect(resolveOutputSource(58)).toEqual({ kind: "direct-out-aux", aux: 1 });
+    expect(resolveOutputSource(65)).toEqual({ kind: "direct-out-aux", aux: 8 });
+    expect(resolveOutputSource(66)).toEqual({ kind: "direct-out-fx", ret: 1 });
+    expect(resolveOutputSource(73)).toEqual({ kind: "direct-out-fx", ret: 8 });
+    expect(resolveOutputSource(74)).toEqual({ kind: "monitor", side: "L" });
+    expect(resolveOutputSource(75)).toEqual({ kind: "monitor", side: "R" });
+    expect(resolveOutputSource(76)).toEqual({ kind: "talkback" });
+  });
+
+  it("degrades out-of-range or non-integer values to off, logging exactly one warning", () => {
+    for (const value of [-1, 77, 999, 1.5]) {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(resolveOutputSource(value)).toEqual({ kind: "off" });
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    }
+  });
+
+  it("does not warn on the console's ordinary 0 = OFF", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveOutputSource(0)).toEqual({ kind: "off" });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("end-to-end against the venue's expected values", () => {
+    // Out 13 <- Bus 1 (4), Out 15 <- Main L (1), Out 16 <- Main R (2),
+    // Out 14 <- M/C (3), Out 1 <- Matrix 1 (20) — docs/installation.md.
+    expect(resolveOutputSource(4)).toEqual({ kind: "bus", bus: 1 });
+    expect(resolveOutputSource(1)).toEqual({ kind: "main", side: "L" });
+    expect(resolveOutputSource(2)).toEqual({ kind: "main", side: "R" });
+    expect(resolveOutputSource(3)).toEqual({ kind: "main", side: "C" });
+    expect(resolveOutputSource(20)).toEqual({ kind: "matrix", matrix: 1 });
   });
 });
 
@@ -307,6 +410,45 @@ describe("X32State", () => {
     const state = new X32State();
     expect(() => state.setChannelSource(0, 5)).toThrow(/Invalid X32 channel/);
     expect(() => state.setChannelSource(33, 5)).toThrow(/Invalid X32 channel/);
+  });
+
+  it("resolves an output from its applied raw source value", () => {
+    const state = new X32State();
+    state.setOutputSource(13, 4); // Bus 1
+    expect(state.resolveOutput(13)).toEqual({ kind: "bus", bus: 1 });
+  });
+
+  it("toSnapshot returns all 16 outputs, resolved", () => {
+    const state = new X32State();
+    state.setOutputSource(13, 4); // Bus 1
+    state.setOutputSource(15, 1); // Main L
+    state.setOutputSource(16, 2); // Main R
+    state.setOutputSource(14, 3); // M/C
+    state.setOutputSource(1, 20); // Matrix 1
+    const snapshot = state.toSnapshot();
+
+    expect(snapshot.outputs).toHaveLength(16);
+    expect(snapshot.outputs?.[0]).toEqual({ output: 1, source: { kind: "matrix", matrix: 1 } });
+    expect(snapshot.outputs?.[12]).toEqual({ output: 13, source: { kind: "bus", bus: 1 } });
+    expect(snapshot.outputs?.[13]).toEqual({ output: 14, source: { kind: "main", side: "C" } });
+    expect(snapshot.outputs?.[14]).toEqual({ output: 15, source: { kind: "main", side: "L" } });
+    expect(snapshot.outputs?.[15]).toEqual({ output: 16, source: { kind: "main", side: "R" } });
+    // Untouched output still resolves — default source value 0 -> off.
+    expect(snapshot.outputs?.[1]).toEqual({ output: 2, source: { kind: "off" } });
+  });
+
+  it("stores OUT routing block values without them affecting resolution", () => {
+    const state = new X32State();
+    state.setOutputSource(1, 1); // Main L
+    state.setOutRoutingBlock(0, 5); // arbitrary raw value — gather-only
+    expect(state.outRoutingBlock(0)).toBe(5);
+    expect(state.resolveOutput(1)).toEqual({ kind: "main", side: "L" });
+  });
+
+  it("rejects an out-of-range output number (a caller bug, not wire data)", () => {
+    const state = new X32State();
+    expect(() => state.setOutputSource(0, 5)).toThrow(/Invalid X32 output/);
+    expect(() => state.setOutputSource(17, 5)).toThrow(/Invalid X32 output/);
   });
 });
 

@@ -11,7 +11,7 @@
 import type { MixerEvent } from "@x32/mixer-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { metersReplyAddress, metersSubscribeAddress } from "./addresses";
+import { metersReplyAddress, metersSubscribeAddress, outRoutingBlockAddress, outputMainSourceAddress } from "./addresses";
 import type { OscArgument } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import type { UdpTransport } from "./transport";
@@ -95,6 +95,8 @@ function defaultAutoReply(overrides: Record<string, OscArgument[] | undefined> =
       const channel = Number(address.slice(4, 6));
       return [{ type: "i", value: channel }];
     }
+    if (address.startsWith("/outputs/main/") && address.endsWith("/src")) return [{ type: "i", value: 0 }]; // off, unused by default
+    if (address.startsWith("/config/routing/OUT/")) return [{ type: "i", value: 0 }]; // gather-only, value irrelevant
     if (address === "/-stat/selidx") return [{ type: "i", value: 40 }]; // FX return -> no channel selected
     if (address === "/-stat/aes50/A") return [{ type: "s", value: "AA00000000" }]; // 2 x S16
     if (address === "/-stat/aes50/B") return [{ type: "s", value: "" }]; // unused
@@ -113,6 +115,11 @@ const EXPECTED_READ_SEQUENCE = [
   ...Array.from({ length: 32 }, (_, i) => `/config/userrout/in/${pad2(i + 1)}`),
   ...Array.from({ length: 32 }, (_, i) => `/ch/${pad2(i + 1)}/config/name`),
   ...Array.from({ length: 32 }, (_, i) => `/ch/${pad2(i + 1)}/config/source`),
+  ...Array.from({ length: 16 }, (_, i) => `/outputs/main/${pad2(i + 1)}/src`),
+  "/config/routing/OUT/1-4",
+  "/config/routing/OUT/5-8",
+  "/config/routing/OUT/9-12",
+  "/config/routing/OUT/13-16",
   "/-stat/selidx",
   "/-stat/aes50/A",
   "/-stat/aes50/B",
@@ -154,6 +161,11 @@ describe("connect()", () => {
       source: { kind: "aes50", bus: "A", channel: 12 },
     });
     expect(snapshot.selectedChannel).toBeNull(); // selidx 40 -> FX return, no channel
+
+    // 16 output reads, all defaulting to 0 (off) — see defaultAutoReply.
+    expect(snapshot.outputs).toHaveLength(16);
+    expect(snapshot.outputs?.[0]).toEqual({ output: 1, source: { kind: "off" } });
+    expect(snapshot.outputs?.[15]).toEqual({ output: 16, source: { kind: "off" } });
 
     // /xremote renewal starts right after the snapshot completes.
     expect(transport.sent[EXPECTED_READ_SEQUENCE.length]).toEqual({
@@ -322,6 +334,96 @@ describe("live pushes", () => {
     expect(playbackWarnings).toHaveLength(1);
 
     warn.mockRestore();
+  });
+});
+
+describe("output routing (issue #10)", () => {
+  it("snapshot reads populate the venue's expected output sources", async () => {
+    const transport = new FakeTransport();
+    // Out 13 <- Bus 1 (4), Out 15 <- Main L (1), Out 16 <- Main R (2),
+    // Out 14 <- M/C (3), Out 1 <- Matrix 1 (20) — docs/installation.md's venue facts.
+    transport.autoReply = defaultAutoReply({
+      [outputMainSourceAddress(13)]: [{ type: "i", value: 4 }],
+      [outputMainSourceAddress(15)]: [{ type: "i", value: 1 }],
+      [outputMainSourceAddress(16)]: [{ type: "i", value: 2 }],
+      [outputMainSourceAddress(14)]: [{ type: "i", value: 3 }],
+      [outputMainSourceAddress(1)]: [{ type: "i", value: 20 }],
+    });
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.outputs?.[12]).toEqual({ output: 13, source: { kind: "bus", bus: 1 } });
+    expect(snapshot.outputs?.[14]).toEqual({ output: 15, source: { kind: "main", side: "L" } });
+    expect(snapshot.outputs?.[15]).toEqual({ output: 16, source: { kind: "main", side: "R" } });
+    expect(snapshot.outputs?.[13]).toEqual({ output: 14, source: { kind: "main", side: "C" } });
+    expect(snapshot.outputs?.[0]).toEqual({ output: 1, source: { kind: "matrix", matrix: 1 } });
+  });
+
+  it("a pushed output source change affects exactly its own output", async () => {
+    const { transport, events } = await connectedClient();
+
+    transport.push(outputMainSourceAddress(13), [{ type: "i", value: 4 }]); // -> Bus 1
+
+    expect(events).toEqual([
+      { type: "output-source-changed", output: 13, source: { kind: "bus", bus: 1 } },
+    ]);
+    expect((await client!.getSnapshot()).outputs?.[12]).toEqual({
+      output: 13,
+      source: { kind: "bus", bus: 1 },
+    });
+  });
+
+  it("re-sending an unchanged output source value emits zero events", async () => {
+    const { transport, events } = await connectedClient();
+
+    // Every output defaults to 0 (off) in defaultAutoReply.
+    transport.push(outputMainSourceAddress(5), [{ type: "i", value: 0 }]);
+
+    expect(events).toEqual([]);
+  });
+
+  it("degrades an out-of-range pushed value to off, with a warning, and still emits the change", async () => {
+    const { transport, events } = await connectedClient();
+
+    // Move output 2 off its default "off" first, so the invalid value below
+    // actually changes the resolved source rather than being suppressed as
+    // a no-op (off -> off).
+    transport.push(outputMainSourceAddress(2), [{ type: "i", value: 4 }]); // -> Bus 1
+    events.length = 0;
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      transport.push(outputMainSourceAddress(2), [{ type: "i", value: 999 }]);
+
+      expect(events).toEqual([{ type: "output-source-changed", output: 2, source: { kind: "off" } }]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("reads and logs /config/routing/OUT/* at snapshot time without it affecting resolved output state", async () => {
+    const transport = new FakeTransport();
+    transport.autoReply = defaultAutoReply({
+      [outRoutingBlockAddress(0)]: [{ type: "i", value: 7 }], // some non-zero raw value
+      [outputMainSourceAddress(1)]: [{ type: "i", value: 1 }], // Main L, independent of the block above
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    client = new X32MixerClient(transport, { requestTimeoutMs: 20, maxRetries: 1 });
+
+    await client.connect();
+
+    const outRoutingLogs = log.mock.calls.filter(([message]) =>
+      String(message).includes("/config/routing/OUT/*"),
+    );
+    expect(outRoutingLogs).toHaveLength(4); // one per block, logged once each
+
+    const snapshot = await client.getSnapshot();
+    expect(snapshot.outputs?.[0]).toEqual({ output: 1, source: { kind: "main", side: "L" } });
+
+    log.mockRestore();
   });
 });
 
