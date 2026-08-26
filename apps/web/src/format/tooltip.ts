@@ -56,6 +56,7 @@ export function formatEndpoint(
   switch (ref.kind) {
     case "panel-input":
     case "stagebox-input":
+    case "local-input":
       return `${deviceLabel(ref.device, installation)} · Input ${ref.input}`;
     case "aes50-channel":
       return `AES50-${ref.bus} ${ref.channel}`;

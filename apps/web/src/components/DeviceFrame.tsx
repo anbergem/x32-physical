@@ -14,7 +14,7 @@ export function DeviceFrame({
   children,
   outputs,
 }: {
-  kind: "panel" | "stagebox";
+  kind: "panel" | "stagebox" | "console";
   label: string;
   /** Short static fact, e.g. socket count or the box's AES50 range. */
   meta: string;

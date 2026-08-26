@@ -16,7 +16,7 @@ import {
 } from "./endpoints";
 import type { Aes50Bus, DeviceId, EndpointId } from "./ids";
 
-export type DeviceKind = "passive-panel" | "stagebox" | "destination";
+export type DeviceKind = "passive-panel" | "stagebox" | "destination" | "console";
 
 export interface Device {
   id: DeviceId;
@@ -193,6 +193,10 @@ export function aes50ChannelsByEndpoint(
 
   const result = new Map<EndpointId, Aes50ChannelRef>();
   for (const device of installation.devices) {
+    // Only panels and stageboxes ever sit on this map: a console input never
+    // reaches AES50 (it is not cascaded onto the bus), and a destination has
+    // no input sockets at all.
+    if (device.kind !== "passive-panel" && device.kind !== "stagebox") continue;
     if (!Number.isInteger(device.inputs) || device.inputs < 1) continue;
     for (let input = 1; input <= device.inputs; input += 1) {
       const ref: EndpointRef =

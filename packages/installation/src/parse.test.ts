@@ -517,3 +517,74 @@ connections: []
     });
   });
 });
+
+describe("parseInstallationYaml: console device", () => {
+  const CONSOLE_YAML = `version: 1
+
+devices:
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+  console:
+    kind: console
+    label: "Mikserpult (FOH)"
+    inputs: 32
+
+connections:
+  - from: { device: front-left, input: 3 }
+    to: { device: console, input: 5 }
+`;
+
+  it("parses kind: console and maps it to the domain device", () => {
+    const installation = parseInstallationYaml(CONSOLE_YAML);
+    const console_ = installation.devices.find((device) => device.id === "console");
+
+    expect(console_).toEqual({
+      id: "console",
+      kind: "console",
+      label: "Mikserpult (FOH)",
+      inputs: 32,
+    });
+  });
+
+  it("maps a panel → console-input connection to local-input, not stagebox-input", () => {
+    const installation = parseInstallationYaml(CONSOLE_YAML);
+
+    expect(installation.connections).toContainEqual({
+      from: { kind: "panel-input", device: "front-left", input: 3 },
+      to: { kind: "local-input", device: "console", input: 5 },
+    });
+  });
+
+  it("rejects a console device declaring aes50 at the Zod layer", () => {
+    const yaml = CONSOLE_YAML.replace(
+      '    label: "Mikserpult (FOH)"',
+      '    label: "Mikserpult (FOH)"\n    aes50: { bus: A, offset: 0 }',
+    );
+
+    let message = "";
+    try {
+      parseInstallationYaml(yaml);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain("Invalid installation schema");
+    expect(message).toContain("devices.console");
+  });
+
+  it("loads the real config/installation.yaml with a 32-input console device", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const path = fileURLToPath(
+      new URL("../../../config/installation.yaml", import.meta.url),
+    );
+    const text = await readFile(path, "utf8");
+    const installation = parseInstallationYaml(text, path);
+    const console_ = installation.devices.find((device) => device.kind === "console");
+
+    expect(console_).toMatchObject({ id: "console", kind: "console", inputs: 32 });
+  });
+});

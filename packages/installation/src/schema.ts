@@ -74,6 +74,17 @@ const passivePanelSchema = z.strictObject({
 });
 
 /**
+ * The console's own local XLR inputs (issue #2), as a device: `label` and
+ * `inputs` like a passive panel, but no `aes50` — the desk's local inputs
+ * never reach an AES50 bus. At most one console device is a domain rule, not
+ * a shape one.
+ */
+const consoleSchema = z.strictObject({
+  kind: z.literal("console"),
+  ...deviceFields,
+});
+
+/**
  * A powered speaker or zone: label only. No `inputs`, `aes50`, `outputs` or
  * `outputBlock` — a destination is a device-level endpoint with no sockets of
  * its own, and `inputs: 0` is an internal detail the mapper supplies, never
@@ -88,6 +99,7 @@ const deviceSchema = z.discriminatedUnion("kind", [
   stageboxSchema,
   passivePanelSchema,
   destinationSchema,
+  consoleSchema,
 ]);
 
 /**
@@ -135,7 +147,9 @@ const fromEndpointSchema = z
 /**
  * One end of a cabled connection. `to` may be:
  *
- * - `{ device, input }` — a stagebox input socket (unchanged from v1).
+ * - `{ device, input }` — a stagebox input socket (unchanged from v1) or,
+ *   since issue #2, a console local-input socket. Which one depends on the
+ *   named device's declared `kind`.
  * - `{ device }` alone — a destination device, which has no socket number of
  *   its own.
  *

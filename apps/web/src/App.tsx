@@ -15,6 +15,7 @@
 import { deviceId } from "@x32/domain";
 
 import { ConnectionStatus } from "./components/ConnectionStatus";
+import { ConsoleInputs } from "./components/ConsoleInputs";
 import { ConsoleOutputs } from "./components/ConsoleOutputs";
 import { Destinations } from "./components/Destinations";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
@@ -62,6 +63,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
 
         <div className="mixer-section">
           <Mixer />
+          <ConsoleInputs deviceId={deviceId("console")} />
           <ConsoleOutputs />
         </div>
 

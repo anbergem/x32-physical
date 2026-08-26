@@ -7,6 +7,7 @@
  * ```text
  * panel:front-left:3        # physical panel socket
  * stagebox:stagebox-1:3     # stagebox input socket
+ * local:console:3           # console XLR local input socket
  * aes50:A:19                # AES50 bus channel (bus-level, box-agnostic)
  * mixer:12                  # X32 input channel
  * out:13                    # X32 output slot (console Out N)
@@ -15,8 +16,8 @@
  * dest:main-left            # destination device (powered speaker/zone)
  * ```
  *
- * The input-side kinds (`panel-input`, `stagebox-input`, `aes50-channel`,
- * `mixer-channel`) and the output-side kinds (`mixer-output`,
+ * The input-side kinds (`panel-input`, `stagebox-input`, `local-input`,
+ * `aes50-channel`, `mixer-channel`) and the output-side kinds (`mixer-output`,
  * `console-output`, `stagebox-output`, `destination`) are disjoint: an
  * `EndpointId` never means both an input and an output endpoint, and a single
  * `RouteIndex` or `OutputRouteIndex` only ever contains nodes of its own side
@@ -40,6 +41,17 @@ export interface PanelInputRef {
 
 export interface StageboxInputRef {
   kind: "stagebox-input";
+  device: DeviceId;
+  input: number;
+}
+
+/**
+ * A console XLR local input socket (IN 1–32 on the desk itself). Distinct
+ * from `stagebox-input`: it belongs to the `console` device, not a stagebox,
+ * and it never reaches an AES50 bus.
+ */
+export interface LocalInputRef {
+  kind: "local-input";
   device: DeviceId;
   input: number;
 }
@@ -91,6 +103,7 @@ export interface DestinationRef {
 export type EndpointRef =
   | PanelInputRef
   | StageboxInputRef
+  | LocalInputRef
   | Aes50ChannelRef
   | MixerChannelRef
   | MixerOutputRef
@@ -151,6 +164,14 @@ export function stageboxInput(device: string, input: number): StageboxInputRef {
   };
 }
 
+export function localInput(device: string, input: number): LocalInputRef {
+  return {
+    kind: "local-input",
+    device: deviceId(device),
+    input: socketNumber(input, "local-input"),
+  };
+}
+
 export function aes50Channel(bus: string, channel: number): Aes50ChannelRef {
   return {
     kind: "aes50-channel",
@@ -199,6 +220,8 @@ export function endpointId(ref: EndpointRef): EndpointId {
       return `panel:${deviceId(ref.device)}:${socketNumber(ref.input, ref.kind)}` as EndpointId;
     case "stagebox-input":
       return `stagebox:${deviceId(ref.device)}:${socketNumber(ref.input, ref.kind)}` as EndpointId;
+    case "local-input":
+      return `local:${deviceId(ref.device)}:${socketNumber(ref.input, ref.kind)}` as EndpointId;
     case "aes50-channel":
       return `aes50:${aes50Bus(ref.bus)}:${aes50ChannelNumber(ref.channel)}` as EndpointId;
     case "mixer-channel":
@@ -225,6 +248,8 @@ export function cloneEndpoint(ref: EndpointRef): EndpointRef {
       return { kind: ref.kind, device: ref.device, input: ref.input };
     case "stagebox-input":
       return { kind: ref.kind, device: ref.device, input: ref.input };
+    case "local-input":
+      return { kind: ref.kind, device: ref.device, input: ref.input };
     case "aes50-channel":
       return { kind: ref.kind, bus: ref.bus, channel: ref.channel };
     case "mixer-channel":
@@ -244,12 +269,13 @@ export function cloneEndpoint(ref: EndpointRef): EndpointRef {
 const KIND_ORDER: Record<EndpointRef["kind"], number> = {
   "panel-input": 0,
   "stagebox-input": 1,
-  "aes50-channel": 2,
-  "mixer-channel": 3,
-  "mixer-output": 4,
-  "console-output": 5,
-  "stagebox-output": 6,
-  destination: 7,
+  "local-input": 2,
+  "aes50-channel": 3,
+  "mixer-channel": 4,
+  "mixer-output": 5,
+  "console-output": 6,
+  "stagebox-output": 7,
+  destination: 8,
 };
 
 /** Device id or bus letter — whatever groups endpoints of one kind. */
@@ -257,6 +283,7 @@ function groupOf(ref: EndpointRef): string {
   switch (ref.kind) {
     case "panel-input":
     case "stagebox-input":
+    case "local-input":
     case "stagebox-output":
     case "destination":
       return ref.device;
@@ -273,6 +300,7 @@ function numberOf(ref: EndpointRef): number {
   switch (ref.kind) {
     case "panel-input":
     case "stagebox-input":
+    case "local-input":
       return ref.input;
     case "aes50-channel":
     case "mixer-channel":
@@ -349,6 +377,11 @@ export function parseEndpointId(value: string): EndpointRef {
         parseNumber(parts[2], value, expected),
       );
     }
+    case "local": {
+      const expected = "local:<device>:<input>";
+      if (parts.length !== 3) throw malformed(value, expected);
+      return localInput(parts[1] ?? "", parseNumber(parts[2], value, expected));
+    }
     case "aes50": {
       const expected = "aes50:<A|B>:<channel>";
       if (parts.length !== 3) throw malformed(value, expected);
@@ -388,8 +421,8 @@ export function parseEndpointId(value: string): EndpointRef {
     default:
       throw new Error(
         `Malformed endpoint id "${value}": unknown endpoint kind ` +
-          `"${parts[0] ?? ""}" (expected panel, stagebox, aes50, mixer, out, ` +
-          `console-out, stagebox-out or dest).`,
+          `"${parts[0] ?? ""}" (expected panel, stagebox, local, aes50, mixer, ` +
+          `out, console-out, stagebox-out or dest).`,
       );
   }
 }

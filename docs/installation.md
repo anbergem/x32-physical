@@ -52,9 +52,12 @@ Norwegian: **V** = venstre (left), **H** = høyre (right).
 - The direct-socket stage labels match the box input numbers ("H 12" =
   Stagebox H input 12 = A28), which is what the UI's dual labels display.
 - The desk also has three local inputs in use at FOH (IN 1–3: Bøyle,
-  Håndholdt 1/2). Console-local sockets are outside the stage topology and
-  surface in the UI as "Local N" sources; modeling the desk as a device is a
-  possible future schema extension.
+  Håndholdt 1/2, → CH1–CH3). Console-local sockets are modelled as a
+  `console` device (issue #2): `local:<device>:<n>` endpoints, declared with
+  all 32 inputs even though only three are patched — an unused one renders
+  like any other unconsumed socket. The console block sits with the mixer
+  section in the schematic, not the stage areas, since it is physically at
+  FOH.
 - Channel assignments on the sheet (Vokal V1 → C5, …) are live mixer
   configuration, read from the console at runtime — never recorded in YAML.
 
@@ -156,10 +159,14 @@ connections:
   ≥ 1> }` (a stagebox XLR out) or `{ consoleOutput: <int ≥ 1> }` (a console
   XLR out, by number alone — see below). A connection's `to` may now also be
   `{ device: <destination> }`, with no socket number.
-- **Console XLR outs are addressed by number, not a console device.** A
-  console device is deliberately deferred (it is entangled with modelling the
-  console's own local inputs, a separate future extension) — see "Real panel
-  wiring" above for the desk's local-input sockets.
+- **Console XLR outs stay addressed by number, not the console device.** The
+  `console` device (issue #2) exists for the desk's own local *inputs* only
+  — see "Real panel wiring" above. Console outputs remain addressed by bare
+  number (`consoleOutput: <int>`): migrating them onto the device too would
+  churn schema and UI that already work correctly, for no user-visible gain.
+  The resulting asymmetry — inputs own a device, outputs are numbered — is
+  accepted; both are truthful, and unifying them is a cosmetic refactor for
+  whenever someone next touches that area.
 - **Slot→physical-output is never written in YAML; it is always derived.**
   For a stagebox, from `outputBlock.start` (mirroring `aes50.offset` on the
   input side): mixer-output `start + n − 1` → the box's XLR out `n`, for its
@@ -177,6 +184,39 @@ which fields each device kind may carry. Every semantic rule (output-block
 bounds and overlap, in-range socket/output numbers, one destination per
 physical output, one console XLR per Out slot) belongs to
 `validateInstallation` in `@x32/domain` and is not restated in the schema.
+
+### Console input addition (issue #2)
+
+```yaml
+devices:
+  console:
+    kind: console
+    label: "Mikserpult (FOH)"
+    inputs: 32                  # all 32 declared, though this venue uses 3
+
+connections:
+  # panel socket -> console local input (a wall panel patched into the desk)
+  - from: { device: front-left, input: 4 }
+    to:   { device: console, input: 7 }
+```
+
+- New device kind `console`: `label` and `inputs` like a passive panel, but
+  **must not** carry `aes50` — the desk's own local inputs never reach an
+  AES50 bus. At most one `console` device is a domain rule.
+- A connection's `to` may reference a console device the same `{ device,
+  input }` shape as a stagebox input; which domain endpoint it becomes
+  (`local-input` vs `stagebox-input`) depends on the named device's declared
+  `kind`, resolved by the loader, not the shape. A console input may have at
+  most one feeding panel socket, mirroring the stagebox-input rule.
+- `MixerSourceRef`'s `local` variant (console XLR 1–32) resolves to this
+  device's `local:<device>:<n>` endpoint when the installation declares a
+  console device with `n` in range; with none declared, or `n` out of range,
+  the channel is unmapped exactly as before this issue — never a throw.
+- **Id form `local:<device>:<n>`**, not `console:<n>`: it matches the
+  `MixerSourceRef` kind it resolves from, the same convention `aes50:<bus>:<n>`
+  follows for the `aes50` source kind.
+- Console *outputs* are unaffected and stay addressed by bare number — see
+  "Console XLR outs stay addressed by number" above.
 
 ## Editing this file at the venue (issue #3)
 

@@ -6,6 +6,7 @@ import {
   consoleOutput,
   destination,
   endpointId,
+  localInput,
   mixerChannel,
   mixerOutput,
   panelInput,
@@ -17,6 +18,7 @@ import {
 const CANONICAL: Array<[string, EndpointRef]> = [
   ["panel:front-left:3", panelInput("front-left", 3)],
   ["stagebox:stagebox-1:3", stageboxInput("stagebox-1", 3)],
+  ["local:console:3", localInput("console", 3)],
   ["aes50:A:19", aes50Channel("A", 19)],
   ["aes50:B:48", aes50Channel("B", 48)],
   ["mixer:12", mixerChannel(12)],
@@ -31,6 +33,12 @@ describe("endpoint constructors", () => {
     expect(() => panelInput("front-left", 0)).toThrow(/positive integer/);
     expect(() => stageboxInput("stagebox-1", -1)).toThrow(/positive integer/);
     expect(() => panelInput("front-left", 2.5)).toThrow(/positive integer/);
+  });
+
+  it("rejects out-of-range/non-integer local inputs", () => {
+    expect(() => localInput("console", 0)).toThrow(/positive integer/);
+    expect(() => localInput("console", -1)).toThrow(/positive integer/);
+    expect(() => localInput("console", 2.5)).toThrow(/positive integer/);
   });
 
   it("validates AES50 bus and channel range", () => {
@@ -90,6 +98,11 @@ describe("parseEndpointId", () => {
     "panel:front-left:-1",
     "panel:front-left:1.5",
     "stagebox:stagebox-1",
+    "local:console",
+    "local:console:0",
+    "local:console:03",
+    "local::3",
+    "local:console:3:extra",
     "aes50:C:1",
     "aes50:A:49",
     "aes50:A",

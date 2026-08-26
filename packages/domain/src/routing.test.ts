@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { venueInstallation } from "./__fixtures__/venue";
-import { panelInput, stageboxInput } from "./endpoints";
+import { localInput, panelInput, stageboxInput } from "./endpoints";
 import type { EndpointId } from "./ids";
 import { MIXER_CHANNEL_COUNT, deviceId, mixerChannelId } from "./ids";
 import type { MixerChannelState, MixerSourceRef } from "./mixer";
@@ -49,6 +49,30 @@ function routingInstallation(): Installation {
 /** An AES50-A source. */
 function a(channel: number): MixerSourceRef {
   return { kind: "aes50", bus: "A", channel };
+}
+
+/** A console local-input source. */
+function l(input: number): MixerSourceRef {
+  return { kind: "local", input };
+}
+
+/**
+ * `routingInstallation` plus a declared 32-input console device, with panel
+ * socket 5 (otherwise unused there) cabled to console input 7 so the
+ * panel → console-input path has coverage too.
+ */
+function routingInstallationWithConsole(): Installation {
+  const base = routingInstallation();
+  return {
+    devices: [
+      ...base.devices,
+      { id: deviceId("console"), kind: "console", label: "Console", inputs: 32 },
+    ],
+    connections: [
+      ...base.connections,
+      { from: panelInput("front-left", 5), to: localInput("console", 7) },
+    ],
+  };
 }
 
 /** A full 32-channel state; channels not named are OFF. */
@@ -328,6 +352,56 @@ describe("buildRouteIndex: cascade and direct stage sockets", () => {
       "mixer:9",
     ]);
     expect(route.physicalInputs).toEqual([stageboxInput("stagebox-1", 9)]);
+  });
+});
+
+describe("buildRouteIndex: console local inputs", () => {
+  it("resolves a channel on local 3 to the console's local-input endpoint", () => {
+    const index = buildRouteIndex(routingInstallationWithConsole(), channels({ 1: l(3) }));
+    const route = routeOf(index, 1);
+
+    expect(route.endpoints).toEqual(["local:console:3", "mixer:1"]);
+    expect(route.physicalInputs).toEqual([localInput("console", 3)]);
+    expect(route.unmappedSource).toBeUndefined();
+  });
+
+  it("leaves local 3 unmapped when no console device is declared", () => {
+    const index = buildRouteIndex(routingInstallation(), channels({ 1: l(3) }));
+    const route = routeOf(index, 1);
+
+    expect(route.physicalInputs).toEqual([]);
+    expect(route.unmappedSource).toEqual({ kind: "local", input: 3 });
+  });
+
+  it("leaves local 33 unmapped against a 32-input console", () => {
+    const index = buildRouteIndex(routingInstallationWithConsole(), channels({ 1: l(33) }));
+    const route = routeOf(index, 1);
+
+    expect(route.physicalInputs).toEqual([]);
+    expect(route.unmappedSource).toEqual({ kind: "local", input: 33 });
+  });
+
+  it("traces panel → console input → mixer channel for cabled sockets", () => {
+    const index = buildRouteIndex(routingInstallationWithConsole(), channels({ 1: l(7) }));
+    const route = routeOf(index, 1);
+
+    expect(route.endpoints).toEqual(["panel:front-left:5", "local:console:7", "mixer:1"]);
+    expect(route.physicalInputs).toEqual([panelInput("front-left", 5)]);
+
+    // Hovering the panel socket yields the same channel.
+    const fromPanel = routeAt(index, "panel:front-left:5");
+    expect(fromPanel.mixerChannels).toEqual([1]);
+  });
+
+  it("shares one route between two channels on the same local input, ascending", () => {
+    const index = buildRouteIndex(
+      routingInstallationWithConsole(),
+      channels({ 20: l(3), 4: l(3) }),
+    );
+
+    const route = routeOf(index, 4);
+    expect(route).toBe(routeOf(index, 20));
+    expect(route.mixerChannels).toEqual([4, 20]);
   });
 });
 

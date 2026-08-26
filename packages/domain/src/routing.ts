@@ -22,18 +22,19 @@
  *   the installation loader, or `assertValidInstallation`.
  */
 
-import type { Aes50ChannelRef, EndpointRef } from "./endpoints";
+import type { Aes50ChannelRef, EndpointRef, LocalInputRef } from "./endpoints";
 import {
   aes50Channel,
   cloneEndpoint,
   compareEndpoints,
   endpointId,
+  localInput,
   mixerChannel,
   panelInput,
 } from "./endpoints";
 import type { Graph, GraphNode } from "./graph";
 import { addEdge, addNode, createGraph, sortAdjacency, traceFrom } from "./graph";
-import type { Aes50Bus, EndpointId, MixerChannelId } from "./ids";
+import type { EndpointId, MixerChannelId } from "./ids";
 import {
   AES50_CHANNEL_COUNT,
   MIXER_CHANNEL_COUNT,
@@ -73,25 +74,35 @@ export interface RouteIndex {
 }
 
 function isPhysical(ref: EndpointRef): boolean {
-  return ref.kind === "panel-input" || ref.kind === "stagebox-input";
+  return (
+    ref.kind === "panel-input" ||
+    ref.kind === "stagebox-input" ||
+    ref.kind === "local-input"
+  );
 }
 
 /**
  * The static graph: every derived topology edge (the domain owns the
  * `deriveStaticEdges` call — architecture.md §3), plus a node for every
- * declared panel socket so that an uncabled one still resolves to something.
+ * declared panel socket and console local-input socket so that an uncabled
+ * one still resolves to something.
  */
 function buildStaticGraph(installation: Installation): Graph {
   const graph: Graph = createGraph();
 
   for (const device of installation.devices) {
-    if (device.kind !== "passive-panel") continue;
+    if (device.kind !== "passive-panel" && device.kind !== "console") continue;
     // A bound on this loop, not a validation substitute: an unvalidated
     // installation has already thrown by the time its stagebox edges are
     // derived below. `validateInstallation` is what rejects a bad input count.
     if (!Number.isInteger(device.inputs) || device.inputs < 1) continue;
     for (let input = 1; input <= device.inputs; input += 1) {
-      addNode(graph, panelInput(device.id, input));
+      addNode(
+        graph,
+        device.kind === "passive-panel"
+          ? panelInput(device.id, input)
+          : localInput(device.id, input),
+      );
     }
   }
 
@@ -172,10 +183,45 @@ function aes50EndpointOf(source: MixerSourceRef): Aes50ChannelRef | undefined {
   return aes50Channel(source.bus, source.channel);
 }
 
-interface Aes50Group {
-  ref: Aes50ChannelRef;
-  bus: Aes50Bus;
-  channel: number;
+/**
+ * The console's `local-input` endpoint a source maps to, or `undefined` when
+ * no `console` device is declared or the input number exceeds what it
+ * declares — both are handled as "no physical mapping" rather than as an
+ * error (scope step 3).
+ */
+function localEndpointOf(
+  installation: Installation,
+  source: MixerSourceRef,
+): LocalInputRef | undefined {
+  if (source.kind !== "local") return undefined;
+  const consoleDevice = installation.devices.find((device) => device.kind === "console");
+  if (consoleDevice === undefined) return undefined;
+  if (
+    !Number.isInteger(source.input) ||
+    source.input < 1 ||
+    source.input > consoleDevice.inputs
+  ) {
+    return undefined;
+  }
+  return localInput(consoleDevice.id, source.input);
+}
+
+/**
+ * The physical endpoint a source maps to (AES50 bus channel or console
+ * local-input), or `undefined` for a source with no physical mapping at all
+ * (card, aux, usb, off, …).
+ */
+function physicalEndpointOf(
+  installation: Installation,
+  source: MixerSourceRef,
+): Aes50ChannelRef | LocalInputRef | undefined {
+  return aes50EndpointOf(source) ?? localEndpointOf(installation, source);
+}
+
+interface PhysicalGroup {
+  ref: Aes50ChannelRef | LocalInputRef;
+  /** The original source, reused verbatim as `unmappedSource` on a dead end. */
+  source: MixerSourceRef;
   consumers: MixerChannelId[];
 }
 
@@ -206,19 +252,21 @@ export function buildRouteIndex(
   }
   const ordered = [...states.values()].sort((a, b) => a.channel - b.channel);
 
-  // Dynamic edges: aes50 → mixer channel, one group per distinct AES50 source.
+  // Dynamic edges: aes50/local-input → mixer channel, one group per distinct
+  // physical source.
   //
-  // Only AES50 consumers are grouped into a shared route; two channels off the
-  // same card input stay two routes. Sharing exists so that hovering an
-  // endpoint on a path co-highlights every channel reachable from it — and a
-  // non-AES50 source has no such endpoint to hover. Whether two channels
-  // happen to share a mixer-internal source is a question about the mixer, not
-  // about this venue's physical wiring, and is out of this tool's scope.
-  const groups = new Map<EndpointId, Aes50Group>();
+  // Only AES50 and declared-local consumers are grouped into a shared route;
+  // two channels off the same card input stay two routes. Sharing exists so
+  // that hovering an endpoint on a path co-highlights every channel reachable
+  // from it — and a source with no physical endpoint has no such endpoint to
+  // hover. Whether two channels happen to share a mixer-internal source is a
+  // question about the mixer, not about this venue's physical wiring, and is
+  // out of this tool's scope.
+  const groups = new Map<EndpointId, PhysicalGroup>();
   const unmapped: MixerChannelState[] = [];
 
   for (const state of ordered) {
-    const ref = aes50EndpointOf(state.source);
+    const ref = physicalEndpointOf(installation, state.source);
     if (ref === undefined) {
       unmapped.push(state);
       continue;
@@ -226,8 +274,7 @@ export function buildRouteIndex(
     const id = endpointId(ref);
     const group = groups.get(id) ?? {
       ref,
-      bus: ref.bus,
-      channel: ref.channel,
+      source: state.source,
       consumers: [],
     };
     group.consumers.push(state.channel);
@@ -242,20 +289,18 @@ export function buildRouteIndex(
     byEndpoint: new Map(),
   };
 
-  // 1. Consumed AES50 sources: one shared route per distinct bus channel.
+  // 1. Consumed AES50/local sources: one shared route per distinct physical
+  //    endpoint.
   const sortedGroups = [...groups.values()].sort((a, b) =>
     compareEndpoints(a.ref, b.ref),
   );
   for (const group of sortedGroups) {
     const route = makeRoute(graph, trace(graph, group.ref), group.consumers);
     // No stagebox occupies this bus channel: the mixer pulls from a source
-    // that reaches no physical socket.
+    // that reaches no physical socket. (A resolved local-input always has
+    // itself as a physical entry point, so this never fires for `local`.)
     if (route.physicalInputs.length === 0) {
-      route.unmappedSource = {
-        kind: "aes50",
-        bus: group.bus,
-        channel: group.channel,
-      };
+      route.unmappedSource = group.source;
     }
     register(index, route);
   }

@@ -16,6 +16,7 @@ import type {
   ConsoleOutputRef,
   DestinationRef,
   EndpointRef,
+  LocalInputRef,
   MixerOutputRef,
   PanelInputRef,
   StageboxInputRef,
@@ -44,7 +45,9 @@ export type InstallationValidationErrorCode =
   | "physical-output-multiple-destinations"
   | "invalid-output-block"
   | "output-block-overlap"
-  | "unexpected-destination-fields";
+  | "unexpected-destination-fields"
+  | "multiple-console-devices"
+  | "local-input-multiple-sources";
 
 export interface InstallationValidationError {
   code: InstallationValidationErrorCode;
@@ -73,6 +76,7 @@ function describe(ref: EndpointRef): string {
   switch (ref.kind) {
     case "panel-input":
     case "stagebox-input":
+    case "local-input":
       return `${ref.device} input ${ref.input}`;
     case "aes50-channel":
       return `AES50-${ref.bus} channel ${ref.channel}`;
@@ -92,19 +96,25 @@ function describe(ref: EndpointRef): string {
 /** Endpoints that name a device and one of its input sockets. */
 function isDeviceEndpoint(
   ref: EndpointRef,
-): ref is PanelInputRef | StageboxInputRef {
-  return ref.kind === "panel-input" || ref.kind === "stagebox-input";
+): ref is PanelInputRef | StageboxInputRef | LocalInputRef {
+  return (
+    ref.kind === "panel-input" ||
+    ref.kind === "stagebox-input" ||
+    ref.kind === "local-input"
+  );
 }
 
 const DEVICE_KIND_LABEL: Record<DeviceKind, string> = {
   "passive-panel": "passive panel",
   stagebox: "stagebox",
   destination: "destination",
+  console: "console",
 };
 
 const VALID_CONNECTION_PAIRS_DESCRIPTION =
-  "panel-input → stagebox-input, mixer-output → console-output, " +
-  "stagebox-output → destination, or console-output → destination";
+  "panel-input → stagebox-input, panel-input → local-input, " +
+  "mixer-output → console-output, stagebox-output → destination, or " +
+  "console-output → destination";
 
 /**
  * One of the four connection shapes a `from`/`to` pair may take. `deviceKind`
@@ -137,6 +147,12 @@ const CONNECTION_PAIRS: ConnectionPair[] = [
     toKind: "destination",
     toDeviceKind: "destination",
   },
+  {
+    fromKind: "panel-input",
+    toKind: "local-input",
+    fromDeviceKind: "passive-panel",
+    toDeviceKind: "console",
+  },
 ];
 
 /**
@@ -150,6 +166,7 @@ export function validateInstallation(
   const devices = new Map<DeviceId, Device>();
   const ranges: Aes50Range[] = [];
   const outputBlockRanges: OutputBlockRange[] = [];
+  let consoleDevice: Device | undefined;
 
   for (const device of installation.devices) {
     const isDuplicate = devices.has(device.id);
@@ -212,6 +229,30 @@ export function validateInstallation(
           `Passive panel "${device.id}" declares an aes50 mapping: ` +
           `only stageboxes connect to an AES50 bus.`,
       });
+    }
+
+    if (device.kind === "console" && device.aes50 !== undefined) {
+      errors.push({
+        code: "unexpected-aes50",
+        device: device.id,
+        message:
+          `Console "${device.id}" declares an aes50 mapping: only ` +
+          `stageboxes connect to an AES50 bus.`,
+      });
+    }
+
+    if (device.kind === "console") {
+      if (consoleDevice !== undefined) {
+        errors.push({
+          code: "multiple-console-devices",
+          device: device.id,
+          message:
+            `Multiple console devices declared ("${consoleDevice.id}" and ` +
+            `"${device.id}"): at most one console device is allowed.`,
+        });
+      } else {
+        consoleDevice = device;
+      }
     }
 
     if (device.kind === "stagebox" && device.outputBlock !== undefined) {
@@ -295,11 +336,20 @@ export function validateInstallation(
   }
 
   const fedStageboxInputs = new Map<EndpointId, EndpointRef>();
+  const fedLocalInputs = new Map<EndpointId, EndpointRef>();
   const fedConsoleOutputs = new Map<EndpointId, EndpointRef>();
   const fedDestinations = new Map<EndpointId, EndpointRef>();
 
   installation.connections.forEach((connection, index) => {
+    // `panel-input` is `fromKind` for two shapes (stagebox-input and
+    // local-input targets), so match on both `from` and `to` kind first; a
+    // malformed connection (wrong `to` kind) falls back to the first pair
+    // sharing its `fromKind`, which is what produces the "unsupported
+    // connection" error below.
     const pair =
+      CONNECTION_PAIRS.find(
+        (p) => p.fromKind === connection.from.kind && p.toKind === connection.to.kind,
+      ) ??
       CONNECTION_PAIRS.find((p) => p.fromKind === connection.from.kind) ??
       CONNECTION_PAIRS[0]!;
 
@@ -362,6 +412,28 @@ export function validateInstallation(
         return;
       }
       fedConsoleOutputs.set(key, to);
+      return;
+    }
+
+    if (pair === CONNECTION_PAIRS[4]) {
+      // panel-input → local-input: a console input has at most one feeding
+      // panel socket, mirroring the stagebox-input rule above.
+      if (to === undefined) return;
+      const key = endpointId(to);
+      const existing = fedLocalInputs.get(key);
+      if (existing !== undefined) {
+        errors.push({
+          code: "local-input-multiple-sources",
+          device: (to as LocalInputRef).device,
+          connectionIndex: index,
+          message:
+            `Console input "${key}" is fed by more than one panel socket ` +
+            `(${describe(existing)} and ${describe(connection.from)}): ` +
+            `a console input can have at most one feeding socket.`,
+        });
+        return;
+      }
+      if (from !== undefined) fedLocalInputs.set(key, connection.from);
       return;
     }
 
@@ -445,6 +517,7 @@ function checkEndpoint(
   const deviceRef = ref as
     | PanelInputRef
     | StageboxInputRef
+    | LocalInputRef
     | StageboxOutputRef
     | DestinationRef;
   const device = devices.get(deviceRef.device);

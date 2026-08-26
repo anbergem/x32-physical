@@ -789,6 +789,19 @@ body {
   width: fit-content;
 }
 
+/* The console's own local inputs (issue #2): two rows of 16, like the
+   hardware, styled more subtly than the stage panels since most of its 32
+   sockets are unused — dimmer border, no shadow-ish emphasis. */
+.device--console {
+  width: fit-content;
+  border-style: dashed;
+  border-color: var(--line-soft);
+}
+
+.device--console .device__ports {
+  grid-template-columns: repeat(16, auto);
+}
+
 /* The wholesale-block distinction (issue #11's headline correctness detail):
    a socket that carries a block but has nothing cabled to it reads visually
    distinct from a cabled one — dashed border, dimmer number — so it can

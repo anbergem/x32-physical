@@ -18,6 +18,7 @@ import {
   consoleOutput,
   destination,
   deviceId,
+  localInput,
   mixerOutput,
   panelInput,
   stageboxInput,
@@ -133,9 +134,17 @@ function toInstallation(document: InstallationDocument): Installation {
     toDevice(id, device),
   );
 
+  // The `to` endpoint's shape (`{ device, input }`) is identical for a
+  // stagebox input and a console local-input; which domain constructor
+  // applies depends on the named device's declared kind, so the document is
+  // consulted here rather than guessed from the connection alone.
+  const deviceKindById = new Map(
+    Object.entries(document.devices).map(([id, device]) => [id, device.kind]),
+  );
+
   const connections: TopologyEdge[] = document.connections.map((connection) => ({
     from: toFromEndpoint(connection.from),
-    to: toToEndpoint(connection.to),
+    to: toToEndpoint(connection.to, deviceKindById),
   }));
 
   // Console XLR outs are addressed by number alone in YAML (no console
@@ -175,6 +184,10 @@ function toDevice(id: string, document: DeviceDocument): Device {
     return { ...base, kind: "passive-panel" };
   }
 
+  if (document.kind === "console") {
+    return { ...base, kind: "console" };
+  }
+
   return {
     ...base,
     kind: "stagebox",
@@ -203,12 +216,19 @@ function toFromEndpoint(document: FromEndpointDocument): EndpointRef {
 }
 
 /**
- * `to` side of a connection: a stagebox input socket (existing form, has
- * `input`) or a destination device (new form, no socket number).
+ * `to` side of a connection: a stagebox input socket or a console
+ * local-input socket (both `{ device, input }`, disambiguated by the named
+ * device's declared kind) or a destination device (`{ device }` alone, no
+ * socket number).
  */
-function toToEndpoint(document: ToEndpointDocument): EndpointRef {
+function toToEndpoint(
+  document: ToEndpointDocument,
+  deviceKindById: Map<string, DeviceDocument["kind"]>,
+): EndpointRef {
   if (document.input !== undefined) {
-    return stageboxInput(document.device, document.input);
+    return deviceKindById.get(document.device) === "console"
+      ? localInput(document.device, document.input)
+      : stageboxInput(document.device, document.input);
   }
   return destination(document.device);
 }

@@ -90,6 +90,7 @@ string encoding used for map keys and wire transfer:
 ```text
 panel:front-left:3        # physical panel socket
 stagebox:stagebox-1:3     # stagebox input socket
+local:console:3           # console XLR local input socket
 aes50:A:19                # AES50 bus channel (bus-level, box-agnostic)
 mixer:12                  # X32 input channel
 out:13                    # X32 output slot (console Out N, 1–16)
@@ -102,6 +103,7 @@ dest:main-left            # destination device (powered speaker/zone)
 type EndpointRef =
   | { kind: "panel-input";     device: DeviceId; input: number }
   | { kind: "stagebox-input";  device: DeviceId; input: number }
+  | { kind: "local-input";     device: DeviceId; input: number } // console XLR 1–32
   | { kind: "aes50-channel";   bus: "A" | "B";   channel: number } // 1–48
   | { kind: "mixer-channel";   channel: MixerChannelId }
   | { kind: "mixer-output";    output: number }                   // 1–16
@@ -113,6 +115,11 @@ type EndpointRef =
 `aes50-channel` is deliberately distinct from `stagebox-input`: the mixer only
 ever sees bus+channel; which physical box that channel belongs to is a static
 topology fact (cascade offsets), expressed as graph edges.
+
+`local-input` (issue #2) is the console's own local XLR input socket, owned by
+the `console` device kind below — distinct from `stagebox-input` the same way:
+it belongs to no AES50 bus, and route resolution maps `MixerSourceRef`'s
+`local` variant onto it directly rather than through the AES50 cascade.
 
 The output-side kinds (issue #8) mirror this: `mixer-output` is the console Out
 slot the mixer sees (`/outputs/main/[01…16]/src`), distinct from where it
@@ -133,7 +140,7 @@ endpoint under the cursor.
 ```ts
 interface Device {
   id: DeviceId;
-  kind: "passive-panel" | "stagebox" | "destination";
+  kind: "passive-panel" | "stagebox" | "destination" | "console";
   label: string;
   inputs: number;                                   // unused by "destination"
   aes50?: { bus: "A" | "B"; offset: number };        // stageboxes only
@@ -159,8 +166,15 @@ presents on its XLR outs — Out `start` → the box's out 1, through Out
 silent-invalidation risk if the box is reconfigured. Console XLR outs are
 **declared, not derived**: which Out slot appears on which console XLR is an
 ordinary `connections` entry (`mixer-output → console-output`), exactly like
-panel→stagebox cabling — introducing a console device kind is deferred to
-issue #2, which needs it for the console's own local inputs too.
+panel→stagebox cabling.
+
+`"console"` (issue #2) exists for the desk's own local *inputs*
+(`MixerSourceRef`'s `local` variant, console XLR 1–32) — `label` and `inputs`
+like a passive panel, but no `aes50`: local inputs never reach an AES50 bus.
+At most one `console` device is a domain rule. Console *outputs* deliberately
+stay on the bare-number `console-output` scheme above, unmigrated: the two
+sides of the console are addressed asymmetrically on purpose — see
+docs/installation.md "Console XLR outs stay addressed by number".
 
 The domain derives the stagebox→AES50 edges from `aes50.offset` (box input *n*
 → bus channel *offset + n*) in `deriveStaticEdges`, which route resolution
@@ -360,11 +374,17 @@ Output-side rules (issue #8), additive: `destination` devices carry no
 must be 1–16 with its 8 slots fitting in 1–16; two stageboxes must not present
 overlapping output blocks; a console Out slot may appear on at most one
 console XLR; a physical output feeds at most one destination. Connections now
-come in four shapes — `panel-input → stagebox-input`,
-`mixer-output → console-output`, `stagebox-output → destination`,
-`console-output → destination` — dispatched by each connection's `from` kind;
-every shape still checks its endpoints reference existing devices (where the
-shape has one) with in-range numbers.
+come in five shapes — `panel-input → stagebox-input`,
+`panel-input → local-input`, `mixer-output → console-output`,
+`stagebox-output → destination`, `console-output → destination` — dispatched
+by each connection's `from`/`to` kind pair; every shape still checks its
+endpoints reference existing devices (where the shape has one) with in-range
+numbers.
+
+Console device rules (issue #2), additive: at most one `console` device; a
+`console` device must not carry `aes50`; a `local-input` connection endpoint
+must reference the console device with an in-range input; a console input has
+at most one feeding panel socket, mirroring the stagebox-input rule.
 
 ## 4. `MixerClient` (`packages/mixer-contracts`)
 

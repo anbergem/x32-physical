@@ -6,6 +6,7 @@ import {
   aes50Channel,
   consoleOutput,
   destination,
+  localInput,
   mixerOutput,
   panelInput,
   stageboxInput,
@@ -238,6 +239,86 @@ describe("validateInstallation", () => {
         "unknown-device",
       ].sort(),
     );
+  });
+});
+
+describe("validateInstallation: console device", () => {
+  /** The venue installation plus a declared 32-input console device. */
+  function withConsole(mutate?: (installation: Installation) => void): Installation {
+    const installation = broken(() => {
+      /* start from the unbroken venue fixture */
+    });
+    installation.devices.push({
+      id: deviceId("console"),
+      kind: "console",
+      label: "Console",
+      inputs: 32,
+    });
+    mutate?.(installation);
+    return installation;
+  }
+
+  it("accepts a declared console device", () => {
+    expect(validateInstallation(withConsole())).toEqual([]);
+  });
+
+  it("rejects two console devices", () => {
+    const installation = withConsole((topology) => {
+      topology.devices.push({
+        id: deviceId("console-2"),
+        kind: "console",
+        label: "Console 2",
+        inputs: 32,
+      });
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["multiple-console-devices"]);
+    expect(errors[0]?.message).toMatch(/console.*console-2|console-2.*console/);
+  });
+
+  it("rejects a console device declaring an aes50 mapping", () => {
+    const installation = withConsole((topology) => {
+      const console_ = topology.devices.find((device) => device.kind === "console")!;
+      // AES50-B, so the only error is the console-specific one, not an
+      // incidental range overlap with the stageboxes on AES50-A.
+      console_.aes50 = { bus: "B", offset: 0 };
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["unexpected-aes50"]);
+  });
+
+  it("rejects a connection to a console input out of range", () => {
+    const installation = withConsole((topology) => {
+      topology.connections.push({
+        from: panelInput("front-left", 3),
+        to: localInput("console", 40),
+      });
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual(["input-out-of-range"]);
+  });
+
+  it("rejects two panel sockets feeding one console input", () => {
+    const installation = withConsole((topology) => {
+      topology.connections.push(
+        { from: panelInput("front-left", 3), to: localInput("console", 5) },
+        { from: panelInput("front-left", 4), to: localInput("console", 5) },
+      );
+    });
+    const errors = validateInstallation(installation);
+    expect(errors.map((error) => error.code)).toEqual([
+      "local-input-multiple-sources",
+    ]);
+  });
+
+  it("accepts a panel socket cabled to a console input", () => {
+    const installation = withConsole((topology) => {
+      topology.connections.push({
+        from: panelInput("front-left", 3),
+        to: localInput("console", 5),
+      });
+    });
+    expect(validateInstallation(installation)).toEqual([]);
   });
 });
 
