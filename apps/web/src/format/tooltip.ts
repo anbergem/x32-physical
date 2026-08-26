@@ -202,10 +202,16 @@ function describePhysical(
 ): EndpointDescription {
   const routes = routeIndex.byEndpoint.get(endpoint) ?? [];
 
-  return {
-    title: formatEndpoint(ref, installation),
-    lines: [destinationLine(routes, installation), consumerLine(routes, channels)],
-  };
+  // A console local input IS the source — it is never cabled onward to a
+  // stagebox, so the "where does this go next" line is meaningless noise
+  // there (and reads like a fault to a technician). Its consumers are the
+  // whole story.
+  const lines =
+    ref.kind === "local-input"
+      ? [consumerLine(routes, channels)]
+      : [destinationLine(routes, installation), consumerLine(routes, channels)];
+
+  return { title: formatEndpoint(ref, installation), lines };
 }
 
 /** Where the signal goes next on the bus, e.g. `→ AES50-A 23`. */
