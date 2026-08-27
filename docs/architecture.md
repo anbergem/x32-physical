@@ -503,6 +503,7 @@ interface AppState {
   connection: MixerConnectionState;
   selectedChannel: MixerChannelId | null;   // from the physical console
   hoveredEndpoint: EndpointId | null;       // browser-local
+  hoverPinned: boolean;                     // browser-local
 
   // Fourth path (step 15): fastest of all, updates several times a second.
   // `null` until the first tick. Its own slice — a meters update never
@@ -523,6 +524,19 @@ connection ever do, and every strip subscribes to it through its own
 primitive selector (one channel's own level, `state.meterLevels?.[ch - 1] ??
 null`) so a meter tick only rerenders the 32 strips, never anything that
 reads `routeIndex`/`channels`/`discrepancies`/`baseline`.
+
+`hoverPinned` is the touch half of the same slice: a click or tap makes the
+hovered endpoint *stick*, so the route stays lit and the tooltip stays up
+after the pointer has gone. Touch devices have no hover at all, and the
+schematic's primary interaction is hover — so without this the tool's whole
+point is unreachable on a tablet. It is one extra bit on the existing slice
+rather than a second slice, which keeps the per-endpoint status a single
+primitive (`HoverStatus` gains a `pinned` value, and `hoverModifier` maps it
+to the hovered class plus a `--pinned` cue). A real hover always beats a pin,
+so nothing a mouse user does can get stuck. It stays independent of
+`selectedChannel` in both directions: what the operator is inspecting and what
+the desk has SELECTed are different facts, shown in different colour families,
+and both can be true of one strip at once.
 
 `hoveredEndpoint` (issue #11) is one slice covering *both* graphs: input and
 output endpoint ids are disjoint (§3 "Identifiers"), so `selectHoverStatus`

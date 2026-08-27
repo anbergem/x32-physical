@@ -2,7 +2,8 @@
  * One physical input socket — the shared atom of every panel and stagebox.
  *
  * It knows its `EndpointId` and nothing else: no topology, no route walking
- * (architecture.md §5). Hovering it publishes that id to the runtime slice;
+ * (architecture.md §5). Hovering it publishes that id to the runtime slice —
+ * or, on a touch device, tapping it pins that id there (`useEndpointPointer`);
  * what lights up as a result is decided by `selectHoverStatus` and
  * `selectSelectionStatus`, which read the precomputed route index. Selection
  * comes from the physical console (`selectedChannel` in the store) — this
@@ -16,13 +17,18 @@ import {
   selectDiagnosticStatus,
   selectHoverStatus,
   selectSelectionStatus,
-  selectSetHoveredEndpoint,
   selectSocketMeterLevel,
 } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { diagnosticModifier, hoverModifier, selectionModifier } from "./highlight";
+import {
+  diagnosticModifier,
+  hoverModifier,
+  isHoveredEndpoint,
+  selectionModifier,
+} from "./highlight";
+import { useEndpointPointer } from "./useEndpointPointer";
 
 export interface InputPortProps {
   /** Domain identity of this socket; the handle for hover and highlighting. */
@@ -49,9 +55,9 @@ export function InputPort({
   socketAnnotation,
 }: InputPortProps) {
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
+  const pointer = useEndpointPointer(endpoint);
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
-  const setHovered = useAppStore(selectSetHoveredEndpoint);
   // The fourth, fastest state path (architecture.md §5): this socket's own
   // level and nothing else, so a meter tick rerenders only the sockets some
   // channel actually consumes, never the whole schematic.
@@ -76,17 +82,16 @@ export function InputPort({
     <div
       className={classNames.join(" ")}
       data-endpoint={endpoint}
-      // Element-level, not document-level: the hover ends exactly when the
-      // pointer leaves this socket, whatever else is on the page.
-      onMouseEnter={() => setHovered(endpoint)}
-      onMouseLeave={() => setHovered(null)}
+      {...pointer}
     >
       <span className="port__number">{label}</span>
       {/* A broken socket carries no AES50 sublabel — it reaches nothing. */}
       {aes50Label !== undefined && socketAnnotation === undefined && (
         <span className="port__aes50">{aes50Label}</span>
       )}
-      {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {isHoveredEndpoint(hoverStatus) && (
+        <EndpointTooltip endpoint={endpoint} pinned={hoverStatus === "pinned"} />
+      )}
       {/* No data (null) -> no bar at all, zero layout change either way —
           the bar is absolutely positioned so it never shifts the socket's
           own content regardless of whether it's present. A broken/unused

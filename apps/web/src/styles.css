@@ -58,6 +58,19 @@
      background. */
   --meter-track: #232b38;
 
+  /* Element sizing, as tokens so the responsive rules at the bottom of this
+     file have one place to change and the components stay unaware that any
+     of it moves. The values here are the desktop ones — the venue's own
+     machine, and the size everything was designed at. */
+  --port-w: 40px;
+  --port-h: 34px;
+  --port-gap: 6px;
+  --strip-w: 64px;
+  --strip-h: 56px;
+  --strip-gap: 4px;
+  --slot-w: 56px;
+  --schematic-pad: 20px;
+
   color-scheme: dark;
 }
 
@@ -117,7 +130,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 22px;
-  padding: 28px 20px 36px;
+  padding: 28px var(--schematic-pad) 36px;
 }
 
 /* Only rendered when every section is hidden and the layout would otherwise
@@ -205,7 +218,7 @@ body {
 .device__ports {
   display: grid;
   grid-template-columns: repeat(8, auto);
-  gap: 6px;
+  gap: var(--port-gap);
 }
 
 /* --- sockets ----------------------------------------------------------- */
@@ -217,16 +230,23 @@ body {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  width: 40px;
-  height: 34px;
+  width: var(--port-w);
+  height: var(--port-h);
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--surface-raised);
   font-variant-numeric: tabular-nums;
+  /* No double-tap-to-zoom delay on a socket, and no grey flash box around
+     it when a finger lands: a tap here is a pin, and it should feel like
+     one. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
+/* A dual-labelled socket needs the room for its second line; on a touch
+   layout the socket is already at least that tall. */
 .port--dual {
-  height: 42px;
+  height: max(var(--port-h), 42px);
 }
 
 .port__number {
@@ -391,7 +411,13 @@ body {
   border-radius: 5px;
   background: var(--surface-raised);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
-  white-space: nowrap;
+  /* `max-content` + a cap, rather than `nowrap`: an absolutely positioned
+     box shrinks to fit its 40px-wide socket otherwise. So it takes the width
+     its lines want — nothing wraps at desktop sizes, exactly as before —
+     until that would exceed the cap, at which point the lines wrap instead
+     of the box running off a 768px tablet. */
+  width: max-content;
+  max-width: min(340px, 92vw);
   text-align: left;
   /* Never intercept the pointer: the socket underneath must keep its hover
      until the pointer genuinely leaves it. */
@@ -467,11 +493,11 @@ body {
 
 .mixer__row {
   display: flex;
-  gap: 4px;
+  gap: var(--strip-gap);
 }
 
 .mixer__row + .mixer__row {
-  margin-top: 4px;
+  margin-top: var(--strip-gap);
 }
 
 .strip {
@@ -481,8 +507,8 @@ body {
   gap: 3px;
   /* Wide enough that the longest X32 name word ("Playback", "Handheld") fits
      on one line — a name broken mid-word is unreadable at a glance. */
-  width: 64px;
-  height: 56px;
+  width: var(--strip-w);
+  height: var(--strip-h);
   padding: 4px 5px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -623,6 +649,20 @@ body {
   white-space: nowrap;
 }
 
+.sections-control__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A hairline between the two halves of the signal path — enough to read as
+   two groups, not enough to look like a menu with dividers. */
+.sections-control__group + .sections-control__group {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .sections-control__item {
   display: flex;
   align-items: center;
@@ -630,6 +670,26 @@ body {
   font-size: 11px;
   color: var(--text);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The group row leads its sections: same control, stated once and stronger,
+   with the individual ones indented under it. */
+.sections-control__item--group {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sections-control__group .sections-control__item:not(.sections-control__item--group) {
+  padding-left: 18px;
+  color: var(--text-dim);
+}
+
+.sections-control__item input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+  accent-color: var(--hover);
 }
 
 /* --- save-as-correct confirmation dialog (#15) -------------------------- */
@@ -973,7 +1033,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 4px;
+  gap: var(--strip-gap);
 }
 
 .output-slot {
@@ -983,8 +1043,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  width: 56px;
-  height: 34px;
+  width: var(--slot-w);
+  height: var(--port-h);
   padding: 2px 4px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -1064,7 +1124,7 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 84px;
-  height: 34px;
+  height: max(var(--port-h), 34px);
   padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -1192,4 +1252,171 @@ body {
 .devtools button:hover {
   border-color: var(--mock);
   color: var(--mock);
+}
+
+/* --- the pinned endpoint ------------------------------------------------ */
+
+/* A click or tap pins the endpoint the operator is inspecting: the route
+   stays lit and the tooltip stays up after the pointer has gone. On a touch
+   device this is the *only* way to reach the tool's primary interaction, so
+   it has to be unmistakable; on a mouse it is an addition to hover, not a
+   replacement for it.
+   It is deliberately the same cyan hover layer — "what the operator is
+   looking at" is one idea, whether the pointer is resting on it or a finger
+   put it there — with a second, wider ring saying it will stay. That keeps
+   it categorically distinct from the console's own SELECT, which is warm,
+   fills the box, and answers a different question entirely: a strip that is
+   pinned *and* SELECTed shows a cyan double ring around an orange fill.
+   These rules sit at the end of the file because the base `--hovered` rules
+   for output slots and destinations come later than the highlight section
+   and set the same `box-shadow`. */
+.port.port--pinned,
+.strip.strip--pinned,
+.output-slot.output-slot--pinned,
+.destination.destination--pinned {
+  box-shadow:
+    0 0 0 2px var(--hover-strong),
+    0 0 0 5px var(--hover-glow);
+}
+
+/* --- tooltip placement -------------------------------------------------- */
+
+/* Flipped under its anchor when there is no room above it — the top row of
+   the schematic, where the sticky header would otherwise cover it.
+   `EndpointTooltip` decides, from a measurement of the anchor. */
+.tooltip--below {
+  top: calc(100% + 7px);
+  bottom: auto;
+}
+
+/* Only on a pinned tooltip: without it, a tooltip that refuses to go away
+   reads as the tool having frozen rather than as something being held open
+   on purpose. */
+.tooltip__pin-hint {
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--hover);
+}
+
+.tooltip--pinned {
+  border-color: var(--hover-strong);
+}
+
+/* --- touch targets ------------------------------------------------------ */
+
+/* Everything in the header is a real button on a desktop but a 20px-high
+   target on a tablet. Only the height changes, so the header looks the same
+   with a mouse. */
+@media (pointer: coarse) {
+  .sections-control__trigger,
+  .diagnostics__save,
+  .update-notice {
+    min-height: 44px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .sections-control__item {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .sections-control__item input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+
+  .sections-control__popover {
+    padding: 6px 14px 10px;
+  }
+
+  .dialog__cancel,
+  .dialog__confirm {
+    min-height: 44px;
+  }
+}
+
+/* --- responsive --------------------------------------------------------- */
+
+/* The schematic is a fixed-shape diagram: the two rows of 16 channel strips
+   mirror the console's own banks (#15) and must not reflow into some other
+   grid, because reading like the desk is the entire point. So a smaller
+   screen changes the *size* of the cells, never their arrangement, and the
+   breakpoints are chosen so the widest row still fits an iPad in both
+   orientations rather than forcing the page to scroll sideways.
+   Above 1100px nothing here applies at all — the venue's own machine sees
+   exactly the layout it always did. */
+
+/* iPad landscape (1024) and small laptops. */
+@media (max-width: 1100px) {
+  :root {
+    --strip-w: 54px;
+    --strip-gap: 3px;
+    --slot-w: 52px;
+  }
+}
+
+/* iPad portrait (768). Sockets shrink here too: 16 across is the console's
+   own layout and it has to fit. */
+@media (max-width: 850px) {
+  :root {
+    --port-w: 38px;
+    --port-h: 36px;
+    --port-gap: 4px;
+    --strip-w: 42px;
+    /* Taller, not shorter: a 42px-wide strip wraps a name onto three lines,
+       and portrait has vertical room to spare. Losing the third line of
+       "Aux Scene L" would be a worse trade than a taller row. */
+    --strip-h: 60px;
+    --strip-gap: 2px;
+    --slot-w: 40px;
+    --schematic-pad: 10px;
+  }
+
+  .schematic {
+    gap: 16px;
+  }
+
+  .stage {
+    gap: 16px;
+  }
+
+  .stage-area,
+  .destination-group {
+    padding: 10px 10px 12px;
+  }
+
+  .destinations {
+    gap: 14px;
+  }
+
+  .port__number {
+    font-size: 12.5px;
+  }
+
+  .strip__name {
+    max-height: 36px;
+    font-size: 9.5px;
+  }
+
+  .output-slot__source {
+    font-size: 10px;
+  }
+}
+
+/* Where there is room for them, touch sockets get the full 44px target.
+   Below 850px there is not: 16 sockets at 44px do not fit a portrait iPad,
+   and a schematic that reads correctly at 38px beats one that reads
+   correctly only after sideways scrolling. */
+@media (pointer: coarse) and (min-width: 851px) {
+  :root {
+    --port-w: 44px;
+    --port-h: 44px;
+    --port-gap: 8px;
+  }
+
+  .destination {
+    min-height: 44px;
+  }
 }

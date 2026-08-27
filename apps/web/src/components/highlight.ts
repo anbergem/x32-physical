@@ -18,17 +18,32 @@ import type {
 
 /**
  * @param base the block class of the element, `port` or `strip`.
- * @returns the modifier to add, or `null` for an unhighlighted element.
+ * @returns the modifier(s) to add, or `null` for an unhighlighted element. A
+ *   pinned endpoint gets `--hovered` *plus* `--pinned`: it is the hovered
+ *   endpoint in every visual respect, and the extra class only adds the
+ *   "this one stays" cue on top, so nothing about the hover layer has to be
+ *   restated for touch.
  */
 export function hoverModifier(base: string, status: HoverStatus): string | null {
   switch (status) {
     case "hovered":
       return `${base}--hovered`;
+    case "pinned":
+      return `${base}--hovered ${base}--pinned`;
     case "on-route":
       return `${base}--on-hovered-route`;
     case "none":
       return null;
   }
+}
+
+/**
+ * Whether this endpoint is the one the operator is looking at — the pointer
+ * is on it, or a tap pinned it. The single condition for showing its
+ * tooltip, so no component has to remember that pinning is a kind of hover.
+ */
+export function isHoveredEndpoint(status: HoverStatus): boolean {
+  return status === "hovered" || status === "pinned";
 }
 
 /**

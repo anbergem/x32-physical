@@ -91,6 +91,16 @@ export interface AppState {
   connection: MixerConnectionState;
   selectedChannel: MixerChannelId | null; // from the physical console
   hoveredEndpoint: EndpointId | null; // browser-local
+  // Whether `hoveredEndpoint` is *pinned* — put there by a deliberate click
+  // or tap rather than by the pointer passing over it, and therefore not
+  // cleared when the pointer leaves. Touch devices have no hover at all, so
+  // this is the only way the schematic's primary interaction (light the
+  // route, show the tooltip) is reachable with a finger. Same slice, same
+  // highlight layer, one extra bit: pinning does not double the per-endpoint
+  // status work, and it stays entirely separate from `selectedChannel`,
+  // which is what the *console* is doing rather than what the operator is
+  // looking at.
+  hoverPinned: boolean; // browser-local
 
   // Runtime: transient UI feedback for a rejected `save-baseline` (step 14).
   // Never touches `baseline`/`discrepancies` — a rejected save changed
@@ -147,7 +157,21 @@ export interface AppActions {
   // Runtime slice — never rebuilds routeIndex.
   setConnection(connection: MixerConnectionState): void;
   setSelectedChannel(channel: MixerChannelId | null): void;
+  /**
+   * The pointer moved onto an endpoint (or off one, with `null`). A real
+   * hover always wins over a pin, so the mouse behaves exactly as it always
+   * has; leaving an endpoint clears the highlight *unless* it is pinned.
+   */
   setHoveredEndpoint(endpoint: EndpointId | null): void;
+  /**
+   * A click or tap on an endpoint. Pins it, or unpins it if it was already
+   * the pinned one. `keepHover` is what unpinning leaves behind: a mouse is
+   * still physically over the endpoint afterwards (so it stays hovered), a
+   * finger is not (so the highlight goes away entirely).
+   */
+  toggleEndpointPin(endpoint: EndpointId, keepHover: boolean): void;
+  /** Drops both the pin and the highlight — background tap, or Escape. */
+  clearHover(): void;
   setBaselineSaveError(reason: string | null): void;
 
   // Fourth path — never composed with any other slice's patch (architecture.md §5).
@@ -320,6 +344,7 @@ export function createAppStore(
     connection: "disconnected",
     selectedChannel: null,
     hoveredEndpoint: null,
+    hoverPinned: false,
     baselineSaveError: null,
     meterLevels: null,
     aes50LinkState: null,
@@ -410,7 +435,32 @@ export function createAppStore(
     },
 
     setHoveredEndpoint(endpoint) {
-      if (get().hoveredEndpoint !== endpoint) set({ hoveredEndpoint: endpoint });
+      const state = get();
+      if (endpoint === null) {
+        // The pointer left. A pinned endpoint survives that — it is there
+        // because someone asked for it, not because the pointer happened to
+        // be on it.
+        if (state.hoverPinned) return;
+        if (state.hoveredEndpoint !== null) set({ hoveredEndpoint: null });
+        return;
+      }
+      if (state.hoveredEndpoint !== endpoint) set({ hoveredEndpoint: endpoint, hoverPinned: false });
+      else if (state.hoverPinned) set({ hoverPinned: false });
+    },
+
+    toggleEndpointPin(endpoint, keepHover) {
+      const state = get();
+      if (state.hoverPinned && state.hoveredEndpoint === endpoint) {
+        set({ hoveredEndpoint: keepHover ? endpoint : null, hoverPinned: false });
+        return;
+      }
+      set({ hoveredEndpoint: endpoint, hoverPinned: true });
+    },
+
+    clearHover() {
+      const state = get();
+      if (state.hoveredEndpoint === null && !state.hoverPinned) return;
+      set({ hoveredEndpoint: null, hoverPinned: false });
     },
 
     setBaselineSaveError(reason) {

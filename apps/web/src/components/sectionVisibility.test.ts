@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   allSectionsVisible,
+  groupState,
   readSectionVisibility,
+  setGroupVisibility,
+  toggleGroup,
   writeSectionVisibility,
 } from "./sectionVisibility";
 
@@ -53,9 +56,9 @@ describe("readSectionVisibility", () => {
   it("hides only the stored-false section, leaving the rest visible", () => {
     expect(
       readSectionVisibility(
-        fakeStorage({ "x32-section-visibility": JSON.stringify({ console: false }) }),
+        fakeStorage({ "x32-section-visibility": JSON.stringify({ consoleOutputs: false }) }),
       ),
-    ).toEqual({ ...allSectionsVisible(), console: false });
+    ).toEqual({ ...allSectionsVisible(), consoleOutputs: false });
   });
 
   it("defaults to all visible for malformed JSON, without throwing", () => {
@@ -86,10 +89,95 @@ describe("readSectionVisibility", () => {
   });
 });
 
+describe("readSectionVisibility, across the console section split", () => {
+  it("applies a legacy combined `console: false` to both halves", () => {
+    expect(
+      readSectionVisibility(
+        fakeStorage({ "x32-section-visibility": JSON.stringify({ console: false }) }),
+      ),
+    ).toEqual({ ...allSectionsVisible(), consoleInputs: false, consoleOutputs: false });
+  });
+
+  it("lets the split ids win over a legacy `console` in the same record", () => {
+    expect(
+      readSectionVisibility(
+        fakeStorage({
+          "x32-section-visibility": JSON.stringify({
+            console: false,
+            consoleInputs: true,
+          }),
+        }),
+      ),
+    ).toEqual({ ...allSectionsVisible(), consoleInputs: true, consoleOutputs: false });
+  });
+
+  it("defaults both halves to visible when the record predates them entirely", () => {
+    expect(
+      readSectionVisibility(
+        fakeStorage({ "x32-section-visibility": JSON.stringify({ channels: false }) }),
+      ),
+    ).toEqual({ ...allSectionsVisible(), channels: false });
+  });
+
+  it("ignores a non-boolean legacy `console` rather than throwing", () => {
+    expect(
+      readSectionVisibility(
+        fakeStorage({ "x32-section-visibility": JSON.stringify({ console: "no" }) }),
+      ),
+    ).toEqual(allSectionsVisible());
+  });
+});
+
+describe("section groups", () => {
+  it("reports `all` when every section of the group is visible", () => {
+    expect(groupState(allSectionsVisible(), "inputs")).toBe("all");
+    expect(groupState(allSectionsVisible(), "outputs")).toBe("all");
+  });
+
+  it("reports `none` when every section of the group is hidden", () => {
+    const hidden = setGroupVisibility(allSectionsVisible(), "outputs", false);
+    expect(groupState(hidden, "outputs")).toBe("none");
+    // The other group is untouched.
+    expect(groupState(hidden, "inputs")).toBe("all");
+  });
+
+  it("reports `some` when the group is partly visible", () => {
+    expect(groupState({ ...allSectionsVisible(), channels: false }, "inputs")).toBe("some");
+    expect(groupState({ ...allSectionsVisible(), consoleOutputs: false }, "outputs")).toBe(
+      "some",
+    );
+  });
+
+  it("puts the two console halves in different groups", () => {
+    const inputsOnly = setGroupVisibility(allSectionsVisible(), "outputs", false);
+    expect(inputsOnly.consoleInputs).toBe(true);
+    expect(inputsOnly.consoleOutputs).toBe(false);
+  });
+
+  it("toggling a fully visible group hides it", () => {
+    expect(toggleGroup(allSectionsVisible(), "inputs")).toEqual({
+      ...allSectionsVisible(),
+      stage: false,
+      consoleInputs: false,
+      channels: false,
+    });
+  });
+
+  it("toggling a hidden group shows it", () => {
+    const hidden = setGroupVisibility(allSectionsVisible(), "inputs", false);
+    expect(toggleGroup(hidden, "inputs")).toEqual(allSectionsVisible());
+  });
+
+  it("toggling a partly visible group shows the rest rather than hiding it", () => {
+    const partial = { ...allSectionsVisible(), channels: false };
+    expect(toggleGroup(partial, "inputs")).toEqual(allSectionsVisible());
+  });
+});
+
 describe("writeSectionVisibility", () => {
   it("write round-trips through read", () => {
     const storage = fakeStorage();
-    const visibility = { ...allSectionsVisible(), console: false, outputs: false };
+    const visibility = { ...allSectionsVisible(), consoleInputs: false, outputs: false };
     writeSectionVisibility(storage, visibility);
     expect(readSectionVisibility(storage)).toEqual(visibility);
   });

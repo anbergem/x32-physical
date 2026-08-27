@@ -1,10 +1,20 @@
 /**
- * The one header control for showing/hiding the five top-level schematic
- * sections (see `sectionVisibility.ts` for the persisted shape and the
- * rationale for keeping this out of the store). A single compact trigger
- * opening a small popover with a labelled checkbox per section — five
- * always-visible chips would crowd the one thing in the header that must
- * stay glanceable (diagnostics, save, the MOCK DATA tag, connection status).
+ * The one header control for showing/hiding the top-level schematic sections
+ * (see `sectionVisibility.ts` for the persisted shape, the input/output
+ * grouping, and the rationale for keeping this out of the store). A single
+ * compact trigger opening a small popover — a row of always-visible chips
+ * would crowd the one thing in the header that must stay glanceable
+ * (diagnostics, save, the MOCK DATA tag, connection status).
+ *
+ * The popover is two groups, each headed by its own toggle: the two halves
+ * of the signal path are what a tech actually switches between, so "all
+ * inputs" / "all outputs" are first-class rows rather than something to
+ * assemble from six individual checkboxes. A group toggle is a genuine
+ * tri-state control — checked when its whole group is shown, indeterminate
+ * when only part of it is, unchecked when none is — because a group that is
+ * half shown must say so rather than round to a side. Clicking one shows the
+ * whole group unless it was already whole, in which case it hides it
+ * (`toggleGroup`).
  *
  * Because the trigger always lives in the header, hiding every section is
  * recoverable by construction: the popover lists every section with its
@@ -20,14 +30,26 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SectionId, SectionVisibility } from "./sectionVisibility";
+import {
+  groupState,
+  SECTION_GROUP_IDS,
+  sectionsInGroup,
+  toggleGroup,
+} from "./sectionVisibility";
+import type { SectionGroupId, SectionId, SectionVisibility } from "./sectionVisibility";
 
 const SECTION_LABELS: Record<SectionId, string> = {
   stage: "Stage areas",
-  destinations: "Destinations",
-  console: "Console (FOH)",
+  consoleInputs: "Mikserpult (FOH)",
   channels: "X32 input channels",
+  destinations: "Destinations",
+  consoleOutputs: "Console XLR outs",
   outputs: "X32 output slots",
+};
+
+const GROUP_LABELS: Record<SectionGroupId, string> = {
+  inputs: "All inputs",
+  outputs: "All outputs",
 };
 
 export function SectionsControl({
@@ -71,7 +93,7 @@ export function SectionsControl({
     };
   }, [open]);
 
-  function toggle(id: SectionId): void {
+  function toggleSection(id: SectionId): void {
     onChange({ ...visibility, [id]: !visibility[id] });
   }
 
@@ -94,17 +116,42 @@ export function SectionsControl({
           role="menu"
           aria-label="Toggle visible sections"
         >
-          {(Object.keys(SECTION_LABELS) as SectionId[]).map((id, index) => (
-            <label key={id} className="sections-control__item">
-              <input
-                ref={index === 0 ? firstCheckboxRef : undefined}
-                type="checkbox"
-                checked={visibility[id]}
-                onChange={() => toggle(id)}
-              />
-              {SECTION_LABELS[id]}
-            </label>
-          ))}
+          {SECTION_GROUP_IDS.map((group, groupIndex) => {
+            const state = groupState(visibility, group);
+            return (
+              <div className="sections-control__group" key={group}>
+                <label className="sections-control__item sections-control__item--group">
+                  <input
+                    ref={(element) => {
+                      if (element !== null) {
+                        // The only way to express "partly shown" on a
+                        // checkbox — it is a DOM property, not an attribute,
+                        // so React cannot set it from JSX.
+                        element.indeterminate = state === "some";
+                      }
+                      if (groupIndex === 0) {
+                        firstCheckboxRef.current = element;
+                      }
+                    }}
+                    type="checkbox"
+                    checked={state === "all"}
+                    onChange={() => onChange(toggleGroup(visibility, group))}
+                  />
+                  {GROUP_LABELS[group]}
+                </label>
+                {sectionsInGroup(group).map((id) => (
+                  <label key={id} className="sections-control__item">
+                    <input
+                      type="checkbox"
+                      checked={visibility[id]}
+                      onChange={() => toggleSection(id)}
+                    />
+                    {SECTION_LABELS[id]}
+                  </label>
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

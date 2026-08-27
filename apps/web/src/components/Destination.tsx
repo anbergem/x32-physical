@@ -8,22 +8,19 @@
 import type { DeviceId } from "@x32/domain";
 import { destination, endpointId } from "@x32/domain";
 
-import {
-  selectDevice,
-  selectHoverStatus,
-  selectSetHoveredEndpoint,
-} from "../state/selectors";
+import { selectDevice, selectHoverStatus } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { MissingDevice } from "./DeviceFrame";
 import { EndpointTooltip } from "./EndpointTooltip";
-import { hoverModifier } from "./highlight";
+import { hoverModifier, isHoveredEndpoint } from "./highlight";
+import { useEndpointPointer } from "./useEndpointPointer";
 
 export function Destination({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
   const endpoint = endpointId(destination(deviceId));
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
-  const setHovered = useAppStore(selectSetHoveredEndpoint);
+  const pointer = useEndpointPointer(endpoint);
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
@@ -35,11 +32,12 @@ export function Destination({ deviceId }: { deviceId: DeviceId }) {
     <div
       className={classNames.join(" ")}
       data-endpoint={endpoint}
-      onMouseEnter={() => setHovered(endpoint)}
-      onMouseLeave={() => setHovered(null)}
+      {...pointer}
     >
       <span className="destination__label">{device.label}</span>
-      {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {isHoveredEndpoint(hoverStatus) && (
+        <EndpointTooltip endpoint={endpoint} pinned={hoverStatus === "pinned"} />
+      )}
     </div>
   );
 }

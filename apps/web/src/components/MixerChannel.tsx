@@ -17,20 +17,25 @@ import {
   selectHoverStatus,
   selectMeterLevel,
   selectSelectionStatus,
-  selectSetHoveredEndpoint,
 } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { diagnosticModifier, hoverModifier, selectionModifier } from "./highlight";
+import {
+  diagnosticModifier,
+  hoverModifier,
+  isHoveredEndpoint,
+  selectionModifier,
+} from "./highlight";
+import { useEndpointPointer } from "./useEndpointPointer";
 
 export function MixerChannel({ channel }: { channel: MixerChannelId }) {
   const endpoint = endpointId(mixerChannel(channel));
   const state = useAppStore(selectChannelState(channel));
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
+  const pointer = useEndpointPointer(endpoint);
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
-  const setHovered = useAppStore(selectSetHoveredEndpoint);
   // The fourth, fastest state path (architecture.md §5): its own primitive
   // selector, subscribed to only this channel's level, so a meter tick never
   // rerenders any strip but this one.
@@ -53,14 +58,15 @@ export function MixerChannel({ channel }: { channel: MixerChannelId }) {
     <div
       className={classNames.join(" ")}
       data-endpoint={endpoint}
-      onMouseEnter={() => setHovered(endpoint)}
-      onMouseLeave={() => setHovered(null)}
+      {...pointer}
     >
       <span className="strip__number">{channel}</span>
       {/* No name until the first snapshot arrives — topology renders without
           a mixer, and an empty X32 channel name is legitimately blank. */}
       <span className="strip__name">{state?.name ?? "·"}</span>
-      {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {isHoveredEndpoint(hoverStatus) && (
+        <EndpointTooltip endpoint={endpoint} pinned={hoverStatus === "pinned"} />
+      )}
       {/* No data (null) -> no bar at all, zero layout change either way —
           the bar is absolutely positioned so it never shifts the strip's
           own content regardless of whether it's present. */}

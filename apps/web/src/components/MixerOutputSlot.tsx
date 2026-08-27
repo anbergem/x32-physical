@@ -8,21 +8,18 @@
 import { endpointId, mixerOutput } from "@x32/domain";
 
 import { formatMixerOutputSource } from "../format/outputSource";
-import {
-  selectHoverStatus,
-  selectOutputState,
-  selectSetHoveredEndpoint,
-} from "../state/selectors";
+import { selectHoverStatus, selectOutputState } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { EndpointTooltip } from "./EndpointTooltip";
-import { hoverModifier } from "./highlight";
+import { hoverModifier, isHoveredEndpoint } from "./highlight";
+import { useEndpointPointer } from "./useEndpointPointer";
 
 export function MixerOutputSlot({ output }: { output: number }) {
   const endpoint = endpointId(mixerOutput(output));
   const state = useAppStore(selectOutputState(output));
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
-  const setHovered = useAppStore(selectSetHoveredEndpoint);
+  const pointer = useEndpointPointer(endpoint);
 
   const classNames = ["output-slot"];
   const hoverClass = hoverModifier("output-slot", hoverStatus);
@@ -32,14 +29,15 @@ export function MixerOutputSlot({ output }: { output: number }) {
     <div
       className={classNames.join(" ")}
       data-endpoint={endpoint}
-      onMouseEnter={() => setHovered(endpoint)}
-      onMouseLeave={() => setHovered(null)}
+      {...pointer}
     >
       <span className="output-slot__number">Out {output}</span>
       <span className="output-slot__source">
         {state === undefined ? "·" : formatMixerOutputSource(state.source)}
       </span>
-      {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
+      {isHoveredEndpoint(hoverStatus) && (
+        <EndpointTooltip endpoint={endpoint} pinned={hoverStatus === "pinned"} />
+      )}
     </div>
   );
 }

@@ -58,23 +58,41 @@ export function selectSetHoveredEndpoint(
   return state.setHoveredEndpoint;
 }
 
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectToggleEndpointPin(
+  state: AppStoreState,
+): (endpoint: EndpointId, keepHover: boolean) => void {
+  return state.toggleEndpointPin;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectClearHover(state: AppStoreState): () => void {
+  return state.clearHover;
+}
+
 // --- highlighting ----------------------------------------------------------
 
 /**
  * How an endpoint relates to what the pointer is on:
  *
  * - `hovered` — the pointer is on this very socket or strip.
+ * - `pinned` — this is the endpoint a click or tap pinned: `hovered` in every
+ *   respect (same layer, same colours, same tooltip), plus the fact that it
+ *   stays. A fourth value rather than a second selector, so touch support
+ *   costs the ~112 endpoints no extra subscription.
  * - `on-route` — it is somewhere on the route(s) the hovered endpoint belongs
  *   to, upstream or downstream. One route object is shared by every endpoint on
  *   it, so hovering either end lights exactly the same set — including all
- *   consumers when one socket feeds several channels.
+ *   consumers when one socket feeds several channels. A pinned endpoint's
+ *   route lights identically: pinning is *what* is hovered, not a different
+ *   kind of highlight.
  * - `none` — unrelated, or nothing is hovered.
  *
  * Plan step 8 adds selection as a *separate* status with its own selector, so a
  * socket can be on the selected route and the hovered route at once and show
  * both.
  */
-export type HoverStatus = "none" | "hovered" | "on-route";
+export type HoverStatus = "none" | "hovered" | "pinned" | "on-route";
 
 /**
  * A primitive per endpoint, which is what keeps hovering cheap: ~112 sockets
@@ -87,7 +105,7 @@ export function selectHoverStatus(
   return (state) => {
     const hovered = state.hoveredEndpoint;
     if (hovered === null) return "none";
-    if (hovered === endpoint) return "hovered";
+    if (hovered === endpoint) return state.hoverPinned ? "pinned" : "hovered";
 
     // `hoveredEndpoint` covers both graphs (architecture.md §3/§5): input
     // and output endpoint ids are disjoint, so exactly one of these two
