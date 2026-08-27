@@ -93,7 +93,7 @@ function main(side: "L" | "R" | "C"): MixerOutputSourceRef {
 const OFF: MixerOutputSourceRef = { kind: "off" };
 
 /**
- * The venue's real output patch (docs/installation.md §"Output topology",
+ * The venue's real output patch (docs/venue-betania.md §"Output topology",
  * "Betania Lydsystem - Outputs"): Out 1/2 feed the console's own XLRs
  * (Sidesal, Vip Rom) from Matrix 1/2; Outs 6–8 and 11–13 feed the stagebox
  * blocks; 14–16 carry the M/C and Main L/R signal pair. Outs 3, 4, 5, 9, 10
@@ -120,7 +120,7 @@ const DEFAULT_OUTPUT_SOURCES: ReadonlyArray<MixerOutputSourceRef> = [
 
 /**
  * A fresh copy per call, matching `DEFAULT_CHANNELS`' discipline — the mock
- * mirrors the desk's real output patch (docs/installation.md).
+ * mirrors the desk's real output patch (docs/venue-betania.md).
  */
 function defaultOutputs(): MixerOutputState[] {
   return DEFAULT_OUTPUT_SOURCES.map((source, index) => ({

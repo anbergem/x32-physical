@@ -1,72 +1,35 @@
-# Venue installation facts & `installation.yaml` schema
+# `installation.yaml` — describing your installation
 
-## Confirmed facts (from the owner, 2026-08-23)
+This file is the schema and modelling reference. It describes how to tell the
+app what is physically wired to what, so it can answer the two questions it
+exists for: *which mixer channel(s) consume this socket?* and *where does this
+channel come from?*
 
-- Two stageboxes, each **16 in / 8 out** (S16/SD16-class; exact model unknown
-  and irrelevant to the input model — labeled generically for now). The exact
-  model no longer has to be taken on faith: the console reports the detected
-  chain over OSC (`/-stat/aes50/A`, docs/x32-protocol.md §Output routing
-  "Two findings"), and the app cross-checks it against this file
-  (`compareAes50Chain`, issue #17), surfacing a mismatch rather than
-  guessing or auto-correcting.
-- The boxes are **daisy-chained on AES50-A**: stagebox-1 connects to the
-  console's AES50-A port, stagebox-2 cascades through stagebox-1. The console
-  therefore sees one AES50-A bus with 32 active input channels:
-  - **stagebox-1: offset 0** → inputs 1–16 appear as AES50-A 1–16
-  - **stagebox-2: offset 16** → inputs 1–16 appear as AES50-A 17–32
-- **AES50-B is unused.**
-- The console's input routing **uses User In mapping** (`/config/userrout/in`),
-  not only plain AES50 blocks — the adapter must resolve the User In
-  indirection (see docs/x32-protocol.md).
-- Output side (8 out per box) is out of scope for the read-only input MVP.
+The app is hard-coded for a **Behringer X32** (32 input channels, 16 output
+slots, 16 console XLR outs) — that is deliberate and not going away. What is
+**not** assumed is your room: how many stageboxes you have, what your panels
+are called, how they are cabled, or what your speakers are named. All of that
+is declared here, and the schematic derives itself from it.
 
-Chain-order caveat: AES50 input slots are positional in a cascade. If the
-boxes are ever physically re-ordered or a third box is added, only the
-`offset` values in `installation.yaml` need to change.
+A complete real example, with all its awkward real-world quirks, lives in
+**[venue-betania.md](venue-betania.md)** — the maintainer's own installation.
 
-## Real panel wiring (captured 2026-08-24)
+## What belongs here, and what does not
 
-From the venue patch sheet "Betania Lydsystem - Inputs". Venue labels are
-Norwegian: **V** = venstre (left), **H** = høyre (right).
+`installation.yaml` records **physical facts the mixer cannot discover**:
+cabling, which box is which, what a socket feeds. Three things deliberately do
+**not** belong:
 
-- **Left**: passive panel "MK Front V" (8 sockets) → Stagebox V inputs 1–8
-  (AES50-A 1–8). Stagebox V inputs 9–16 are direct stage sockets labelled
-  "V 09"–"V 16" (A9–A16).
-- **Right**: Stagebox H input 1 is the direct socket "H 01" (A17, patched to
-  DI HB). The passive panel "MK Front H" is an **8-position** link box whose
-  usable sockets feed Stagebox H inputs 2–8 (A18–A24). Inputs 9–16 are
-  direct sockets "H 09"–"H 16" (A25–A32). Two quirks of this plate, both
-  confirmed on site 2026-08-24:
-  - **Physical position 1 is broken** and connected to nothing.
-  - **The printed labels are shifted by one**: the label "1" is on physical
-    position 2, "2" on position 3, and so on through "7" on position 8. The
-    installer's convention appears to have been "1 = the first *usable*
-    input at front stage right", which is defensible but means a printed
-    label never matches its physical position on this plate.
-
-  **Owner decision (2026-08-27, issue #12): number MK Front H by physical
-  position, and show the dead first socket.** `installation.yaml` models
-  this panel as **8 sockets numbered by physical position**: socket 1 is
-  annotated `broken` (declared metadata, not a routing fact — see
-  "`sockets` — per-socket annotations" below) and connected to nothing;
-  sockets 2–8 feed Stagebox H inputs 2–8 (A18–A24), exactly as their number
-  suggests. This is a deliberate divergence from the plate's own printed
-  labels: a technician reading the plate's printed "1" is looking at the
-  app's socket 2, and so on through the plate's "7" being the app's socket
-  8. The physical position is what a technician standing at the plate can
-  verify by counting holes; the printed label is the thing decided to be
-  the error.
-- The direct-socket stage labels match the box input numbers ("H 12" =
-  Stagebox H input 12 = A28), which is what the UI's dual labels display.
-- The desk also has three local inputs in use at FOH (IN 1–3: Bøyle,
-  Håndholdt 1/2, → CH1–CH3). Console-local sockets are modelled as a
-  `console` device (issue #2): `local:<device>:<n>` endpoints, declared with
-  all 32 inputs even though only three are patched — an unused one renders
-  like any other unconsumed socket. The console block sits with the mixer
-  section in the schematic, not the stage areas, since it is physically at
-  FOH.
-- Channel assignments on the sheet (Vokal V1 → C5, …) are live mixer
-  configuration, read from the console at runtime — never recorded in YAML.
+- **Live mixer state.** Channel names, channel sources and routing come from
+  the console at runtime. Recording them here would create a second, silently
+  stale source of truth.
+- **Coordinates.** There is no `x`, `y` or `width`, ever. Connectivity and
+  visual layout are separate concerns (CLAUDE.md invariant 6). The optional
+  `group` field names *which part of the rig* a device belongs to — a name,
+  not a position.
+- **Anything derivable.** Stagebox→AES50 edges come from `aes50.offset`, and
+  mixer-output→stagebox-output edges from `outputBlock.start`. Writing them by
+  hand would let them contradict the thing they are derived from.
 
 ## `installation.yaml` schema (v1/v2)
 
@@ -97,13 +60,13 @@ devices:
     inputs: 16
     aes50: { bus: A, offset: 16 }
 
-  front-left:                 # illustrative — the real file's panels are
-    kind: passive-panel       # MK Front V / MK Front H (see above)
-    label: "Front Left"
+  stage-left-panel:           # a passive wall plate, no AES50 of its own
+    kind: passive-panel
+    label: "Stage Left Panel"
     inputs: 8
 
 connections:                  # panel socket → stagebox input (signal direction)
-  - from: { device: front-left, input: 1 }
+  - from: { device: stage-left-panel, input: 1 }
     to:   { device: stagebox-1, input: 1 }
   # ...
 ```
@@ -123,9 +86,9 @@ Schema rules:
 - Stagebox→AES50 edges are **derived** from `aes50.offset`, never written in
   YAML.
 
-The visual schematic for this venue shows both stagebox areas under AES50-A,
-with sockets dual-labeled `Box 2 / 7 · A23` style, since the AES50 channel
-number is what the X32's own routing screens display when debugging.
+Stagebox sockets are dual-labelled `7 · A23` style — the box-local number and
+the AES50 channel it becomes — because the AES50 number is what the X32's own
+routing screens show when you are debugging against the desk.
 
 ### `sockets` — per-socket annotations (issue #12)
 
@@ -134,12 +97,12 @@ optional `sockets` map, keyed by socket number, for the sockets that need
 declared knowledge routing itself cannot know:
 
 ```yaml
-front-right:
+stage-right-panel:
   kind: passive-panel
-  label: "MK Front H"
+  label: "Stage Right Panel"
   inputs: 8
   sockets:
-    1: { status: broken, note: "Defekt — ikke i bruk" }
+    1: { status: broken, note: "Faulty — do not use" }
 ```
 
 - `status` is `broken` (physically faulty, do not use) or `unused`
@@ -155,7 +118,7 @@ front-right:
   domain rule (`validateInstallation`), not a shape one. Declaring a socket
   broken/unused and cabling it in the same file is contradictory input and
   fails to load, loudly, rather than rendering something incoherent. This is
-  the rule that would have caught MK Front H's original mislabelling.
+  the rule that catches a socket declared dead and cabled in the same file.
 - `input` must be within `1…inputs`; duplicate annotations for one socket
   are rejected. Both are domain rules; the schema only checks that `status`
   is one of the two known values and that the map's keys look like socket
@@ -171,7 +134,7 @@ it out loud.
 devices:
   stagebox-1:
     kind: stagebox
-    label: "Stagebox V"
+    label: "Stagebox Left"
     inputs: 16
     aes50: { bus: A, offset: 0 }
     group: "Stage left"
@@ -214,7 +177,7 @@ per optional field would be a treadmill that signals nothing the code uses.
 devices:
   stagebox-1:
     kind: stagebox
-    label: "Stagebox V"
+    label: "Stagebox Left"
     inputs: 16
     aes50: { bus: A, offset: 0 }
     outputs: 8                  # optional: physical XLR outs on the box
@@ -261,7 +224,7 @@ connections:
   For a stagebox, from `outputBlock.start` (mirroring `aes50.offset` on the
   input side): mixer-output `start + n − 1` → the box's XLR out `n`, for its
   8 presented slots. For a console XLR, it is the console's identity default
-  — Out *n* carries on console XLR *n*, which is what this venue uses — and
+  — Out *n* carries on console XLR *n*, the console's default — and
   the loader derives that same identity edge for every console XLR number a
   file references. If `/config/routing/OUT/*` is ever set non-default at a
   venue, resolving that is an adapter concern (issue #10), not a schema one.
@@ -281,12 +244,12 @@ physical output, one console XLR per Out slot) belongs to
 devices:
   console:
     kind: console
-    label: "Mikserpult (FOH)"
-    inputs: 32                  # all 32 declared, though this venue uses 3
+    label: "Console (FOH)"
+    inputs: 32                  # declare them all; unused ones render as such
 
 connections:
   # panel socket -> console local input (a wall panel patched into the desk)
-  - from: { device: front-left, input: 4 }
+  - from: { device: stage-left-panel, input: 4 }
     to:   { device: console, input: 7 }
 ```
 
@@ -308,114 +271,21 @@ connections:
 - Console *outputs* are unaffected and stay addressed by bare number — see
   "Console XLR outs stay addressed by number" above.
 
-## Editing this file at the venue (issue #3)
+## Editing it at the venue
 
 In production the bridge reads this file at startup and serves it to the web
-app over `GET /api/installation`; the web app's own bundled copy is only a
-fallback for when that fails. A cabling correction is a file edit plus a
-service restart — see README.md's "Changing the physical wiring" for the
-exact steps, including the `X32_INSTALLATION_FILE` override path (a
-venue-local copy under `%ProgramData%\X32RoutingVisualizer\`) for a one-off
-on-site fix that doesn't touch the release-shipped `%ProgramFiles%` copy.
-There is deliberately no file watching — a service restart is the trigger,
-not a live reload.
+app over `GET /api/installation`; the web app's bundled copy is only a
+fallback for when that fails. A cabling correction is therefore a file edit
+plus a service restart, not a new release — see the README's "Changing the
+physical wiring" for the exact steps, including the `X32_INSTALLATION_FILE`
+override for a venue-local copy that a release will not overwrite.
 
-## Output topology (captured 2026-08-25)
+There is deliberately no file watching: a service restart is a predictable
+trigger, and reloading topology under a live service mid-event is a footgun.
 
-From the venue sheet "Betania Lydsystem - Outputs", plus owner clarification.
-**Now modelled in `installation.yaml`** (issue #9) — see "Output additions
-(v2)" above for the schema and `config/installation.yaml` for the venue's
-actual cabling. The bus/matrix sources ("Fed from" below) are live mixer
-configuration, read from the console at runtime, and are not recorded in the
-static topology file — only the physical-output → destination cabling is.
+## Worked example
 
-| Out | Name | Fed from | Emerges at |
-|---|---|---|---|
-| 1 | Sidesal | Matrix | console XLR 1 |
-| 2 | Vip Rom | Matrix | console XLR 2 |
-| 6 | Bak Høyre (rear right) | Bus 5 | Stagebox H out 6 |
-| 7 | Piano Høyre | Bus 3 | Stagebox H out 7 |
-| 8 | Front Høyre | Bus 2 | Stagebox H out 8 |
-| 11 | Venstre Bak (rear left) | Bus 4 | Stagebox V out 3 |
-| 12 | Piano Venstre | Bus 3 | Stagebox V out 4 |
-| 13 | Front Venstre | Bus 1 | Stagebox V out 5 |
-| 14 | Sub | **M/C** | Stagebox V out 6 |
-| 15 | Main Left | **Main L** | Stagebox V out 7 |
-| 16 | Main Right | **Main R** | Stagebox V out 8 |
-
-Outputs 3, 4, 5, 9, 10 are unused.
-
-### The output-block assignment — the hop OSC cannot see
-
-docs/x32-protocol.md §Output routing records that a stagebox's choice of
-*which block of 8* AES50 output channels it presents on its XLRs is set on the
-box and is **not** readable over OSC. The venue sheet reveals it directly:
-
-- **Stagebox H presents `OUT1-8`** — console Out *n* → its XLR out *n*.
-- **Stagebox V presents `OUT9-16`** — console Out *n* → its XLR out *n − 8*
-  (so Out 13 "Front Venstre" is physically that box's 5th XLR out).
-
-This is the output-side analogue of `aes50.offset` and belongs in the schema
-(#9) as a per-stagebox fact, with the same silent-invalidation risk: change a
-box's setting and every output label is wrong with nothing to detect it.
-
-### Two consequences for the domain model
-
-1. **A block is presented wholesale, but only some sockets are patched.**
-   Stagebox H presents all of `OUT1-8`, so Out 1 "Sidesal" and Out 2 "Vip Rom"
-   are physically present on its XLR outs 1–2 as well as on the console's own
-   XLRs — the sheet lists the console because that is where they are actually
-   *used*. "Signal is present here" and "something is plugged in here" are
-   different facts, exactly as an unconnected stagebox input is on the input
-   side.
-2. **One source can feed several outputs.** Bus 3 feeds *both* Out 7 "Piano
-   Høyre" and Out 12 "Piano Venstre". This is the output mirror of one input
-   source feeding several mixer channels, which the route index already models
-   as a single shared route — the same treatment should apply.
-
-### Answered 2026-08-25
-
-- **The cabinets are powered** — there are no amplifiers between a stagebox
-  output and a speaker. A box output therefore feeds a named destination
-  directly, and the schema (#9) needs **no amplifier device kind**.
-- **No console XLR outs beyond 1–2 are in use**, with two caveats below.
-- **P16/Ultranet is in use** and will need modelling eventually. It is a
-  different class of destination from the room speakers — 16 channels feeding
-  musicians' personal mixers, addressed via `/outputs/p16/[01…16]/src` — so it
-  is deliberately deferred rather than folded into the first output pass.
-
-### Deliberately not modelled
-
-- **The legacy recording path.** An aux L/R pair carried Matrix 1/2 into a
-  computer's mic input. It has been superseded by an X-Live card taking all 32
-  inputs over USB-B. Neither is a route through the venue's speakers, so
-  modelling them would add devices that answer no question a technician asks.
-- **A possible third output for the hearing loop** ("teleslynge" — an
-  induction loop for hearing aids). Unconfirmed; to be captured later.
-
-### Consequence of the X-Live card worth knowing
-
-With an X-Live card fitted, **virtual soundcheck** is possible: every channel
-re-sourced from `Card` instead of AES50 to rehearse against a recording. The
-app already handles card sources correctly — they resolve as unmapped, which
-is truthful — but two things would look alarming and are worth deciding on
-before it happens for real:
-
-1. Every channel would read "No mapped physical input" at once.
-2. Against a blessed baseline, all 32 channels would report a
-   `source-mismatch`, filling the header with routing issues, even though
-   nothing is wrong.
-
-A future refinement could recognise "all channels on Card" as a playback mode
-and say so, rather than reporting it 32 times. Not built; noted so the first
-virtual soundcheck is not a surprise.
-
-### On physical placement
-
-Speaker positions (Main L on the left, Main R on the right, Sub to the left of
-Main L) are deliberately **not** recorded here and will not enter the schema.
-The names already carry the spatial meaning a technician needs, and the
-question the tool answers is "where does this come from?", not "where is it in
-the room". Screen arrangement mirrors physical reality through hard-coded
-layout, exactly as the stage-left/stage-right input areas already do —
-CLAUDE.md invariant 6 (no coordinates in `installation.yaml`) stands.
+[venue-betania.md](venue-betania.md) documents a complete real installation —
+two cascaded stageboxes on one AES50 bus, passive panels, a broken socket, an
+output-block assignment the console cannot report, and the console's own local
+inputs — together with the reasoning behind each modelling choice.

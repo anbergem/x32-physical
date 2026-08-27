@@ -17,8 +17,10 @@ Read these before making structural changes:
   dependency rules, state boundaries, event flow, WebSocket protocol.
 - [docs/x32-protocol.md](docs/x32-protocol.md) — the verified X32 OSC subset,
   index-translation rules, snapshot/subscribe strategy.
-- [docs/installation.md](docs/installation.md) — the real venue's physical
-  topology facts and the `installation.yaml` schema.
+- [docs/installation.md](docs/installation.md) — the `installation.yaml`
+  schema and modelling reference (generic).
+- [docs/venue-betania.md](docs/venue-betania.md) — the maintainer's own
+  installation, kept as a worked example.
 - [docs/workflow.md](docs/workflow.md) — how work is tracked: issue
   authoring standard, the `agent-ready` gate, model split, review policy.
 - [docs/plan.md](docs/plan.md) — **closed**. The initial build log (steps

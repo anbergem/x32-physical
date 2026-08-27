@@ -143,7 +143,7 @@ describe("createDefaultMockSnapshot", () => {
     });
   });
 
-  describe("output patch (issue #11, docs/installation.md \"Output topology\")", () => {
+  describe("output patch (issue #11, docs/venue-betania.md \"Output topology\")", () => {
     it("has exactly 16 output slots, ids 1–16 in order", () => {
       const { outputs } = createDefaultMockSnapshot();
 

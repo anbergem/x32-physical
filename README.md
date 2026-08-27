@@ -1,12 +1,24 @@
 # X32 Physical Routing Visualizer
 
-A read-only, live schematic of one venue's audio installation: physical input
-sockets → stageboxes → AES50 → the 32 X32 input channels. Hover any socket or
-channel strip to trace the full signal route in either direction; the channel
-SELECTed on the physical console is highlighted persistently.
+A read-only, live schematic of a venue's audio installation: physical input
+sockets → stageboxes → AES50 → the 32 X32 input channels, and back out through
+the output slots to the speakers. Hover or tap any socket, channel or
+destination to trace the full signal path in either direction; the channel
+SELECTed on the physical console stays highlighted.
+
+It answers the two questions people actually ask in a tech booth — *which
+channel is this socket on?* and *where does this channel come from?* — and it
+compares the desk's live routing against a blessed baseline, so accidental
+drift shows up as a badge rather than a mystery mid-service.
+
+Built for a **Behringer X32**; that part is deliberate and hard-coded. Your
+room is not: stageboxes, panels, cabling, speakers and how they group are all
+declared in [`config/installation.yaml`](config/installation.yaml), and the
+schematic derives itself from whatever you declare.
 
 Docs: [architecture](docs/architecture.md) · [X32 OSC subset](docs/x32-protocol.md)
-· [installation facts & YAML schema](docs/installation.md) · [build plan](docs/plan.md)
+· [installation schema](docs/installation.md) · [example venue](docs/venue-betania.md)
+· [build plan](docs/plan.md)
 
 ## Quick start (no mixer needed)
 
@@ -57,7 +69,7 @@ Notes for first bring-up:
   logs a warning and keeps showing REC/IN-block routing.
 - The panel wiring in [config/installation.yaml](config/installation.yaml) is
   the venue's real cabling, captured from the patch sheet and confirmed on
-  site (see [docs/installation.md](docs/installation.md)).
+  site (see [docs/venue-betania.md](docs/venue-betania.md)).
 - **Auto-discovery is currently unreliable** — it finds the console once and
   then stops (issue #14). Until that is fixed, pass `X32_HOST` explicitly;
   with it the bridge is rock solid.

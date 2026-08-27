@@ -31,7 +31,8 @@ models, dependency direction, interfaces, and event flow.
 │   └── protocol/             # WebSocket message types shared bridge ↔ web.
 │
 ├── config/
-│   └── installation.yaml     # The venue's physical topology (no coordinates).
+│   └── installation.yaml     # One installation's physical topology.
+│                             # No coordinates: see docs/installation.md.
 │
 ├── docs/
 └── package.json              # pnpm workspace root
@@ -169,8 +170,9 @@ The UI reads it only to render a socket distinctly and word its tooltip.
 must not also be the `from` of a connection — declaring a socket broken/unused
 and cabling it is contradictory input, rejected at load rather than rendered.
 
-`"destination"` (issue #8) is a powered speaker or zone — no amplifier device
-kind exists because the venue's cabinets are powered. It carries no
+`"destination"` (issue #8) is a powered speaker or zone. There is no
+amplifier device kind: the example venue's cabinets are powered, and no case
+has yet required modelling an amp as its own hop. It carries no
 `inputs`/`aes50`/`outputs`/`outputBlock`; the device itself is the endpoint.
 
 `outputBlock.start` names the first console Out slot (1–16) a stagebox
@@ -189,7 +191,7 @@ like a passive panel, but no `aes50`: local inputs never reach an AES50 bus.
 At most one `console` device is a domain rule. Console *outputs* deliberately
 stay on the bare-number `console-output` scheme above, unmigrated: the two
 sides of the console are addressed asymmetrically on purpose — see
-docs/installation.md "Console XLR outs stay addressed by number".
+docs/installation.md "Console input addition".
 
 The domain derives the stagebox→AES50 edges from `aes50.offset` (box input *n*
 → bus channel *offset + n*) in `deriveStaticEdges`, which route resolution
@@ -340,7 +342,7 @@ function buildOutputRouteIndex(installation: Installation,
   independent downstream trace — not one trace from a shared upstream node.
 - A block is presented **wholesale**: a stagebox's XLR outs carry its full
   8-slot block regardless of which slots are actually patched
-  (docs/installation.md "a block is presented wholesale, but only some
+  (docs/venue-betania.md "a block is presented wholesale, but only some
   sockets are patched"), so the static `mixer-output → stagebox-output` edge
   exists independent of the slot's source.
 - A slot sourced `off` is the one deliberate exception to that: its route is
@@ -465,7 +467,7 @@ API (dev-only): `simulateSelect(ch | null)`, `simulateRename(ch, name)`,
 `simulateConnectionLoss()`, `simulateReconnect()`. Each mutates the mock's internal snapshot and emits the
 corresponding `MixerEvent`, so mock and real adapter exercise identical
 consumer code. The default snapshot matches the venue's real patch sheet
-exactly (docs/installation.md) — no synthetic edge cases; a shared source, an
+exactly (docs/venue-betania.md) — no synthetic edge cases; a shared source, an
 unmapped (Card) source, or an OFF channel are produced via `simulate*` or a
 test-local snapshot, not baked into the default.
 
@@ -546,7 +548,7 @@ for a given hovered id. There is no output selection layer: the console's
 SELECT reports input strips only, so `selectedChannel` and its highlight stay
 input-only, unchanged by this issue.
 
-The wholesale-block distinction (docs/installation.md "a block is presented
+The wholesale-block distinction (docs/venue-betania.md "a block is presented
 wholesale, but only some sockets are patched") is **not** read off
 `OutputRouteIndex` — a shared route's `destinations` reads identically for
 every physical socket on it, wholesale-uncabled siblings included (§3
@@ -682,9 +684,12 @@ recomputes `routeIndex`; hover state changes touch only `hoveredEndpoint`.
 
 ## 9. Future boundaries (design for, don't build)
 
-- `InstallationRepository` / `LayoutRepository` interfaces can later replace
-  the static YAML load and hard-coded JSX layout; components already identify
-  themselves by domain IDs only.
+- `InstallationRepository` can later replace the static YAML load; the web
+  app already fetches topology at runtime (§7). The schematic's *membership
+  and grouping* are already data-driven — devices are partitioned by their
+  optional `group`, and no device id appears in component code — so a
+  `LayoutRepository` would only need to own the remaining hard-coded part:
+  the order of the sections themselves.
 - Diagnostics: implemented as the baseline diff (§3 "Routing diff", §7
   "Baseline persistence"). Possible later extension: parse a console `.scn`
   scene export as an alternative expected-state source (deferred).

@@ -353,7 +353,7 @@ milestone (issue #7).
 1. **`/-stat/aes50/A` identifies the cascade.** It reports which boxes are
    detected and in what order, so the console can confirm what
    `installation.yaml` asserts — the two 16-in boxes, their models (previously
-   recorded as "exact model unknown" in docs/installation.md — now readable
+   recorded as "exact model unknown" in docs/venue-betania.md — now readable
    from the console), and their chain order. `compareAes50Chain`
    (`packages/domain/src/aes50.ts`) cross-checks the detected chain against
    the declared stageboxes and surfaces a mismatch in the UI as "Stage boxes
