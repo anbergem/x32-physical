@@ -46,9 +46,12 @@ export function DeviceFrame({
 }
 
 /**
- * The hard-coded layout named a device `installation.yaml` does not declare
- * (MVP layout is hard-coded JSX — CLAUDE.md invariant 6). Say so in place
- * rather than crashing or silently dropping part of the schematic.
+ * A device the store cannot find. Since issue #22 the layout draws only what
+ * `installation.yaml` declares, so nothing the schematic renders can reach
+ * this — it is the honest last resort for a device id that came from
+ * somewhere else (a deep link, a future layout source). Say so in place
+ * rather than crashing or silently dropping part of the schematic: naming a
+ * device we know nothing about is the one thing this tool must never do.
  */
 export function MissingDevice({ deviceId }: { deviceId: DeviceId }) {
   return (

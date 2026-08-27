@@ -97,6 +97,12 @@ devices:
   # cabinets are powered — no amplifier devices sit between a physical output
   # and one of these. A destination has no socket number of its own; `inputs`
   # is never authored here (the loader supplies 0 on the way to the domain).
+  #
+  # Declaration order is the reading order (issue #22): the UI draws groups in
+  # order of first appearance and devices in the order listed here. Still not
+  # a coordinate — it says which speaker is named first, not where on screen it
+  # lands. Hence Other, then Left (front to back, then Sub and Main), then
+  # Right: the order the previous hard-coded layout drew, now data.
   sidesal:
     kind: destination
     label: "Sidesal"
@@ -107,24 +113,9 @@ devices:
     label: "Vip Rom"
     group: "Other"
 
-  bak-hoyre:
+  front-venstre:
     kind: destination
-    label: "Bak Høyre"
-    group: "Right"
-
-  piano-hoyre:
-    kind: destination
-    label: "Piano Høyre"
-    group: "Right"
-
-  front-hoyre:
-    kind: destination
-    label: "Front Høyre"
-    group: "Right"
-
-  venstre-bak:
-    kind: destination
-    label: "Venstre Bak"
+    label: "Front Venstre"
     group: "Left"
 
   piano-venstre:
@@ -132,9 +123,9 @@ devices:
     label: "Piano Venstre"
     group: "Left"
 
-  front-venstre:
+  venstre-bak:
     kind: destination
-    label: "Front Venstre"
+    label: "Venstre Bak"
     group: "Left"
 
   sub:
@@ -146,6 +137,21 @@ devices:
     kind: destination
     label: "Main Left"
     group: "Left"
+
+  front-hoyre:
+    kind: destination
+    label: "Front Høyre"
+    group: "Right"
+
+  piano-hoyre:
+    kind: destination
+    label: "Piano Høyre"
+    group: "Right"
+
+  bak-hoyre:
+    kind: destination
+    label: "Bak Høyre"
+    group: "Right"
 
   main-right:
     kind: destination

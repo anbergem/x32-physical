@@ -1,15 +1,17 @@
 /**
- * The schematic. A live picture of one venue's installation, read top to
- * bottom: each stagebox above the passive panel cabled into it, then
- * AES50-A, then the destinations those stageboxes' outputs eventually feed,
- * then the console at FOH (Mikserpult + Console XLR outs, side by side),
- * then the X32's own 32 input channels, then its 16 output slots.
+ * The schematic. A live picture of the installation, read top to bottom: the
+ * stage areas (each stagebox above the panel cabled into it), then the AES50
+ * bus, then the destinations those outputs eventually feed, then the console
+ * at FOH (its local inputs + Console XLR outs, side by side), then the X32's
+ * own 32 input channels, then its 16 output slots.
  *
- * The layout is hard-coded JSX on purpose (CLAUDE.md invariant 6): device ids
- * are the only thing it knows, and `installation.yaml` carries no coordinates.
- * Grouping each stagebox with the panel cabled to it, and laying the two
- * console devices out on one row, are layout decisions made here, not
- * something the components discover by walking the topology.
+ * The *order of the sections* is hard-coded JSX on purpose (CLAUDE.md
+ * invariant 6): it follows the signal path, and `installation.yaml` carries
+ * no coordinates. What each section contains is not hard-coded — since issue
+ * #22 no device id appears anywhere in this app. `Stage`, `Destinations` and
+ * `ConsoleSection` derive their devices and their grouping from the
+ * installation (`installation/deviceGroups.ts`), so a different venue's file
+ * draws that venue, with no code change and no fallback to ours.
  *
  * Visibility is a separate axis from layout: the two console devices share a
  * row but are two independently toggleable *sections*, because one is an
@@ -22,7 +24,6 @@
  * inline toggles (see `SectionsControl`, `sectionVisibility.ts`).
  */
 
-import { deviceId } from "@x32/domain";
 import { useEffect, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
@@ -32,7 +33,6 @@ import { Destinations } from "./components/Destinations";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
 import { Mixer } from "./components/Mixer";
 import { MixerOutputs } from "./components/MixerOutputs";
-import { PhysicalInputPanel } from "./components/PhysicalInputPanel";
 import {
   allSectionsVisible,
   readSectionVisibility,
@@ -40,7 +40,7 @@ import {
 } from "./components/sectionVisibility";
 import type { SectionVisibility } from "./components/sectionVisibility";
 import { SectionsControl } from "./components/SectionsControl";
-import { Stagebox } from "./components/Stagebox";
+import { Stage } from "./components/Stage";
 import { SystemStatus } from "./components/SystemStatus";
 import { UpdateNotice } from "./components/UpdateNotice";
 import type { GatewayMode, MixerGateway } from "./gateway/mixerGateway";
@@ -106,29 +106,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
           </p>
         )}
 
-        {visibility.stage && (
-          <>
-            <div className="stage">
-              <section className="stage-area">
-                <h2 className="stage-area__title">Stage left</h2>
-                <Stagebox deviceId={deviceId("stagebox-1")} />
-                <div className="cable" aria-hidden="true" />
-                <PhysicalInputPanel deviceId={deviceId("front-left")} />
-              </section>
-
-              <section className="stage-area">
-                <h2 className="stage-area__title">Stage right</h2>
-                <Stagebox deviceId={deviceId("stagebox-2")} />
-                <div className="cable" aria-hidden="true" />
-                <PhysicalInputPanel deviceId={deviceId("front-right")} />
-              </section>
-            </div>
-
-            <div className="bus" aria-hidden="true">
-              <span className="bus__label">AES50-A</span>
-            </div>
-          </>
-        )}
+        {visibility.stage && <Stage />}
 
         {visibility.destinations && <Destinations />}
 

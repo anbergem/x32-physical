@@ -1,0 +1,74 @@
+# An entirely invented installation, used to prove the schematic is not
+# wired to one venue (issue #22). Nothing here matches `config/
+# installation.yaml`: different device ids, different group names, one
+# stagebox instead of two, two panels, two destinations, and no console
+# device at all.
+#
+# It is deliberately awkward in the ways a real foreign rig is awkward:
+#
+# - a group ("Upstage") holding a single panel that is not next to a
+#   stagebox — grouping is a semantic name, not connectivity;
+# - a destination with no group at all, which must land in the trailing
+#   untitled area rather than being dropped or invented a name for;
+# - no `kind: console` device, so the console input frame must not render.
+#
+# Copy this over `config/installation.yaml` to see it draw in the browser —
+# that is the whole point, and it needs no code change.
+
+version: 2
+
+devices:
+  snake-a:
+    kind: stagebox
+    label: "Snake A"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+    outputs: 8
+    outputBlock: { start: 1 }
+    group: "Downstage"
+
+  dsl-plate:
+    kind: passive-panel
+    label: "DSL wall plate"
+    inputs: 4
+    group: "Downstage"
+
+  usr-box:
+    kind: passive-panel
+    label: "USR floor box"
+    inputs: 4
+    group: "Upstage"
+    sockets:
+      4: { status: unused, note: "Spare" }
+
+  main-pa:
+    kind: destination
+    label: "Main PA"
+    group: "House"
+
+  # Deliberately ungrouped.
+  wedge-1:
+    kind: destination
+    label: "Wedge 1"
+
+connections:
+  - from: { device: dsl-plate, input: 1 }
+    to: { device: snake-a, input: 1 }
+  - from: { device: dsl-plate, input: 2 }
+    to: { device: snake-a, input: 2 }
+  - from: { device: dsl-plate, input: 3 }
+    to: { device: snake-a, input: 3 }
+  - from: { device: dsl-plate, input: 4 }
+    to: { device: snake-a, input: 4 }
+
+  - from: { device: usr-box, input: 1 }
+    to: { device: snake-a, input: 9 }
+  - from: { device: usr-box, input: 2 }
+    to: { device: snake-a, input: 10 }
+  - from: { device: usr-box, input: 3 }
+    to: { device: snake-a, input: 11 }
+
+  - from: { device: snake-a, output: 1 }
+    to: { device: main-pa }
+  - from: { consoleOutput: 1 }
+    to: { device: wedge-1 }

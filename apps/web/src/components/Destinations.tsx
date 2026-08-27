@@ -1,45 +1,38 @@
 /**
- * The destinations area (issue #11): every powered speaker/zone, grouped
- * left/right/other to mirror the stage areas above it — the same
- * hard-coded-layout discipline `App.tsx` already applies to the stageboxes
- * (CLAUDE.md invariant 6: no coordinates, ever, and grouping is a layout
- * decision made here, not derived from `installation.yaml`).
+ * The destinations area (issue #11): every powered speaker/zone the
+ * installation declares, partitioned into areas by the devices' `group`
+ * (issue #22) — the same data-driven rule the stage section uses, so the two
+ * halves of the schematic mirror each other however a venue names its parts.
  *
- * Membership matches docs/installation.md "Output topology" / the owner's
- * own spatial description of the room: left mirrors "Stage left", right
- * mirrors "Stage right", and the two console-fed zones (Sidesal, Vip Rom)
- * that aren't part of either side sit in their own group.
+ * No device id appears here. Group order is order of first appearance in
+ * `installation.yaml`, device order inside a group is declaration order, and
+ * devices with no group collect into a final, untitled area. Arrangement —
+ * that the areas sit in one row, and where the section falls on the page —
+ * stays a layout decision (CLAUDE.md invariant 6: `group` is a name, never a
+ * position).
+ *
+ * An installation with no destinations renders nothing at all, not an empty
+ * bordered frame: plenty of rigs have no output cabling worth drawing.
  */
 
-import { deviceId } from "@x32/domain";
-import type { DeviceId } from "@x32/domain";
+import type { DeviceGroup } from "../installation/deviceGroups";
+import { deviceGroupsFor } from "../installation/deviceGroups";
+import { selectInstallation } from "../state/selectors";
+import { useAppStore } from "../state/storeContext";
 
 import { Destination } from "./Destination";
 
-const LEFT: DeviceId[] = [
-  deviceId("front-venstre"),
-  deviceId("piano-venstre"),
-  deviceId("venstre-bak"),
-  deviceId("sub"),
-  deviceId("main-left"),
-];
+const DESTINATION_KINDS = ["destination"] as const;
 
-const RIGHT: DeviceId[] = [
-  deviceId("front-hoyre"),
-  deviceId("piano-hoyre"),
-  deviceId("bak-hoyre"),
-  deviceId("main-right"),
-];
-
-const OTHER: DeviceId[] = [deviceId("sidesal"), deviceId("vip-rom")];
-
-function DestinationGroup({ title, devices }: { title: string; devices: DeviceId[] }) {
+function DestinationGroup({ group }: { group: DeviceGroup }) {
   return (
     <section className="destination-group">
-      <h3 className="destination-group__title">{title}</h3>
+      {group.title !== null && (
+        <h3 className="destination-group__title">{group.title}</h3>
+      )}
       <div className="destination-group__items">
-        {devices.map((id) => (
-          <Destination key={id} deviceId={id} />
+        {group.devices.map((device) => (
+          <Destination key={device.id} deviceId={device.id} />
         ))}
       </div>
     </section>
@@ -47,11 +40,16 @@ function DestinationGroup({ title, devices }: { title: string; devices: DeviceId
 }
 
 export function Destinations() {
+  const installation = useAppStore(selectInstallation);
+  const groups = deviceGroupsFor(installation, DESTINATION_KINDS);
+
+  if (groups.length === 0) return null;
+
   return (
     <section className="destinations">
-      <DestinationGroup title="Other" devices={OTHER} />
-      <DestinationGroup title="Left" devices={LEFT} />
-      <DestinationGroup title="Right" devices={RIGHT} />
+      {groups.map((group) => (
+        <DestinationGroup key={group.title ?? ""} group={group} />
+      ))}
     </section>
   );
 }
