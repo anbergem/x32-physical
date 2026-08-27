@@ -40,6 +40,12 @@ describe("createDefaultMockSnapshot", () => {
     }
   });
 
+  it("names every channel in plain ASCII (issue #21: no venue name creeping back)", () => {
+    for (const channel of createDefaultMockSnapshot().channels) {
+      expect(channel.name).toMatch(/^[\x20-\x7e]+$/);
+    }
+  });
+
   it("starts with nothing selected", () => {
     expect(createDefaultMockSnapshot().selectedChannel).toBeNull();
   });
@@ -116,7 +122,7 @@ describe("createDefaultMockSnapshot", () => {
   });
 
   describe("sanity anchor against the real installation", () => {
-    it("traces CH11 Vokal H1 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 2", () => {
+    it("traces CH11 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 2", () => {
       const installation = loadInstallationFile(VENUE_CONFIG);
       const { channels } = createDefaultMockSnapshot();
       const routeIndex = buildRouteIndex(installation, channels);
@@ -127,7 +133,7 @@ describe("createDefaultMockSnapshot", () => {
       expect(route?.physicalInputs).toEqual([panelInput("front-right", 2)]);
     });
 
-    it("traces CH5 Vokal V1 (AES50-A 1) to MK Front V socket 1", () => {
+    it("traces CH5 (AES50-A 1) to MK Front V socket 1", () => {
       const installation = loadInstallationFile(VENUE_CONFIG);
       const { channels } = createDefaultMockSnapshot();
       const routeIndex = buildRouteIndex(installation, channels);

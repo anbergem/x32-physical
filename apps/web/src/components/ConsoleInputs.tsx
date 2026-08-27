@@ -1,8 +1,8 @@
 /**
  * The console's own local XLR inputs (issue #2) — physically at FOH,
  * alongside the mixer section rather than on stage with the stage panels
- * (docs/installation.md "Real panel wiring": IN 1 Bøyle, IN 2/3 Håndholdt
- * 1/2). Rendered as two rows of 16, like the hardware, and styled more
+ * (docs/installation.md "Real panel wiring": the venue's IN 1–3 are in
+ * use). Rendered as two rows of 16, like the hardware, and styled more
  * subtly than the stage panels since most of the 32 sockets are unused.
  *
  * No AES50 dual label: a console local input never reaches an AES50 bus

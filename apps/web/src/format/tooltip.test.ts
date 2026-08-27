@@ -3,8 +3,8 @@
  * the same data the browser shows, so these assertions are what an operator
  * reads on screen.
  *
- * The mock's default snapshot (mixer-contracts) is faithful to the real patch
- * sheet and has no dual-consumer channel by default; the tests that need one
+ * The mock's default snapshot (mixer-contracts) gives every channel its own
+ * source and so has no dual-consumer channel by default; the tests that need one
  * build a local `sharedContext` fixture with CH23/CH28 forced onto the same
  * source, rather than leaning on the default.
  */
@@ -64,7 +64,7 @@ const sharedContext: TooltipContext = {
 describe("describeEndpoint · mixer channel", () => {
   it("shows the source and the physical socket it comes from", () => {
     expect(describeEndpoint(endpointId(mixerChannel(5)), context)).toEqual({
-      title: "CH5 · Vokal V1",
+      title: "CH5 · Vox 1",
       lines: ["AES50-A 1", "Front Left · Input 1"],
     });
   });
@@ -72,14 +72,14 @@ describe("describeEndpoint · mixer channel", () => {
   it("falls back to the stagebox socket when nothing is cabled to it", () => {
     // AES50-A 23 is stagebox-2 input 7, a direct stage socket.
     expect(describeEndpoint(endpointId(mixerChannel(16)), context)).toEqual({
-      title: "CH16 · Vokal H6",
+      title: "CH16 · Speech 6",
       lines: ["AES50-A 23", "Stagebox 2 · Input 7"],
     });
   });
 
   it("says so when the source reaches no physical input", () => {
     expect(describeEndpoint(endpointId(mixerChannel(1)), context)).toEqual({
-      title: "CH1 · Bøyle",
+      title: "CH1 · Lectern",
       lines: ["Local 1", "No mapped physical input"],
     });
   });
@@ -100,7 +100,7 @@ describe("describeEndpoint · mixer channel", () => {
     };
 
     expect(describeEndpoint(endpointId(mixerChannel(32)), offContext)).toEqual({
-      title: "CH32 · OH H",
+      title: "CH32 · OH R",
       lines: ["OFF", "No mapped physical input"],
     });
   });
@@ -134,7 +134,7 @@ describe("describeEndpoint · mixer channel", () => {
     expect(
       describeEndpoint(endpointId(mixerChannel(5)), { ...context, discrepancies }),
     ).toEqual({
-      title: "CH5 · Vokal V1",
+      title: "CH5 · Vox 1",
       lines: [
         "AES50-A 1",
         "Front Left · Input 1",
@@ -145,14 +145,14 @@ describe("describeEndpoint · mixer channel", () => {
 
   it("appends a baseline-name line for a name-mismatch, never a badge-worthy line", () => {
     const discrepancies: RoutingDiscrepancy[] = [
-      { kind: "name-mismatch", channel: mixerChannelId(5), expected: "Vokal Old", actual: "Vokal V1" },
+      { kind: "name-mismatch", channel: mixerChannelId(5), expected: "Vox Old", actual: "Vox 1" },
     ];
 
     expect(
       describeEndpoint(endpointId(mixerChannel(5)), { ...context, discrepancies }),
     ).toEqual({
-      title: "CH5 · Vokal V1",
-      lines: ["AES50-A 1", "Front Left · Input 1", "Baseline name: Vokal Old"],
+      title: "CH5 · Vox 1",
+      lines: ["AES50-A 1", "Front Left · Input 1", "Baseline name: Vox Old"],
     });
   });
 
@@ -168,7 +168,7 @@ describe("describeEndpoint · mixer channel", () => {
     expect(
       describeEndpoint(endpointId(mixerChannel(23)), { ...sharedContext, discrepancies }),
     ).toEqual({
-      title: "CH23 · Aux Scene L",
+      title: "CH23 · Playback L",
       lines: ["AES50-A 10", "Stagebox 1 · Input 10", "Unexpectedly shares its source with CH28"],
     });
   });
@@ -180,7 +180,7 @@ describe("describeEndpoint · physical socket", () => {
       describeEndpoint(endpointId(stageboxInput("stagebox-1", 10)), sharedContext),
     ).toEqual({
       title: "Stagebox 1 · Input 10",
-      lines: ["→ AES50-A 10", "CH23 Aux Scene L, CH28 Hihat"],
+      lines: ["→ AES50-A 10", "CH23 Playback L, CH28 Hi-Hat"],
     });
   });
 
@@ -189,7 +189,7 @@ describe("describeEndpoint · physical socket", () => {
       describeEndpoint(endpointId(panelInput("front-left", 3)), context),
     ).toEqual({
       title: "Front Left · Input 3",
-      lines: ["→ AES50-A 3", "CH7 Vokal V3"],
+      lines: ["→ AES50-A 3", "CH7 Vox 3"],
     });
   });
 

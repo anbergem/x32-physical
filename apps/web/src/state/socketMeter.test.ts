@@ -25,8 +25,8 @@ import { createAppStore } from "./store";
 
 const installation = venueInstallation();
 
-const CH5 = mixerChannelId(5); // "Vokal V1" · AES50-A 1 · front-left socket 1
-const CH6 = mixerChannelId(6); // "Vokal V2" · AES50-A 2 · front-left socket 2
+const CH5 = mixerChannelId(5); // "Vox 1" · AES50-A 1 · front-left socket 1
+const CH6 = mixerChannelId(6); // "Vox 2" · AES50-A 2 · front-left socket 2
 
 // front-left socket 1 -> stagebox-1 input 1 -> AES50-A 1, consumed by CH5 only.
 const SOLE_CONSUMER_SOCKET = endpointId(panelInput("front-left", 1));

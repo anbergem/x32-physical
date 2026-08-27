@@ -75,7 +75,7 @@ function statusOf(store: AppStore, endpoint: EndpointId) {
  * file's tests need:
  *
  * - CH1's baseline source is `local 9`; live is `local 1` → source-mismatch.
- * - CH2's baseline *name* is "Old Name"; live is "Håndholdt 1", source
+ * - CH2's baseline *name* is "Old Name"; live is "Handheld 1", source
  *   unchanged → name-mismatch only, no badge.
  * - CH23's baseline source is `local 9` too (so it no longer matches live's
  *   `aes50A(7)`, which is *also* a source-mismatch); CH28's baseline source

@@ -472,7 +472,7 @@ describe("MockMixerClient snapshot isolation", () => {
     initial.selectedChannel = CH12;
 
     const snapshot = await client.getSnapshot();
-    expect(snapshot.channels[0]?.name).toBe("Bøyle");
+    expect(snapshot.channels[0]?.name).toBe("Lectern");
     expect(snapshot.selectedChannel).toBeNull();
   });
 });

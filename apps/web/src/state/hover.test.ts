@@ -148,7 +148,7 @@ describe("selectHoverStatus", () => {
     expect(statusOf(store, endpointId(stageboxInput("stagebox-1", 3)))).toBe(
       "on-route",
     );
-    // front-left input 3 -> stagebox-1 input 3 -> AES50-A 3 -> CH7 "Vokal V3".
+    // front-left input 3 -> stagebox-1 input 3 -> AES50-A 3 -> CH7 "Vox 3".
     expect(statusOf(store, endpointId(mixerChannel(7)))).toBe("on-route");
   });
 
