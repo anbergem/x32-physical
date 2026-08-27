@@ -1,22 +1,27 @@
 /**
  * The schematic. A live picture of one venue's installation, read top to
  * bottom: each stagebox above the passive panel cabled into it, then
- * AES50-A, then the console.
+ * AES50-A, then the destinations those stageboxes' outputs eventually feed,
+ * then the console section (Mikserpult (FOH) + Console XLR outs, together —
+ * collapsible via `ConsoleSection`), then the X32's own 32 input channels,
+ * then its 16 output slots.
  *
  * The layout is hard-coded JSX on purpose (CLAUDE.md invariant 6): device ids
  * are the only thing it knows, and `installation.yaml` carries no coordinates.
- * Grouping each stagebox with the panel cabled to it is a layout decision made
- * here, not something the components discover by walking the topology.
+ * Grouping each stagebox with the panel cabled to it, and grouping the two
+ * console devices as one section, are layout decisions made here, not
+ * something the components discover by walking the topology.
  *
  * This is a debugging/documentation view, not a mixer-control app: no menus,
- * no toolbars, no settings — a title, a connection state, and the venue.
+ * no toolbars, no settings — a title, a connection state, and the venue. The
+ * console section's show/hide toggle is the one exception, and it's kept as
+ * minimal chrome deliberately (see `ConsoleSection`).
  */
 
 import { deviceId } from "@x32/domain";
 
 import { ConnectionStatus } from "./components/ConnectionStatus";
-import { ConsoleInputs } from "./components/ConsoleInputs";
-import { ConsoleOutputs } from "./components/ConsoleOutputs";
+import { ConsoleSection } from "./components/ConsoleSection";
 import { Destinations } from "./components/Destinations";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
 import { Mixer } from "./components/Mixer";
@@ -61,15 +66,13 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
           <span className="bus__label">AES50-A</span>
         </div>
 
-        <div className="mixer-section">
-          <Mixer />
-          <ConsoleInputs deviceId={deviceId("console")} />
-          <ConsoleOutputs />
-        </div>
+        <Destinations />
+
+        <ConsoleSection />
+
+        <Mixer />
 
         <MixerOutputs />
-
-        <Destinations />
       </main>
     </div>
   );

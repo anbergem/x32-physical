@@ -49,9 +49,9 @@ function DestinationGroup({ title, devices }: { title: string; devices: DeviceId
 export function Destinations() {
   return (
     <section className="destinations">
+      <DestinationGroup title="Other" devices={OTHER} />
       <DestinationGroup title="Left" devices={LEFT} />
       <DestinationGroup title="Right" devices={RIGHT} />
-      <DestinationGroup title="Other" devices={OTHER} />
     </section>
   );
 }

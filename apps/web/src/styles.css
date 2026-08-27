@@ -860,14 +860,43 @@ body {
   color: var(--text-dim);
 }
 
-/* --- mixer section (issue #11) ------------------------------------------- */
+/* --- console section (Mikserpult (FOH) + Console XLR outs, together) ---- */
 
-.mixer-section {
+.console-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 1120px);
+}
+
+.console-section__toggle {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.console-section__toggle:hover {
+  border-color: var(--hover);
+  color: var(--text);
+}
+
+.console-section__devices {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: center;
   gap: 16px;
+}
+
+/* Collapsed: nothing but the slim toggle bar, so the section is never lost. */
+.console-section--collapsed {
+  align-items: center;
 }
 
 /* --- X32 output slots (issue #11) ---------------------------------------- */
