@@ -190,10 +190,22 @@ function toSocketAnnotations(
 }
 
 function toDevice(id: string, document: DeviceDocument): Device {
+  // The schema has already trimmed `group` and normalised an empty or
+  // whitespace-only value to `undefined`, so the key is simply omitted when
+  // the device is ungrouped (issue #20).
+  const group =
+    document.group !== undefined ? { group: document.group } : {};
+
   if (document.kind === "destination") {
     // `inputs: 0` is an internal detail the mapper supplies — the YAML never
     // asks a human to type it for a loudspeaker (issue #9 decisions).
-    return { id: deviceId(id), kind: "destination", label: document.label, inputs: 0 };
+    return {
+      id: deviceId(id),
+      kind: "destination",
+      label: document.label,
+      inputs: 0,
+      ...group,
+    };
   }
 
   const base = {
@@ -203,6 +215,7 @@ function toDevice(id: string, document: DeviceDocument): Device {
     ...(document.sockets !== undefined
       ? { sockets: toSocketAnnotations(document.sockets) }
       : {}),
+    ...group,
   };
 
   if (document.kind === "passive-panel") {

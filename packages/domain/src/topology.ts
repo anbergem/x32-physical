@@ -64,6 +64,22 @@ export interface Device {
    * socket. Descriptive only — see `SocketAnnotation`.
    */
   sockets?: SocketAnnotation[];
+  /**
+   * A **semantic grouping label, not a coordinate** (issue #20): "Stage
+   * left", "Left", "Other". It names which part of the installation a device
+   * belongs to, the way a technician would say it out loud — it says nothing
+   * about where the device is drawn, how big it is, or in what order groups
+   * appear on screen. CLAUDE.md invariant 6 (no coordinates in
+   * `installation.yaml`) therefore still holds: the UI decides layout, and a
+   * renderer is free to lay these groups out in any way at all, or to ignore
+   * them entirely.
+   *
+   * Optional and free text — venues differ, and "Balcony" or "Foyer" must be
+   * expressible without a schema change. `undefined` means the device is
+   * ungrouped, which is a perfectly ordinary state; a config with no groups
+   * at all is legitimate.
+   */
+  group?: string;
 }
 
 /** A directed edge of the static signal graph: `from` feeds `to`. */

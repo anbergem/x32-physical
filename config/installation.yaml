@@ -9,7 +9,10 @@
 # No coordinates, ever: connectivity and visual layout are separate concerns
 # (CLAUDE.md invariant 6). Stagebox -> AES50 edges, and mixer-output ->
 # stagebox-output edges for a box's presented block, are *derived* by the
-# domain and must never be written here.
+# domain and must never be written here. The optional `group` on a device is
+# a *name* ("Stage left", "Left", "Other"), not a position — it says which
+# part of the installation a device belongs to, never where it is drawn
+# (docs/installation.md §"`group`").
 #
 # Channel names/assignments from the patch sheet (Vokal V1 -> C5, ...) are
 # live mixer configuration — they come from the console at runtime and are
@@ -45,6 +48,7 @@ devices:
     aes50: { bus: A, offset: 0 }
     outputs: 8
     outputBlock: { start: 9 }
+    group: "Stage left"
 
   stagebox-2:
     kind: stagebox
@@ -53,12 +57,14 @@ devices:
     aes50: { bus: A, offset: 16 }
     outputs: 8
     outputBlock: { start: 1 }
+    group: "Stage right"
 
   # Front mic panels ("MK Front"). Left has 8 sockets, all usable.
   front-left:
     kind: passive-panel
     label: "MK Front V"
     inputs: 8
+    group: "Stage left"
 
   # Right is an 8-position link box, numbered by *physical position*
   # (owner decision 2026-08-27, issue #12) — not by the plate's own printed
@@ -71,6 +77,7 @@ devices:
     kind: passive-panel
     label: "MK Front H"
     inputs: 8
+    group: "Stage right"
     sockets:
       1: { status: broken, note: "Defekt — ikke i bruk" }
 
@@ -79,6 +86,8 @@ devices:
   # 1 -> CH2, IN 3 Håndholdt 2 -> CH3 (live mixer configuration, not
   # recorded here). All 32 are declared, truthfully, even though only three
   # are patched — an unused socket renders like any other unconsumed one.
+  # Deliberately ungrouped: the desk is not part of the stage or the
+  # destination groupings, and being ungrouped is an ordinary state.
   console:
     kind: console
     label: "Mikserpult (FOH)"
@@ -91,46 +100,57 @@ devices:
   sidesal:
     kind: destination
     label: "Sidesal"
+    group: "Other"
 
   vip-rom:
     kind: destination
     label: "Vip Rom"
+    group: "Other"
 
   bak-hoyre:
     kind: destination
     label: "Bak Høyre"
+    group: "Right"
 
   piano-hoyre:
     kind: destination
     label: "Piano Høyre"
+    group: "Right"
 
   front-hoyre:
     kind: destination
     label: "Front Høyre"
+    group: "Right"
 
   venstre-bak:
     kind: destination
     label: "Venstre Bak"
+    group: "Left"
 
   piano-venstre:
     kind: destination
     label: "Piano Venstre"
+    group: "Left"
 
   front-venstre:
     kind: destination
     label: "Front Venstre"
+    group: "Left"
 
   sub:
     kind: destination
     label: "Sub"
+    group: "Left"
 
   main-left:
     kind: destination
     label: "Main Left"
+    group: "Left"
 
   main-right:
     kind: destination
     label: "Main Right"
+    group: "Right"
 
 # Panel socket -> stagebox input, in signal direction, per the patch sheet.
 #

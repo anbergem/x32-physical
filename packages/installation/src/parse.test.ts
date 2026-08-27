@@ -600,3 +600,108 @@ connections:
     expect(console_).toMatchObject({ id: "console", kind: "console", inputs: 32 });
   });
 });
+
+/**
+ * The optional `group` name (issue #20). Foundation only: the field is
+ * carried from YAML to the domain `Device` and nothing renders it yet.
+ */
+describe("parseInstallationYaml: device groups (issue #20)", () => {
+  const GROUP_YAML = `version: 2
+
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+    group: "Stage left"
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+  main-left:
+    kind: destination
+    label: "Main Left"
+    group: "Left"
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+`;
+
+  function deviceOf(yaml: string, id: string) {
+    return parseInstallationYaml(yaml).devices.find((device) => device.id === id);
+  }
+
+  function groupFailureOf(yaml: string): string {
+    try {
+      parseInstallationYaml(yaml);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error("expected parseInstallationYaml to throw, but it returned");
+  }
+
+  it("carries a declared group through to the domain device", () => {
+    expect(deviceOf(GROUP_YAML, "stagebox-1")?.group).toBe("Stage left");
+  });
+
+  it("leaves a device that declares no group ungrouped", () => {
+    const frontLeft = deviceOf(GROUP_YAML, "front-left");
+
+    expect(frontLeft?.group).toBeUndefined();
+    // The key is omitted entirely rather than set to `undefined`.
+    expect(frontLeft).toEqual({
+      id: "front-left",
+      kind: "passive-panel",
+      label: "Front Left",
+      inputs: 8,
+    });
+    expect(Object.keys(frontLeft ?? {})).not.toContain("group");
+  });
+
+  it("accepts a group on a destination", () => {
+    expect(deviceOf(GROUP_YAML, "main-left")).toEqual({
+      id: "main-left",
+      kind: "destination",
+      label: "Main Left",
+      inputs: 0,
+      group: "Left",
+    });
+  });
+
+  it("trims a group name", () => {
+    const yaml = GROUP_YAML.replace('group: "Stage left"', 'group: "  Stage left  "');
+
+    expect(deviceOf(yaml, "stagebox-1")?.group).toBe("Stage left");
+  });
+
+  it("treats a whitespace-only group as absent, not as a group named \"  \"", () => {
+    const yaml = GROUP_YAML.replace('group: "Stage left"', 'group: "  "');
+    const stagebox = deviceOf(yaml, "stagebox-1");
+
+    expect(stagebox?.group).toBeUndefined();
+    expect(Object.keys(stagebox ?? {})).not.toContain("group");
+  });
+
+  it("treats an empty group as absent", () => {
+    const yaml = GROUP_YAML.replace('group: "Stage left"', 'group: ""');
+
+    expect(deviceOf(yaml, "stagebox-1")?.group).toBeUndefined();
+  });
+
+  it("rejects a non-string group at the Zod layer, naming the device path", () => {
+    const message = groupFailureOf(GROUP_YAML.replace('group: "Stage left"', "group: 5"));
+
+    expect(message).toContain("Invalid installation schema");
+    expect(message).toContain("devices.stagebox-1.group");
+  });
+
+  it("rejects a non-string group on a destination too", () => {
+    const message = groupFailureOf(GROUP_YAML.replace('group: "Left"', "group: 5"));
+
+    expect(message).toContain("devices.main-left.group");
+  });
+});

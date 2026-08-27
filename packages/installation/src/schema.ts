@@ -64,11 +64,30 @@ const socketsSchema = z.record(
   socketAnnotationSchema,
 );
 
+/**
+ * The optional `group` name (issue #20), accepted on every device kind. Shape
+ * only: any string is a valid group, so there is nothing for
+ * `validateInstallation` to check.
+ *
+ * Trimmed, and an empty or whitespace-only value normalises to `undefined`
+ * rather than to a group literally named `""` — a stray `group: ""` should
+ * leave the device ungrouped, not create a nameless group that a renderer
+ * would later draw with a blank heading.
+ */
+const groupSchema = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const trimmed = value?.trim();
+    return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+  });
+
 /** `inputs` is typed here; `inputs ≥ 1` is a domain rule. */
 const deviceFields = {
   label: z.string(),
   inputs: z.number().int(),
   sockets: socketsSchema.optional(),
+  group: groupSchema,
 };
 
 const stageboxSchema = z.strictObject({
@@ -109,11 +128,13 @@ const consoleSchema = z.strictObject({
  * A powered speaker or zone: label only. No `inputs`, `aes50`, `outputs` or
  * `outputBlock` — a destination is a device-level endpoint with no sockets of
  * its own, and `inputs: 0` is an internal detail the mapper supplies, never
- * authored in YAML.
+ * authored in YAML. `group` *is* accepted here, like on every other kind:
+ * destinations are exactly the devices a venue most wants to group.
  */
 const destinationSchema = z.strictObject({
   kind: z.literal("destination"),
   label: z.string(),
+  group: groupSchema,
 });
 
 const deviceSchema = z.discriminatedUnion("kind", [

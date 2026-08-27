@@ -206,3 +206,45 @@ describe("the browser-safe entry point", () => {
     expect(codeOf("node.ts")).toMatch(/["']node:/);
   });
 });
+
+/**
+ * The venue's declared device groups (issue #20). These exact names are what
+ * step 3 of the open-source-readiness milestone renders, so a wrong one here
+ * would silently change the venue's layout later; asserted device by device.
+ */
+describe("loadInstallationFile: device groups", () => {
+  const EXPECTED_GROUPS: ReadonlyArray<readonly [string, string | undefined]> = [
+    ["stagebox-1", "Stage left"],
+    ["front-left", "Stage left"],
+    ["stagebox-2", "Stage right"],
+    ["front-right", "Stage right"],
+    ["console", undefined],
+    ["front-venstre", "Left"],
+    ["piano-venstre", "Left"],
+    ["venstre-bak", "Left"],
+    ["sub", "Left"],
+    ["main-left", "Left"],
+    ["front-hoyre", "Right"],
+    ["piano-hoyre", "Right"],
+    ["bak-hoyre", "Right"],
+    ["main-right", "Right"],
+    ["sidesal", "Other"],
+    ["vip-rom", "Other"],
+  ];
+
+  it.each(EXPECTED_GROUPS)("groups %s as %s", (id, group) => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const device = installation.devices.find((candidate) => candidate.id === id);
+
+    expect(device, `device "${id}" is missing from the venue config`).toBeDefined();
+    expect(device?.group).toBe(group);
+  });
+
+  it("covers every device in the venue config", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+
+    expect(installation.devices.map((device) => device.id).sort()).toEqual(
+      EXPECTED_GROUPS.map(([id]) => id).sort(),
+    );
+  });
+});

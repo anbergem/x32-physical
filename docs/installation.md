@@ -77,7 +77,9 @@ layout is a separate concern.
 `version: 1` and `version: 2` are accepted and behave **identically**. Every
 v2 addition below is optional, so a v1 file with no output content stays
 valid; `2` is only a signal that the file uses output features — the repo's
-own `config/installation.yaml` is `2` because it does.
+own `config/installation.yaml` is `2` because it does. The parser branches on
+`version` nowhere, and it is **not** bumped for each new optional field (see
+"Why no version bump" under [`group`](#group--naming-a-part-of-the-installation-issue-20)).
 
 ```yaml
 version: 1
@@ -158,6 +160,53 @@ front-right:
   are rejected. Both are domain rules; the schema only checks that `status`
   is one of the two known values and that the map's keys look like socket
   numbers.
+
+### `group` — naming a part of the installation (issue #20)
+
+Any device, of any kind, may carry an optional `group`: a free-text **name**
+for the part of the installation it belongs to, the way a technician would say
+it out loud.
+
+```yaml
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox V"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+    group: "Stage left"
+
+  main-left:
+    kind: destination
+    label: "Main Left"
+    group: "Left"
+```
+
+- **A name, not a position.** `group` says *which part of the rig* a device
+  belongs to; it says nothing about where the device is drawn, how big it is,
+  or in what order groups appear. **No coordinates, ever** (CLAUDE.md
+  invariant 6) still holds unchanged — the UI owns layout, and a renderer may
+  arrange the groups however it likes, or ignore them entirely.
+- **Optional everywhere**, including `destination`. A device with no `group`
+  is ungrouped, which is an ordinary state, and a file with no groups at all
+  is perfectly valid. The repo's own `config/installation.yaml` leaves the
+  `console` device ungrouped.
+- **Free text**, not an enum. Venues differ: "Balcony", "Foyer" or "Under the
+  gallery" must be expressible without a schema change.
+- The value is **trimmed**, and an empty or whitespace-only string
+  (`group: ""`) is treated as *absent* rather than as a group named `""`, so
+  a stray empty value can never produce a nameless group.
+- **Shape only.** Any string is a valid group name; there is no semantic rule
+  for `validateInstallation` to enforce, and no ordering meaning is attached
+  to the field itself.
+
+#### Why no version bump
+
+`group` is optional and additive: a file without it stays valid and behaves
+exactly as before, so `version` is **not** bumped for it. `version` accepts
+`1` or `2` and the parser branches on neither — the number is a signal to a
+human reader that a file uses output features, nothing more. Adding a version
+per optional field would be a treadmill that signals nothing the code uses.
 
 ### Output additions (v2)
 
