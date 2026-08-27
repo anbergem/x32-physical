@@ -47,7 +47,10 @@ export type InstallationValidationErrorCode =
   | "output-block-overlap"
   | "unexpected-destination-fields"
   | "multiple-console-devices"
-  | "local-input-multiple-sources";
+  | "local-input-multiple-sources"
+  | "socket-annotation-out-of-range"
+  | "duplicate-socket-annotation"
+  | "annotated-socket-cabled";
 
 export interface InstallationValidationError {
   code: InstallationValidationErrorCode;
@@ -167,6 +170,8 @@ export function validateInstallation(
   const ranges: Aes50Range[] = [];
   const outputBlockRanges: OutputBlockRange[] = [];
   let consoleDevice: Device | undefined;
+  /** Every annotated socket, by device — consulted when checking cabling below. */
+  const annotatedSockets = new Map<DeviceId, Set<number>>();
 
   for (const device of installation.devices) {
     const isDuplicate = devices.has(device.id);
@@ -209,6 +214,40 @@ export function validateInstallation(
           `Device "${device.id}" declares inputs=${device.inputs}: ` +
           `a device must have at least 1 input.`,
       });
+    }
+
+    if (device.sockets !== undefined) {
+      const seen = new Set<number>();
+      for (const annotation of device.sockets) {
+        if (seen.has(annotation.input)) {
+          errors.push({
+            code: "duplicate-socket-annotation",
+            device: device.id,
+            message:
+              `Device "${device.id}" declares more than one socket ` +
+              `annotation for input ${annotation.input}: a socket may have ` +
+              `at most one annotation.`,
+          });
+        } else {
+          seen.add(annotation.input);
+        }
+
+        if (
+          inputsValid &&
+          (!Number.isInteger(annotation.input) ||
+            annotation.input < 1 ||
+            annotation.input > device.inputs)
+        ) {
+          errors.push({
+            code: "socket-annotation-out-of-range",
+            device: device.id,
+            message:
+              `Device "${device.id}" annotates input ${annotation.input}, ` +
+              `which is outside its sockets 1–${device.inputs}.`,
+          });
+        }
+      }
+      annotatedSockets.set(device.id, seen);
     }
 
     if (device.kind === "stagebox" && device.aes50 === undefined) {
@@ -371,6 +410,24 @@ export function validateInstallation(
       devices,
       errors,
     );
+
+    // A socket annotated broken/unused cannot also be cabled — the
+    // annotation says nothing is (or should be) plugged in there, so
+    // declaring a connection from it is contradictory input. This is the
+    // rule that would have caught MK Front H's original mislabelling.
+    if (from !== undefined && isDeviceEndpoint(from)) {
+      const annotated = annotatedSockets.get(from.device);
+      if (annotated?.has(from.input)) {
+        errors.push({
+          code: "annotated-socket-cabled",
+          device: from.device,
+          connectionIndex: index,
+          message:
+            `Connection #${index + 1}: "from" (${describe(from)}) is an ` +
+            `annotated socket (broken or unused) and cannot also be cabled.`,
+        });
+      }
+    }
 
     if (pair === CONNECTION_PAIRS[0]) {
       // panel-input → stagebox-input: a stagebox input has at most one

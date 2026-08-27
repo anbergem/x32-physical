@@ -54,17 +54,25 @@ devices:
     outputs: 8
     outputBlock: { start: 1 }
 
-  # Front mic panels ("MK Front"). Left has 8 sockets; right has only 7 —
-  # and they are offset by one on the box side (see connections below).
+  # Front mic panels ("MK Front"). Left has 8 sockets, all usable.
   front-left:
     kind: passive-panel
     label: "MK Front V"
     inputs: 8
 
+  # Right is an 8-position link box, numbered by *physical position*
+  # (owner decision 2026-08-27, issue #12) — not by the plate's own printed
+  # labels, which are shifted by one (printed "1" sits on physical position
+  # 2; see docs/installation.md "Real panel wiring"). Position 1 is broken
+  # and connected to nothing; positions 2-8 feed Stagebox H inputs 2-8
+  # (A18-A24). Accepted consequence: a technician reading the plate's own
+  # printed numbers is one off from this app's numbering.
   front-right:
     kind: passive-panel
     label: "MK Front H"
-    inputs: 7
+    inputs: 8
+    sockets:
+      1: { status: broken, note: "Defekt — ikke i bruk" }
 
   # The desk's own local XLR inputs (IN 1-32 at FOH). Three are in use per
   # the "Betania Lydsystem - Inputs" sheet: IN 1 Bøyle -> CH1, IN 2 Håndholdt
@@ -129,7 +137,10 @@ devices:
 # Left:  MK Front V sockets 1-8 -> Stagebox V inputs 1-8 (A1-A8).
 #        Stagebox V inputs 9-16 are direct stage sockets "V 09".."V 16".
 # Right: Stagebox H input 1 is the direct socket "H 01" (A17).
-#        MK Front H sockets 1-7 -> Stagebox H inputs 2-8 (A18-A24).
+#        MK Front H is position-faithful with a dead first socket: socket 1
+#        is broken (annotated above, not cabled); sockets 2-8 -> Stagebox H
+#        inputs 2-8 (A18-A24). The plate's printed labels are one lower than
+#        this numbering (issue #12).
 #        Stagebox H inputs 9-16 are direct stage sockets "H 09".."H 16".
 connections:
   - from: { device: front-left, input: 1 }
@@ -149,19 +160,19 @@ connections:
   - from: { device: front-left, input: 8 }
     to: { device: stagebox-1, input: 8 }
 
-  - from: { device: front-right, input: 1 }
-    to: { device: stagebox-2, input: 2 }
   - from: { device: front-right, input: 2 }
-    to: { device: stagebox-2, input: 3 }
+    to: { device: stagebox-2, input: 2 }
   - from: { device: front-right, input: 3 }
-    to: { device: stagebox-2, input: 4 }
+    to: { device: stagebox-2, input: 3 }
   - from: { device: front-right, input: 4 }
-    to: { device: stagebox-2, input: 5 }
+    to: { device: stagebox-2, input: 4 }
   - from: { device: front-right, input: 5 }
-    to: { device: stagebox-2, input: 6 }
+    to: { device: stagebox-2, input: 5 }
   - from: { device: front-right, input: 6 }
-    to: { device: stagebox-2, input: 7 }
+    to: { device: stagebox-2, input: 6 }
   - from: { device: front-right, input: 7 }
+    to: { device: stagebox-2, input: 7 }
+  - from: { device: front-right, input: 8 }
     to: { device: stagebox-2, input: 8 }
 
   # Physical output -> destination cabling, per "Betania Lydsystem - Outputs"

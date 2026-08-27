@@ -174,7 +174,11 @@ function realVenueInstallation(): Installation {
         id: deviceId("front-right"),
         kind: "passive-panel",
         label: "MK Front H",
-        inputs: 7,
+        inputs: 8,
+        // Physical position 1 is broken and connected to nothing (issue
+        // #12, owner decision 2026-08-27): position-faithful numbering, not
+        // the plate's printed labels.
+        sockets: [{ input: 1, status: "broken" }],
       },
     ],
     connections: [
@@ -182,11 +186,12 @@ function realVenueInstallation(): Installation {
         from: panelInput("front-left", socket),
         to: stageboxInput("stagebox-1", socket),
       })),
-      // MK Front H is cabled offset by one: panel socket n -> Stagebox H
-      // input n+1 (Stagebox H input 1, "H 01"/A17, is a direct stage socket).
-      ...[1, 2, 3, 4, 5, 6, 7].map((socket) => ({
+      // MK Front H socket n -> Stagebox H input n, n = 2..8 (socket 1 is
+      // broken and not cabled; Stagebox H input 1, "H 01"/A17, is a direct
+      // stage socket).
+      ...[2, 3, 4, 5, 6, 7, 8].map((socket) => ({
         from: panelInput("front-right", socket),
-        to: stageboxInput("stagebox-2", socket + 1),
+        to: stageboxInput("stagebox-2", socket),
       })),
     ],
   };
@@ -202,14 +207,17 @@ describe("aes50ChannelsByEndpoint", () => {
     );
   });
 
-  it("maps the right panel's offset-by-one cabling correctly", () => {
-    // MK Front H socket 1 -> Stagebox H input 2 -> A18, not A17.
-    expect(map.get(endpointId(panelInput("front-right", 1)))).toEqual(
+  it("maps the right panel by physical position, dead socket 1 excluded", () => {
+    // MK Front H socket 2 -> Stagebox H input 2 -> A18, through socket 8 ->
+    // A24 (issue #12: position-faithful numbering, not the printed labels).
+    expect(map.get(endpointId(panelInput("front-right", 2)))).toEqual(
       aes50Channel("A", 18),
     );
-    expect(map.get(endpointId(panelInput("front-right", 7)))).toEqual(
+    expect(map.get(endpointId(panelInput("front-right", 8)))).toEqual(
       aes50Channel("A", 24),
     );
+    // Socket 1 is broken and uncabled: it reaches no AES50 channel.
+    expect(map.has(endpointId(panelInput("front-right", 1)))).toBe(false);
   });
 
   it("maps direct stage sockets (uncabled stagebox inputs) too", () => {

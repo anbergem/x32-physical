@@ -44,11 +44,18 @@ Norwegian: **V** = venstre (left), **H** = høyre (right).
     input at front stage right", which is defensible but means a printed
     label never matches its physical position on this plate.
 
-  `installation.yaml` therefore models this panel as 7 sockets numbered by
-  the **printed labels** (socket 1 → A18 …), which is what a tech standing
-  at the plate reads and is functionally correct. It does not yet show the
-  dead 8th position, so the app displays 7 holes where the wall has 8.
-  How to visualise that is deliberately unresolved — see issue #12.
+  **Owner decision (2026-08-27, issue #12): number MK Front H by physical
+  position, and show the dead first socket.** `installation.yaml` models
+  this panel as **8 sockets numbered by physical position**: socket 1 is
+  annotated `broken` (declared metadata, not a routing fact — see
+  "`sockets` — per-socket annotations" below) and connected to nothing;
+  sockets 2–8 feed Stagebox H inputs 2–8 (A18–A24), exactly as their number
+  suggests. This is a deliberate divergence from the plate's own printed
+  labels: a technician reading the plate's printed "1" is looking at the
+  app's socket 2, and so on through the plate's "7" being the app's socket
+  8. The physical position is what a technician standing at the plate can
+  verify by counting holes; the printed label is the thing decided to be
+  the error.
 - The direct-socket stage labels match the box input numbers ("H 12" =
   Stagebox H input 12 = A28), which is what the UI's dual labels display.
 - The desk also has three local inputs in use at FOH (IN 1–3: Bøyle,
@@ -117,6 +124,40 @@ Schema rules:
 The visual schematic for this venue shows both stagebox areas under AES50-A,
 with sockets dual-labeled `Box 2 / 7 · A23` style, since the AES50 channel
 number is what the X32's own routing screens display when debugging.
+
+### `sockets` — per-socket annotations (issue #12)
+
+A device with sockets (`stagebox`, `passive-panel`, `console`) may declare an
+optional `sockets` map, keyed by socket number, for the sockets that need
+declared knowledge routing itself cannot know:
+
+```yaml
+front-right:
+  kind: passive-panel
+  label: "MK Front H"
+  inputs: 8
+  sockets:
+    1: { status: broken, note: "Defekt — ikke i bruk" }
+```
+
+- `status` is `broken` (physically faulty, do not use) or `unused`
+  (deliberately spare, nothing patched here yet) — kept distinct because
+  they lead a technician to different actions. `note` is free text.
+- Only annotated sockets appear in the map; a socket absent from it is a
+  normal socket, whether cabled or not.
+- **Purely descriptive.** `buildRouteIndex` never branches on it — an
+  annotated socket resolves exactly like an uncabled one (single-endpoint
+  route, no consumers). The UI reads the annotation only to render a socket
+  distinctly and to word its tooltip; the routing graph never sees it.
+- **An annotated socket may not also be the `from` of a connection** — a
+  domain rule (`validateInstallation`), not a shape one. Declaring a socket
+  broken/unused and cabling it in the same file is contradictory input and
+  fails to load, loudly, rather than rendering something incoherent. This is
+  the rule that would have caught MK Front H's original mislabelling.
+- `input` must be within `1…inputs`; duplicate annotations for one socket
+  are rejected. Both are domain rules; the schema only checks that `status`
+  is one of the two known values and that the map's keys look like socket
+  numbers.
 
 ### Output additions (v2)
 

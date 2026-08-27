@@ -18,6 +18,28 @@ import type { Aes50Bus, DeviceId, EndpointId } from "./ids";
 
 export type DeviceKind = "passive-panel" | "stagebox" | "destination" | "console";
 
+/**
+ * Declared knowledge about one input socket that routing itself cannot see:
+ * "this socket is physically broken" or "this socket is deliberately spare".
+ * Purely descriptive metadata (issue #12) — `buildRouteIndex` never branches
+ * on it, an annotated socket resolves exactly like an uncabled one, and
+ * `validateInstallation` forbids an annotated socket from also being cabled
+ * (contradictory input fails loudly at load rather than rendering something
+ * incoherent).
+ */
+export interface SocketAnnotation {
+  /** 1-based socket number on the owning device, within `1…inputs`. */
+  input: number;
+  /**
+   * "broken" — physically faulty, do not use. "unused" — nothing patched
+   * here yet, deliberately spare. Kept distinct because they lead a
+   * technician to different actions.
+   */
+  status: "broken" | "unused";
+  /** Free-text detail, e.g. why it's broken. */
+  note?: string;
+}
+
 export interface Device {
   id: DeviceId;
   kind: DeviceKind;
@@ -36,6 +58,12 @@ export interface Device {
    * silent-invalidation risk as `aes50.offset`.
    */
   outputBlock?: { start: number };
+  /**
+   * Per-socket declared knowledge (issue #12) — a broken or deliberately
+   * unused socket. Only annotated sockets appear; absence means a normal
+   * socket. Descriptive only — see `SocketAnnotation`.
+   */
+  sockets?: SocketAnnotation[];
 }
 
 /** A directed edge of the static signal graph: `from` feeds `to`. */

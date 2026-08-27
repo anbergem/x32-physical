@@ -12,7 +12,13 @@
  * 3. **Topology** — `@x32/domain` reports the offending device or connection.
  */
 
-import type { Device, EndpointRef, Installation, TopologyEdge } from "@x32/domain";
+import type {
+  Device,
+  EndpointRef,
+  Installation,
+  SocketAnnotation,
+  TopologyEdge,
+} from "@x32/domain";
 import {
   assertValidInstallation,
   consoleOutput,
@@ -167,6 +173,22 @@ function toInstallation(document: InstallationDocument): Installation {
   return { devices, connections };
 }
 
+/**
+ * The document's `sockets` map (string socket-number keys, since a YAML
+ * mapping's keys land as JS object keys either way) → the domain's array
+ * form. Shape only — `validateInstallation` checks range, duplicates and
+ * "not also cabled".
+ */
+function toSocketAnnotations(
+  sockets: Record<string, { status: "broken" | "unused"; note?: string }>,
+): SocketAnnotation[] {
+  return Object.entries(sockets).map(([input, annotation]) => ({
+    input: Number(input),
+    status: annotation.status,
+    ...(annotation.note !== undefined ? { note: annotation.note } : {}),
+  }));
+}
+
 function toDevice(id: string, document: DeviceDocument): Device {
   if (document.kind === "destination") {
     // `inputs: 0` is an internal detail the mapper supplies — the YAML never
@@ -178,6 +200,9 @@ function toDevice(id: string, document: DeviceDocument): Device {
     id: deviceId(id),
     label: document.label,
     inputs: document.inputs,
+    ...(document.sockets !== undefined
+      ? { sockets: toSocketAnnotations(document.sockets) }
+      : {}),
   };
 
   if (document.kind === "passive-panel") {

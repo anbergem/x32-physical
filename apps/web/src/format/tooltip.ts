@@ -26,6 +26,7 @@ import { parseEndpointId } from "@x32/domain";
 
 import { outputSlotsFor } from "../installation/outputLabels";
 import { physicalOutputDestinationsFor } from "../installation/outputCabling";
+import { socketAnnotationsFor } from "../installation/socketAnnotations";
 
 import { formatMixerOutputSource } from "./outputSource";
 import { formatMixerSource } from "./source";
@@ -211,7 +212,29 @@ function describePhysical(
       ? [consumerLine(routes, channels)]
       : [destinationLine(routes, installation), consumerLine(routes, channels)];
 
-  return { title: formatEndpoint(ref, installation), lines };
+  return {
+    title: formatEndpoint(ref, installation),
+    lines: [...socketStatusLines(endpoint, installation), ...lines],
+  };
+}
+
+/**
+ * The status line(s) a socket annotation (issue #12) adds ahead of the usual
+ * routing lines — distinct wording for "broken" vs "unused" (`describePhysical`,
+ * `PhysicalInputPanel` and `InputPort` all read the same declared metadata, so
+ * this never disagrees with the socket's rendered treatment). Empty for a
+ * socket with no annotation, including a merely-uncabled one.
+ */
+function socketStatusLines(endpoint: EndpointId, installation: Installation): string[] {
+  const annotation = socketAnnotationsFor(installation).get(endpoint);
+  if (annotation === undefined) return [];
+
+  const headline =
+    annotation.status === "broken"
+      ? "Broken, do not use"
+      : "Unused — nothing patched here";
+
+  return annotation.note === undefined ? [headline] : [headline, annotation.note];
 }
 
 /** Where the signal goes next on the bus, e.g. `→ AES50-A 23`. */

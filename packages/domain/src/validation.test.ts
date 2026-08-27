@@ -242,6 +242,67 @@ describe("validateInstallation", () => {
   });
 });
 
+describe("validateInstallation: socket annotations (issue #12)", () => {
+  /** Front Left (8 inputs) annotates socket 3, normally uncabled. */
+  function annotated(
+    status: "broken" | "unused",
+    input = 3,
+  ): Installation {
+    return broken((installation) => {
+      const panel = installation.devices.find(
+        (device) => device.id === deviceId("front-left"),
+      )!;
+      panel.sockets = [{ input, status }];
+    });
+  }
+
+  it("accepts a device with a valid broken-socket annotation", () => {
+    expect(validateInstallation(annotated("broken"))).toEqual([]);
+  });
+
+  it("accepts a device with a valid unused-socket annotation", () => {
+    expect(validateInstallation(annotated("unused"))).toEqual([]);
+  });
+
+  it("rejects input 0 on an 8-input device", () => {
+    expect(codesOf(annotated("broken", 0))).toEqual([
+      "socket-annotation-out-of-range",
+    ]);
+  });
+
+  it("rejects input 9 on an 8-input device", () => {
+    expect(codesOf(annotated("broken", 9))).toEqual([
+      "socket-annotation-out-of-range",
+    ]);
+  });
+
+  it("rejects duplicate annotations for the same socket", () => {
+    const installation = broken((topology) => {
+      const panel = topology.devices.find(
+        (device) => device.id === deviceId("front-left"),
+      )!;
+      panel.sockets = [
+        { input: 3, status: "broken" },
+        { input: 3, status: "unused" },
+      ];
+    });
+
+    expect(codesOf(installation)).toEqual(["duplicate-socket-annotation"]);
+  });
+
+  it("rejects an annotated socket that is also the `from` of a connection", () => {
+    const installation = broken((topology) => {
+      const panel = topology.devices.find(
+        (device) => device.id === deviceId("front-left"),
+      )!;
+      // Socket 1 is already cabled by the venue fixture.
+      panel.sockets = [{ input: 1, status: "broken" }];
+    });
+
+    expect(codesOf(installation)).toEqual(["annotated-socket-cabled"]);
+  });
+});
+
 describe("validateInstallation: console device", () => {
   /** The venue installation plus a declared 32-input console device. */
   function withConsole(mutate?: (installation: Installation) => void): Installation {

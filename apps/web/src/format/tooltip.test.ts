@@ -204,6 +204,98 @@ describe("describeEndpoint · physical socket", () => {
   });
 });
 
+describe("describeEndpoint · socket annotations (issue #12)", () => {
+  /**
+   * front-left socket 8 with a declared annotation, its base-fixture
+   * connection removed first — an annotated socket cannot also be cabled
+   * (a domain rule `validateInstallation` enforces).
+   */
+  function annotatedContext(status: "broken" | "unused", note?: string): TooltipContext {
+    const withAnnotation = venueInstallation();
+    withAnnotation.connections = withAnnotation.connections.filter(
+      (connection) =>
+        !(
+          connection.from.kind === "panel-input" &&
+          connection.from.device === "front-left" &&
+          connection.from.input === 8
+        ),
+    );
+    const panel = withAnnotation.devices.find((device) => device.id === "front-left")!;
+    panel.sockets = [
+      { input: 8, status, ...(note === undefined ? {} : { note }) },
+    ];
+
+    const { channels: annotatedChannels, outputs: annotatedOutputs } =
+      createDefaultMockSnapshot();
+    return {
+      installation: withAnnotation,
+      routeIndex: buildRouteIndex(withAnnotation, annotatedChannels),
+      channels: annotatedChannels,
+      discrepancies: [],
+      outputRouteIndex: buildOutputRouteIndex(withAnnotation, annotatedOutputs ?? []),
+      outputs: annotatedOutputs ?? [],
+    };
+  }
+
+  it("reports a broken socket, its note, and no consumers — distinct from a normal socket", () => {
+    const ctx = annotatedContext("broken", "Defekt — ikke i bruk");
+
+    expect(describeEndpoint(endpointId(panelInput("front-left", 8)), ctx)).toEqual({
+      title: "Front Left · Input 8",
+      lines: [
+        "Broken, do not use",
+        "Defekt — ikke i bruk",
+        "Not cabled to a stagebox",
+        "No channel consumes this input",
+      ],
+    });
+  });
+
+  it("reports an unused socket with wording distinct from broken", () => {
+    const ctx = annotatedContext("unused");
+    const description = describeEndpoint(endpointId(panelInput("front-left", 8)), ctx);
+
+    expect(description.lines[0]).toBe("Unused — nothing patched here");
+  });
+
+  it("differs from a merely-uncabled socket's tooltip", () => {
+    const uncabledInstallation = venueInstallation();
+    uncabledInstallation.connections = uncabledInstallation.connections.filter(
+      (connection) =>
+        !(
+          connection.from.kind === "panel-input" &&
+          connection.from.device === "front-left" &&
+          connection.from.input === 8
+        ),
+    );
+    const { channels: uncabledChannels, outputs: uncabledOutputs } =
+      createDefaultMockSnapshot();
+    const uncabledDescription = describeEndpoint(
+      endpointId(panelInput("front-left", 8)),
+      {
+        installation: uncabledInstallation,
+        routeIndex: buildRouteIndex(uncabledInstallation, uncabledChannels),
+        channels: uncabledChannels,
+        discrepancies: [],
+        outputRouteIndex: buildOutputRouteIndex(uncabledInstallation, uncabledOutputs ?? []),
+        outputs: uncabledOutputs ?? [],
+      },
+    );
+
+    const brokenDescription = describeEndpoint(
+      endpointId(panelInput("front-left", 8)),
+      annotatedContext("broken"),
+    );
+
+    expect(uncabledDescription.lines).toEqual([
+      "Not cabled to a stagebox",
+      "No channel consumes this input",
+    ]);
+    expect(brokenDescription.lines).not.toEqual(uncabledDescription.lines);
+    expect(brokenDescription.lines[0]).toBe("Broken, do not use");
+  });
+});
+
 describe("describeEndpoint · output slot (issue #11)", () => {
   it("shows the slot's source and the destination it reaches", () => {
     expect(describeEndpoint(endpointId(mixerOutput(13)), context)).toEqual({

@@ -116,13 +116,15 @@ describe("createDefaultMockSnapshot", () => {
   });
 
   describe("sanity anchor against the real installation", () => {
-    it("traces CH11 Vokal H1 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 1", () => {
+    it("traces CH11 Vokal H1 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 2", () => {
       const installation = loadInstallationFile(VENUE_CONFIG);
       const { channels } = createDefaultMockSnapshot();
       const routeIndex = buildRouteIndex(installation, channels);
 
       const route = routeIndex.byMixerChannel.get(mixerChannelId(11));
-      expect(route?.physicalInputs).toEqual([panelInput("front-right", 1)]);
+      // issue #12: MK Front H is numbered by physical position, socket 2 is
+      // the printed "1" on the plate.
+      expect(route?.physicalInputs).toEqual([panelInput("front-right", 2)]);
     });
 
     it("traces CH5 Vokal V1 (AES50-A 1) to MK Front V socket 1", () => {

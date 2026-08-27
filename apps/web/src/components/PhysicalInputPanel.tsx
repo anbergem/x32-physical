@@ -10,6 +10,7 @@ import { endpointId, panelInput } from "@x32/domain";
 import type { DeviceId } from "@x32/domain";
 
 import { aes50LabelsFor } from "../installation/aes50Labels";
+import { socketAnnotationsFor } from "../installation/socketAnnotations";
 import { selectDevice, selectInstallation } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
@@ -20,6 +21,7 @@ export function PhysicalInputPanel({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
   const installation = useAppStore(selectInstallation);
   const aes50Labels = aes50LabelsFor(installation);
+  const socketAnnotations = socketAnnotationsFor(installation);
 
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
@@ -42,6 +44,7 @@ export function PhysicalInputPanel({ deviceId }: { deviceId: DeviceId }) {
                 ? undefined
                 : `${busChannel.bus}${busChannel.channel}`
             }
+            socketAnnotation={socketAnnotations.get(endpoint)}
           />
         );
       })}

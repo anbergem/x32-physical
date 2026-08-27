@@ -355,6 +355,32 @@ describe("buildRouteIndex: cascade and direct stage sockets", () => {
   });
 });
 
+describe("buildRouteIndex: socket annotations (issue #12)", () => {
+  it("resolves a broken socket identically to an uncabled one", () => {
+    // front-left socket 4 is uncabled in `routingInstallation` either way;
+    // annotating it must change nothing about how it resolves — the
+    // annotation is descriptive metadata, not a routing fact.
+    const plainIndex = buildRouteIndex(routingInstallation(), channels({}));
+
+    const annotatedInstallation = routingInstallation();
+    const panel = annotatedInstallation.devices.find(
+      (device) => device.id === deviceId("front-left"),
+    )!;
+    panel.sockets = [{ input: 4, status: "broken", note: "Defekt" }];
+    const annotatedIndex = buildRouteIndex(annotatedInstallation, channels({}));
+
+    const plainRoute = routeAt(plainIndex, "panel:front-left:4");
+    const annotatedRoute = routeAt(annotatedIndex, "panel:front-left:4");
+
+    expect(annotatedRoute).toEqual(plainRoute);
+    expect(annotatedRoute.endpoints).toEqual(["panel:front-left:4"]);
+    expect(annotatedRoute.mixerChannels).toEqual([]);
+    expect(annotatedRoute.physicalInputs).toEqual([
+      panelInput("front-left", 4),
+    ]);
+  });
+});
+
 describe("buildRouteIndex: console local inputs", () => {
   it("resolves a channel on local 3 to the console's local-input endpoint", () => {
     const index = buildRouteIndex(routingInstallationWithConsole(), channels({ 1: l(3) }));

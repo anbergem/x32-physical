@@ -53,6 +53,7 @@ export type {
   Device,
   DeviceKind,
   Installation,
+  SocketAnnotation,
   TopologyEdge,
 } from "./topology";
 export {

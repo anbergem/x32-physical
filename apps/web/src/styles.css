@@ -817,6 +817,49 @@ body {
   color: var(--text-dim);
 }
 
+/* Declared socket annotations (issue #12) — distinct from both a normal
+   socket and a merely-uncabled one, per the docs' distinction between "no
+   signal here yet" and "declared knowledge about this socket". A hatched
+   fill reads as "do not use" at a glance; a marker in the corner makes the
+   state legible even at a distance from the number itself. */
+.port.port--broken {
+  border-style: dashed;
+  border-color: var(--diag-error);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--surface-raised),
+    var(--surface-raised) 4px,
+    var(--line-soft) 4px,
+    var(--line-soft) 5px
+  );
+}
+
+.port.port--broken .port__number {
+  color: var(--text-dim);
+}
+
+.port.port--broken::after {
+  content: "×";
+  position: absolute;
+  top: -2px;
+  right: 1px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--diag-error);
+}
+
+/* Unused: deliberately spare, not faulty — the same dashed "not carrying a
+   signal" language as an uncabled/wholesale-uncabled socket, without the
+   error-red hatch a broken socket gets. */
+.port.port--unused {
+  border-style: dashed;
+  border-color: var(--line-soft);
+}
+
+.port.port--unused .port__number {
+  color: var(--text-dim);
+}
+
 /* --- mixer section (issue #11) ------------------------------------------- */
 
 .mixer-section {

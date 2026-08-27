@@ -44,10 +44,31 @@ const outputBlockSchema = z.strictObject({
   start: z.number().int(),
 });
 
+/**
+ * One declared socket annotation (issue #12): "this socket is broken" or
+ * "this socket is deliberately unused". Shape only — in-range input, no
+ * duplicates and "not also cabled" are domain rules in `validateInstallation`.
+ */
+const socketAnnotationSchema = z.strictObject({
+  status: z.enum(["broken", "unused"]),
+  note: z.string().optional(),
+});
+
+/**
+ * `sockets` is a map keyed by socket number (as a string key, like `devices`
+ * itself — YAML mapping keys become JS object keys either way). Only
+ * annotated sockets appear; a socket absent from the map is a normal one.
+ */
+const socketsSchema = z.record(
+  z.string().regex(/^[1-9][0-9]*$/, "must be a socket number (1-based integer)"),
+  socketAnnotationSchema,
+);
+
 /** `inputs` is typed here; `inputs ≥ 1` is a domain rule. */
 const deviceFields = {
   label: z.string(),
   inputs: z.number().int(),
+  sockets: socketsSchema.optional(),
 };
 
 const stageboxSchema = z.strictObject({

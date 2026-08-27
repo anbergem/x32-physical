@@ -9,7 +9,7 @@
  * component never sets it, only reads its effect.
  */
 
-import type { EndpointId } from "@x32/domain";
+import type { EndpointId, SocketAnnotation } from "@x32/domain";
 
 import { isMeterHot, meterBarHeightPercent } from "../format/meter";
 import {
@@ -34,9 +34,20 @@ export interface InputPortProps {
    * sees them as, e.g. `A23`. Panels have none.
    */
   aes50Label?: string;
+  /**
+   * Declared knowledge (issue #12): this socket is physically broken or
+   * deliberately unused. `undefined` for a normal socket — including one
+   * that simply has nothing cabled to it, which is not the same thing.
+   */
+  socketAnnotation?: SocketAnnotation;
 }
 
-export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
+export function InputPort({
+  endpoint,
+  label,
+  aes50Label,
+  socketAnnotation,
+}: InputPortProps) {
   const hoverStatus = useAppStore(selectHoverStatus(endpoint));
   const selectionStatus = useAppStore(selectSelectionStatus(endpoint));
   const diagnosticStatus = useAppStore(selectDiagnosticStatus(endpoint));
@@ -51,6 +62,9 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
   // touching the markup below.
   const classNames = ["port"];
   if (aes50Label !== undefined) classNames.push("port--dual");
+  if (socketAnnotation !== undefined) {
+    classNames.push(`port--${socketAnnotation.status}`);
+  }
   const hoverClass = hoverModifier("port", hoverStatus);
   if (hoverClass !== null) classNames.push(hoverClass);
   const selectionClass = selectionModifier("port", selectionStatus);
@@ -68,14 +82,18 @@ export function InputPort({ endpoint, label, aes50Label }: InputPortProps) {
       onMouseLeave={() => setHovered(null)}
     >
       <span className="port__number">{label}</span>
-      {aes50Label !== undefined && (
+      {/* A broken socket carries no AES50 sublabel — it reaches nothing. */}
+      {aes50Label !== undefined && socketAnnotation === undefined && (
         <span className="port__aes50">{aes50Label}</span>
       )}
       {hoverStatus === "hovered" && <EndpointTooltip endpoint={endpoint} />}
       {/* No data (null) -> no bar at all, zero layout change either way —
           the bar is absolutely positioned so it never shifts the socket's
-          own content regardless of whether it's present. */}
-      {meterLevel !== null && <PortMeterBar level={meterLevel} />}
+          own content regardless of whether it's present. A broken/unused
+          socket never carries a meter either — it is its own dead end. */}
+      {meterLevel !== null && socketAnnotation === undefined && (
+        <PortMeterBar level={meterLevel} />
+      )}
     </div>
   );
 }

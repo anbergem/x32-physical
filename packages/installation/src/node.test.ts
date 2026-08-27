@@ -2,10 +2,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  aes50Channel,
+  aes50ChannelsByEndpoint,
   buildOutputRouteIndex,
   deriveStaticEdges,
   destination,
   endpointId,
+  panelInput,
 } from "@x32/domain";
 import { describe, expect, it } from "vitest";
 
@@ -38,6 +41,35 @@ describe("loadInstallationFile", () => {
       { id: "stagebox-1", inputs: 16, aes50: { bus: "A", offset: 0 } },
       { id: "stagebox-2", inputs: 16, aes50: { bus: "A", offset: 16 } },
     ]);
+  });
+
+  it("declares MK Front H with 8 inputs, socket 1 annotated broken (issue #12)", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const frontRight = installation.devices.find(
+      (device) => device.id === "front-right",
+    );
+
+    expect(frontRight?.inputs).toBe(8);
+    expect(frontRight?.sockets).toEqual([{ input: 1, status: "broken", note: "Defekt — ikke i bruk" }]);
+  });
+
+  it("resolves MK Front H's renumbering: socket 2 -> A18, socket 8 -> A24", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const map = aes50ChannelsByEndpoint(installation);
+
+    expect(map.get(endpointId(panelInput("front-right", 2)))).toEqual(
+      aes50Channel("A", 18),
+    );
+    expect(map.get(endpointId(panelInput("front-right", 8)))).toEqual(
+      aes50Channel("A", 24),
+    );
+  });
+
+  it("reaches no AES50 channel from the broken socket 1", () => {
+    const installation = loadInstallationFile(VENUE_CONFIG);
+    const map = aes50ChannelsByEndpoint(installation);
+
+    expect(map.has(endpointId(panelInput("front-right", 1)))).toBe(false);
   });
 
   it("derives the cascade: stagebox-2 input 7 is AES50-A 23", () => {

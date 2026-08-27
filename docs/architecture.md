@@ -146,6 +146,13 @@ interface Device {
   aes50?: { bus: "A" | "B"; offset: number };        // stageboxes only
   outputs?: number;                                  // stageboxes only
   outputBlock?: { start: number };                   // stageboxes only, 1–16
+  sockets?: SocketAnnotation[];                      // declared per-socket metadata
+}
+
+interface SocketAnnotation {
+  input: number;                                     // 1-based, within 1…inputs
+  status: "broken" | "unused";
+  note?: string;
 }
 
 interface Installation {
@@ -153,6 +160,14 @@ interface Installation {
   connections: Array<{ from: EndpointRef; to: EndpointRef }>; // signal direction
 }
 ```
+
+`sockets` (issue #12) is **descriptive metadata that route resolution
+ignores** — `buildRouteIndex` never branches on it, so an annotated socket
+resolves exactly like an uncabled one (single-endpoint route, no consumers).
+The UI reads it only to render a socket distinctly and word its tooltip.
+`validateInstallation` does enforce one thing about it: an annotated socket
+must not also be the `from` of a connection — declaring a socket broken/unused
+and cabling it is contradictory input, rejected at load rather than rendered.
 
 `"destination"` (issue #8) is a powered speaker or zone — no amplifier device
 kind exists because the venue's cabinets are powered. It carries no

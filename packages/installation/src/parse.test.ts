@@ -234,6 +234,18 @@ describe("parseInstallationYaml", () => {
       expect(message).toContain("connections[1].to.input");
     });
 
+    it("rejects a sockets entry with an unknown status (issue #12)", () => {
+      const message = failureOf(
+        edited(
+          "    inputs: 8\n",
+          "    inputs: 8\n    sockets:\n      1: { status: dead }\n",
+        ),
+      );
+
+      expect(message).toContain("Invalid installation schema");
+      expect(message).toContain("devices.front-left.sockets");
+    });
+
     it("passes a `to` with only `device` through shape validation unrejected", () => {
       // `{ device }` alone is now shape-valid (the destination form). This
       // document's `stagebox-2` is a stagebox, not a destination, so it is
