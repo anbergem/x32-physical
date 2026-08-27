@@ -822,16 +822,15 @@ body {
    signal here yet" and "declared knowledge about this socket". A hatched
    fill reads as "do not use" at a glance; a marker in the corner makes the
    state legible even at a distance from the number itself. */
+/* A broken socket is a permanent, known fact about the wall — not an alert.
+   It reads as "disabled": dimmed and recessed, easy to skip over. An error
+   colour here would compete for attention with the diagnostics badges, which
+   mark things that changed and need acting on. */
 .port.port--broken {
   border-style: dashed;
-  border-color: var(--diag-error);
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--surface-raised),
-    var(--surface-raised) 4px,
-    var(--line-soft) 4px,
-    var(--line-soft) 5px
-  );
+  border-color: var(--line-soft);
+  background: var(--surface);
+  opacity: 0.45;
 }
 
 .port.port--broken .port__number {
@@ -845,7 +844,7 @@ body {
   right: 1px;
   font-size: 10px;
   line-height: 1;
-  color: var(--diag-error);
+  color: var(--text-dim);
 }
 
 /* Unused: deliberately spare, not faulty — the same dashed "not carrying a
@@ -867,7 +866,10 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  width: min(100%, 1120px);
+  /* Mikserpult (16-column grid, ~756px) + Console XLR outs (~388px) need
+     ~1160px to share a row; 1120px forced them to stack on screens that had
+     the space. */
+  width: min(100%, 1260px);
 }
 
 .console-section__toggle {
@@ -933,6 +935,7 @@ body {
 .mixer-outputs__row {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 4px;
 }
 
@@ -983,7 +986,12 @@ body {
   align-items: flex-start;
   justify-content: center;
   gap: 28px;
-  width: min(100%, 1120px);
+  /* Wide enough that Other + Left + Right sit on ONE row when the viewport
+     allows (measured: 212 + 510 + 398 + gaps = ~1176px). The old 1120px cap
+     was the binding constraint, not the screen — it wrapped Right onto its
+     own row on displays with room to spare. Narrower viewports still wrap,
+     which is correct. */
+  width: min(100%, 1260px);
 }
 
 .destination-group {
