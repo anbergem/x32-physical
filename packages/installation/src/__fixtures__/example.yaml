@@ -1,0 +1,22 @@
+# A tiny, entirely invented installation, used only to give
+# `loadInstallationFile` a positive path that does not depend on
+# `config/installation.yaml` (issue #24). Deliberately minimal: the mapping
+# rules themselves are covered by `parse.test.ts`.
+
+version: 1
+
+devices:
+  snake-a:
+    kind: stagebox
+    label: "Snake A"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  dsl-plate:
+    kind: passive-panel
+    label: "DSL Wall Plate"
+    inputs: 4
+
+connections:
+  - from: { device: dsl-plate, input: 1 }
+    to: { device: snake-a, input: 1 }

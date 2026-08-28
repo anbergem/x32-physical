@@ -20,7 +20,7 @@ import {
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { createAppStore } from "./store";
 
@@ -40,7 +40,7 @@ function channel(
 }
 
 function createStore() {
-  return createAppStore(venueInstallation(), [
+  return createAppStore(exampleRig(), [
     channel(7, "OH R", 7),
     channel(12, "Keys R", 12),
   ]);
@@ -616,7 +616,7 @@ describe("outputs slice + outputRouteIndex (issue #11)", () => {
   }
 
   function storeWithOutputs(outputs: MixerOutputState[]) {
-    return createAppStore(venueInstallation(), [], outputs);
+    return createAppStore(exampleRig(), [], outputs);
   }
 
   it("derives outputRouteIndex from installation and outputs at creation", () => {
@@ -625,7 +625,7 @@ describe("outputs slice + outputRouteIndex (issue #11)", () => {
     ]).getState();
 
     const route = outputRouteIndex.byMixerOutput.get(13);
-    expect(route?.destinations).toEqual([destination("front-venstre")]);
+    expect(route?.destinations).toEqual([destination("fill-left")]);
     expect(route?.endpoints).toContain(
       endpointId(stageboxOutput("stagebox-1", 5)),
     );

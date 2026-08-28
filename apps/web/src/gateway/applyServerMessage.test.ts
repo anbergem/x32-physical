@@ -9,7 +9,7 @@ import { mixerChannelId, panelInput } from "@x32/domain";
 import type { ServerMessage } from "@x32/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 import type { AppStore } from "../state/store";
 import { createAppStore } from "../state/store";
 
@@ -21,7 +21,7 @@ const CH12 = mixerChannelId(12);
 let store: AppStore;
 
 beforeEach(() => {
-  store = createAppStore(venueInstallation());
+  store = createAppStore(exampleRig());
 });
 
 function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {

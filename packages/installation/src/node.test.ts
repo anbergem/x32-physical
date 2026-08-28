@@ -1,86 +1,34 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import {
-  aes50Channel,
-  aes50ChannelsByEndpoint,
-  buildOutputRouteIndex,
-  deriveStaticEdges,
-  destination,
-  endpointId,
-  panelInput,
-} from "@x32/domain";
 import { describe, expect, it } from "vitest";
 
 import { loadInstallationFile } from "./node";
 
-/** The repo's real `config/installation.yaml`, not a fixture copy. */
-const VENUE_CONFIG = fileURLToPath(
-  new URL("../../../config/installation.yaml", import.meta.url),
+/**
+ * The loader's own behaviour: reading a file, and naming it when either the
+ * read or the validation fails. What a *particular* installation resolves to
+ * — cascade arithmetic, panel renumbering, output blocks — is asserted
+ * against the shared in-memory fixture instead
+ * (`packages/domain/src/example-installation.test.ts`, issue #24), so no test
+ * here depends on the contents of `config/installation.yaml`.
+ */
+/** A tiny invented document owned by this package, never `config/`. */
+const EXAMPLE_YAML = fileURLToPath(
+  new URL("./__fixtures__/example.yaml", import.meta.url),
 );
 
-/**
- * Only the *confirmed* facts of docs/installation.md are asserted here. The
- * passive panels and their cabling are placeholders that the docs promise can
- * be replaced by a YAML-only edit, so nothing below may depend on them;
- * mapping and derivation are covered against the fixture in `parse.test.ts`.
- */
 describe("loadInstallationFile", () => {
-  it("loads and validates the venue configuration", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
+  it("reads a file and maps it into a domain installation", () => {
+    const installation = loadInstallationFile(EXAMPLE_YAML);
 
-    expect(
-      installation.devices
-        .filter((device) => device.kind === "stagebox")
-        .map((device) => ({
-          id: device.id,
-          inputs: device.inputs,
-          aes50: device.aes50,
-        })),
-    ).toEqual([
-      { id: "stagebox-1", inputs: 16, aes50: { bus: "A", offset: 0 } },
-      { id: "stagebox-2", inputs: 16, aes50: { bus: "A", offset: 16 } },
+    expect(installation.devices.map((device) => device.id)).toEqual([
+      "snake-a",
+      "dsl-plate",
     ]);
-  });
-
-  it("declares MK Front H with 8 inputs, socket 1 annotated broken (issue #12)", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const frontRight = installation.devices.find(
-      (device) => device.id === "front-right",
-    );
-
-    expect(frontRight?.inputs).toBe(8);
-    expect(frontRight?.sockets).toEqual([{ input: 1, status: "broken", note: "Defekt — ikke i bruk" }]);
-  });
-
-  it("resolves MK Front H's renumbering: socket 2 -> A18, socket 8 -> A24", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const map = aes50ChannelsByEndpoint(installation);
-
-    expect(map.get(endpointId(panelInput("front-right", 2)))).toEqual(
-      aes50Channel("A", 18),
-    );
-    expect(map.get(endpointId(panelInput("front-right", 8)))).toEqual(
-      aes50Channel("A", 24),
-    );
-  });
-
-  it("reaches no AES50 channel from the broken socket 1", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const map = aes50ChannelsByEndpoint(installation);
-
-    expect(map.has(endpointId(panelInput("front-right", 1)))).toBe(false);
-  });
-
-  it("derives the cascade: stagebox-2 input 7 is AES50-A 23", () => {
-    const edges = deriveStaticEdges(loadInstallationFile(VENUE_CONFIG));
-
-    expect(
-      edges.map((edge) => ({
-        from: endpointId(edge.from),
-        to: endpointId(edge.to),
-      })),
-    ).toContainEqual({ from: "stagebox:stagebox-2:7", to: "aes50:A:23" });
+    expect(installation.connections).toEqual([
+      { from: { kind: "panel-input", device: "dsl-plate", input: 1 }, to: { kind: "stagebox-input", device: "snake-a", input: 1 } },
+    ]);
   });
 
   it("names the file when it cannot be read", () => {
@@ -101,79 +49,29 @@ describe("loadInstallationFile", () => {
 });
 
 /**
- * The output side (issue #9). Loads the real `config/installation.yaml`
- * against docs/installation.md §"Output topology" and traces two routes
- * end to end through the domain, exactly as the UI's hover/select would.
+ * The one test that touches the shipped configuration, and the only thing it
+ * may claim: whatever `config/installation.yaml` currently describes, it is
+ * well-formed. No device names, no counts, no channel mappings — anyone may
+ * replace that file with their own room.
+ *
+ * It skips rather than fails when the file is absent, so the file can be left
+ * out of the repo entirely without the suite going red.
  */
-describe("loadInstallationFile: output side", () => {
-  it("carries the venue's 11 destinations and both stageboxes' outputBlocks", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
+const VENUE_CONFIG = fileURLToPath(
+  new URL("../../../config/installation.yaml", import.meta.url),
+);
 
-    const destinations = installation.devices.filter(
-      (device) => device.kind === "destination",
-    );
-    expect(destinations).toHaveLength(11);
-    expect(destinations.every((device) => device.inputs === 0)).toBe(true);
-    expect(destinations.map((device) => device.id).sort()).toEqual(
-      [
-        "bak-hoyre",
-        "front-hoyre",
-        "front-venstre",
-        "main-left",
-        "main-right",
-        "piano-hoyre",
-        "piano-venstre",
-        "sidesal",
-        "sub",
-        "venstre-bak",
-        "vip-rom",
-      ].sort(),
-    );
+describe.skipIf(!existsSync(VENUE_CONFIG))(
+  "the shipped config/installation.yaml",
+  () => {
+    it("parses and validates", () => {
+      const installation = loadInstallationFile(VENUE_CONFIG);
 
-    const stageboxes = installation.devices.filter(
-      (device) => device.kind === "stagebox",
-    );
-    expect(stageboxes.map((device) => ({ id: device.id, outputBlock: device.outputBlock }))).toEqual([
-      { id: "stagebox-1", outputBlock: { start: 9 } },
-      { id: "stagebox-2", outputBlock: { start: 1 } },
-    ]);
-  });
-
-  it("carries the venue's 11 output connections", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-
-    const outputConnections = installation.connections.filter(
-      (edge) => edge.to.kind === "destination",
-    );
-    expect(outputConnections).toHaveLength(11);
-  });
-
-  it("resolves Out 13 -> stagebox-1 out 5 -> front-venstre", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const index = buildOutputRouteIndex(installation, []);
-
-    const route = index.byMixerOutput.get(13);
-    expect(route?.endpoints).toEqual([
-      "out:13",
-      "stagebox-out:stagebox-1:5",
-      "dest:front-venstre",
-    ]);
-    expect(route?.destinations).toEqual([destination("front-venstre")]);
-  });
-
-  it("resolves Out 1 -> console-out:1 -> sidesal", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const index = buildOutputRouteIndex(installation, []);
-
-    const route = index.byMixerOutput.get(1);
-    // Out 1 is presented both on the console XLR (declared) and wholesale on
-    // Stagebox H's block (derived, outputBlock.start = 1) — both physical
-    // outs appear alongside the destination.
-    expect(route?.endpoints).toContain("console-out:1");
-    expect(route?.endpoints).toContain("dest:sidesal");
-    expect(route?.destinations).toEqual([destination("sidesal")]);
-  });
-});
+      expect(Array.isArray(installation.devices)).toBe(true);
+      expect(Array.isArray(installation.connections)).toBe(true);
+    });
+  },
+);
 
 /**
  * Comments legitimately mention `node:fs`, so the guard below reads code only.
@@ -204,47 +102,5 @@ describe("the browser-safe entry point", () => {
   it("guards a module that does reach for Node", () => {
     // Proves the guard above can fail rather than passing vacuously.
     expect(codeOf("node.ts")).toMatch(/["']node:/);
-  });
-});
-
-/**
- * The venue's declared device groups (issue #20). These exact names are what
- * step 3 of the open-source-readiness milestone renders, so a wrong one here
- * would silently change the venue's layout later; asserted device by device.
- */
-describe("loadInstallationFile: device groups", () => {
-  const EXPECTED_GROUPS: ReadonlyArray<readonly [string, string | undefined]> = [
-    ["stagebox-1", "Stage left"],
-    ["front-left", "Stage left"],
-    ["stagebox-2", "Stage right"],
-    ["front-right", "Stage right"],
-    ["console", undefined],
-    ["front-venstre", "Left"],
-    ["piano-venstre", "Left"],
-    ["venstre-bak", "Left"],
-    ["sub", "Left"],
-    ["main-left", "Left"],
-    ["front-hoyre", "Right"],
-    ["piano-hoyre", "Right"],
-    ["bak-hoyre", "Right"],
-    ["main-right", "Right"],
-    ["sidesal", "Other"],
-    ["vip-rom", "Other"],
-  ];
-
-  it.each(EXPECTED_GROUPS)("groups %s as %s", (id, group) => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-    const device = installation.devices.find((candidate) => candidate.id === id);
-
-    expect(device, `device "${id}" is missing from the venue config`).toBeDefined();
-    expect(device?.group).toBe(group);
-  });
-
-  it("covers every device in the venue config", () => {
-    const installation = loadInstallationFile(VENUE_CONFIG);
-
-    expect(installation.devices.map((device) => device.id).sort()).toEqual(
-      EXPECTED_GROUPS.map(([id]) => id).sort(),
-    );
   });
 });

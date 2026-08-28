@@ -16,13 +16,13 @@ import {
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectHoverStatus } from "./selectors";
 import type { AppStore } from "./store";
 import { createAppStore } from "./store";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 
 function outputStore(): AppStore {
   const { outputs } = createDefaultMockSnapshot();
@@ -35,7 +35,7 @@ function statusOf(store: AppStore, endpoint: ReturnType<typeof endpointId>) {
 
 const OUT_13 = endpointId(mixerOutput(13));
 const STAGEBOX_V_OUT_5 = endpointId(stageboxOutput("stagebox-1", 5));
-const FRONT_VENSTRE = endpointId(destination("front-venstre"));
+const FILL_LEFT = endpointId(destination("fill-left"));
 
 const OUT_7 = endpointId(mixerOutput(7));
 const OUT_12 = endpointId(mixerOutput(12));
@@ -43,14 +43,14 @@ const OUT_12 = endpointId(mixerOutput(12));
 const OUT_1 = endpointId(mixerOutput(1));
 const CONSOLE_OUT_1 = endpointId(consoleOutput(1));
 const STAGEBOX_H_OUT_1 = endpointId(stageboxOutput("stagebox-2", 1)); // wholesale, uncabled
-const SIDESAL = endpointId(destination("sidesal"));
+const ZONE_A = endpointId(destination("zone-a"));
 
 describe("selectHoverStatus · output side (issue #11)", () => {
   it("lights the whole route from a destination, including the physical socket and the slot", () => {
     const store = outputStore();
-    store.getState().setHoveredEndpoint(FRONT_VENSTRE);
+    store.getState().setHoveredEndpoint(FILL_LEFT);
 
-    expect(statusOf(store, FRONT_VENSTRE)).toBe("hovered");
+    expect(statusOf(store, FILL_LEFT)).toBe("hovered");
     expect(statusOf(store, STAGEBOX_V_OUT_5)).toBe("on-route");
     expect(statusOf(store, OUT_13)).toBe("on-route");
   });
@@ -61,7 +61,7 @@ describe("selectHoverStatus · output side (issue #11)", () => {
 
     expect(statusOf(store, OUT_13)).toBe("hovered");
     expect(statusOf(store, STAGEBOX_V_OUT_5)).toBe("on-route");
-    expect(statusOf(store, FRONT_VENSTRE)).toBe("on-route");
+    expect(statusOf(store, FILL_LEFT)).toBe("on-route");
   });
 
   it("lights Out 12 too when hovering Out 7 — both share Bus 3", () => {
@@ -91,7 +91,7 @@ describe("selectHoverStatus · output side (issue #11)", () => {
     // `installation/outputCabling.ts`, not here.
     expect(statusOf(store, CONSOLE_OUT_1)).toBe("on-route");
     expect(statusOf(store, STAGEBOX_H_OUT_1)).toBe("on-route");
-    expect(statusOf(store, SIDESAL)).toBe("on-route");
+    expect(statusOf(store, ZONE_A)).toBe("on-route");
   });
 
   it("an off slot highlights only itself", () => {

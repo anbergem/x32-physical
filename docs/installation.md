@@ -11,6 +11,19 @@ slots, 16 console XLR outs) — that is deliberate and not going away. What is
 are called, how they are cabled, or what your speakers are named. All of that
 is declared here, and the schematic derives itself from it.
 
+### Getting started
+
+Copy **[`config/installation.sample.yaml`](../config/installation.sample.yaml)**
+over `config/installation.yaml` and edit it into your own room. The sample is
+a small, deliberately unlike-anyone's installation — one stagebox on AES50-B,
+two panels (one with a dead socket), five destinations across two groups plus
+one ungrouped, and no console device — commented section by section, so every
+field below has a worked line to copy.
+
+Nothing in the app, and nothing in the test suite, depends on what
+`config/installation.yaml` contains: replacing it with your own installation
+is a YAML-only edit.
+
 A complete real example, with all its awkward real-world quirks, lives in
 **[venue-betania.md](venue-betania.md)** — the maintainer's own installation.
 

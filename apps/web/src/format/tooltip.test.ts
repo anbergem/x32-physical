@@ -27,12 +27,12 @@ import type { RoutingDiscrepancy } from "@x32/domain";
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import type { TooltipContext } from "./tooltip";
 import { describeEndpoint } from "./tooltip";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 const { channels, outputs } = createDefaultMockSnapshot();
 const context: TooltipContext = {
   installation,
@@ -211,7 +211,7 @@ describe("describeEndpoint · socket annotations (issue #12)", () => {
    * (a domain rule `validateInstallation` enforces).
    */
   function annotatedContext(status: "broken" | "unused", note?: string): TooltipContext {
-    const withAnnotation = venueInstallation();
+    const withAnnotation = exampleRig();
     withAnnotation.connections = withAnnotation.connections.filter(
       (connection) =>
         !(
@@ -259,7 +259,7 @@ describe("describeEndpoint · socket annotations (issue #12)", () => {
   });
 
   it("differs from a merely-uncabled socket's tooltip", () => {
-    const uncabledInstallation = venueInstallation();
+    const uncabledInstallation = exampleRig();
     uncabledInstallation.connections = uncabledInstallation.connections.filter(
       (connection) =>
         !(
@@ -300,18 +300,18 @@ describe("describeEndpoint · output slot (issue #11)", () => {
   it("shows the slot's source and the destination it reaches", () => {
     expect(describeEndpoint(endpointId(mixerOutput(13)), context)).toEqual({
       title: "Out 13",
-      lines: ["Bus 1", "→ Front Venstre"],
+      lines: ["Bus 1", "→ Fill Left"],
     });
   });
 
   it("names every destination for a slot shared by two Out numbers", () => {
     expect(describeEndpoint(endpointId(mixerOutput(7)), context)).toEqual({
       title: "Out 7",
-      lines: ["Bus 3", "→ Piano Høyre, Piano Venstre"],
+      lines: ["Bus 3", "→ Side Left, Side Right"],
     });
     expect(describeEndpoint(endpointId(mixerOutput(12)), context)).toEqual({
       title: "Out 12",
-      lines: ["Bus 3", "→ Piano Høyre, Piano Venstre"],
+      lines: ["Bus 3", "→ Side Left, Side Right"],
     });
   });
 
@@ -327,20 +327,20 @@ describe("describeEndpoint · physical output socket — the wholesale-block dis
   it("describes a cabled console XLR out", () => {
     expect(describeEndpoint(endpointId(consoleOutput(1)), context)).toEqual({
       title: "Console Out 1",
-      lines: ["Carries Out 1 → Sidesal"],
+      lines: ["Carries Out 1 → Zone A"],
     });
   });
 
   it("describes a cabled stagebox XLR out", () => {
     expect(describeEndpoint(endpointId(stageboxOutput("stagebox-1", 5)), context)).toEqual({
       title: "Stagebox 1 · Out 5",
-      lines: ["Carries Out 13 → Front Venstre"],
+      lines: ["Carries Out 13 → Fill Left"],
     });
   });
 
   it("reads distinctly for a socket that carries a block wholesale but is not cabled", () => {
     // Stagebox 2 presents OUT1-8 wholesale; only console-out:1 is actually
-    // cabled to Sidesal — this socket must never claim to feed it too.
+    // cabled to Zone A — this socket must never claim to feed it too.
     expect(describeEndpoint(endpointId(stageboxOutput("stagebox-2", 1)), context)).toEqual({
       title: "Stagebox 2 · Out 1",
       lines: ["Carries Out 1 · nothing connected"],
@@ -350,16 +350,16 @@ describe("describeEndpoint · physical output socket — the wholesale-block dis
 
 describe("describeEndpoint · destination (issue #11)", () => {
   it("shows the full upstream chain for a simple 1:1 destination", () => {
-    expect(describeEndpoint(endpointId(destination("front-venstre")), context)).toEqual({
-      title: "Front Venstre",
-      lines: ["Front Venstre ← Stagebox 1 · Out 5 ← Out 13 ← Bus 1"],
+    expect(describeEndpoint(endpointId(destination("fill-left")), context)).toEqual({
+      title: "Fill Left",
+      lines: ["Fill Left ← Stagebox 1 · Out 5 ← Out 13 ← Bus 1"],
     });
   });
 
   it("shows the chain for a console-XLR-fed destination", () => {
-    expect(describeEndpoint(endpointId(destination("vip-rom")), context)).toEqual({
-      title: "Vip Rom",
-      lines: ["Vip Rom ← Console Out 2 ← Out 2 ← Matrix 2"],
+    expect(describeEndpoint(endpointId(destination("zone-b")), context)).toEqual({
+      title: "Zone B",
+      lines: ["Zone B ← Console Out 2 ← Out 2 ← Matrix 2"],
     });
   });
 });

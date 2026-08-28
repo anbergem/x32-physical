@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import type { Device, DeviceId, Installation } from "@x32/domain";
+import { exampleInstallation } from "@x32/domain/example-installation";
 import { parseInstallationYaml } from "@x32/installation";
 import { describe, expect, it } from "vitest";
 
@@ -24,12 +25,7 @@ import {
 const STAGE_KINDS = ["stagebox", "passive-panel"] as const;
 const DESTINATION_KINDS = ["destination"] as const;
 
-/** The repo's real venue file — the layout this app renders today. */
-const VENUE_CONFIG = fileURLToPath(
-  new URL("../../../../config/installation.yaml", import.meta.url),
-);
-
-/** An entirely invented rig: different ids, two panels, one stagebox, no console. */
+/** A second invented rig: different ids, two panels, one stagebox, no console. */
 const EXAMPLE_CONFIG = fileURLToPath(
   new URL("../__fixtures__/example-installation.yaml", import.meta.url),
 );
@@ -105,50 +101,59 @@ describe("groupDevices", () => {
   });
 });
 
-describe("the venue's own installation", () => {
-  const venue = load(VENUE_CONFIG);
+/**
+ * The shared example installation (issue #24) stands in for "a realistic
+ * installation with a console, two stage areas, named destination groups and
+ * an ungrouped one". It used to be `config/installation.yaml`; the behaviour
+ * asserted — group order by first appearance, membership by name rather than
+ * adjacency, an ungrouped device staying off the stage — is unchanged.
+ */
+describe("a realistic installation", () => {
+  const example = exampleInstallation();
 
-  it("yields today's stage areas, in today's order", () => {
-    expect(shape(deviceGroupsFor(venue, STAGE_KINDS))).toEqual([
-      ["Stage left", ["stagebox-1", "front-left"]],
-      ["Stage right", ["stagebox-2", "front-right"]],
+  it("yields its stage areas, in declaration order", () => {
+    expect(shape(deviceGroupsFor(example, STAGE_KINDS))).toEqual([
+      ["Downstage", ["snake-a", "dsl-plate"]],
+      ["Upstage", ["snake-b", "usr-box"]],
     ]);
   });
 
-  it("yields today's destination groups, in today's order", () => {
-    expect(shape(deviceGroupsFor(venue, DESTINATION_KINDS))).toEqual([
-      ["Other", ["sidesal", "vip-rom"]],
-      ["Left", ["front-venstre", "piano-venstre", "venstre-bak", "sub", "main-left"]],
-      ["Right", ["front-hoyre", "piano-hoyre", "bak-hoyre", "main-right"]],
+  it("yields its destination groups, in declaration order", () => {
+    // "foyer-feed" is declared after a Balcony device but belongs to House:
+    // a group is a name, not a contiguous run.
+    expect(shape(deviceGroupsFor(example, DESTINATION_KINDS))).toEqual([
+      ["House", ["house-left", "house-right", "foyer-feed"]],
+      ["Balcony", ["balcony-fill"]],
+      [null, ["green-room"]],
     ]);
   });
 
   it("finds the (ungrouped) console device without naming its id", () => {
-    expect(consoleDeviceFor(venue)?.label).toBe("Mikserpult (FOH)");
+    expect(consoleDeviceFor(example)?.label).toBe("Front of House Desk");
     // Ungrouped is an ordinary state and must not put the desk on stage.
     expect(
-      deviceGroupsFor(venue, STAGE_KINDS).some((group) => group.title === null),
+      deviceGroupsFor(example, STAGE_KINDS).some((group) => group.title === null),
     ).toBe(false);
   });
 
-  it("declares stageboxes on AES50-A only", () => {
-    expect(aes50BusesInUse(venue)).toEqual(["A"]);
+  it("reports only the buses its stageboxes declare", () => {
+    expect(aes50BusesInUse(example)).toEqual(["A"]);
   });
 
   it("memoizes per installation and per kind set", () => {
-    expect(deviceGroupsFor(venue, STAGE_KINDS)).toBe(
-      deviceGroupsFor(venue, STAGE_KINDS),
+    expect(deviceGroupsFor(example, STAGE_KINDS)).toBe(
+      deviceGroupsFor(example, STAGE_KINDS),
     );
-    expect(deviceGroupsFor(venue, STAGE_KINDS)).not.toBe(
-      deviceGroupsFor(venue, DESTINATION_KINDS),
+    expect(deviceGroupsFor(example, STAGE_KINDS)).not.toBe(
+      deviceGroupsFor(example, DESTINATION_KINDS),
     );
   });
 });
 
-describe("an invented foreign installation", () => {
+describe("a foreign installation loaded from YAML", () => {
   const example = load(EXAMPLE_CONFIG);
 
-  it("yields its own stage areas, not this venue's", () => {
+  it("yields its own stage areas, parsed straight from its file", () => {
     expect(shape(deviceGroupsFor(example, STAGE_KINDS))).toEqual([
       ["Downstage", ["snake-a", "dsl-plate"]],
       ["Upstage", ["usr-box"]],

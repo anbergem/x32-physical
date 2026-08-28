@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url";
-
 import type { MixerSourceRef } from "@x32/domain";
 import {
   buildOutputRouteIndex,
@@ -13,15 +11,10 @@ import {
   panelInput,
   stageboxOutput,
 } from "@x32/domain";
-import { loadInstallationFile } from "@x32/installation/node";
+import { exampleInstallation } from "@x32/domain/example-installation";
 import { describe, expect, it } from "vitest";
 
 import { createDefaultMockSnapshot } from "./default-snapshot";
-
-/** The repo's real `config/installation.yaml`, not a fixture copy. */
-const VENUE_CONFIG = fileURLToPath(
-  new URL("../../../config/installation.yaml", import.meta.url),
-);
 
 describe("createDefaultMockSnapshot", () => {
   it("has exactly 32 channels, ids 1–32 in order", () => {
@@ -121,25 +114,32 @@ describe("createDefaultMockSnapshot", () => {
     expect(first).toEqual(second);
   });
 
-  describe("sanity anchor against the real installation", () => {
-    it("traces CH11 (AES50-A 18) to Stagebox H input 2 / MK Front H socket 2", () => {
-      const installation = loadInstallationFile(VENUE_CONFIG);
+  /**
+   * The default snapshot is a *mixer* patch — sources, not topology — so it
+   * must trace end to end through any installation of the documented shape.
+   * Anchored against the shared example fixture rather than
+   * `config/installation.yaml` (issue #24): the behaviour asserted is the
+   * cascade half of the trace (a bus channel above 16 resolving through the
+   * second box) and the 1:1 half (a bus channel below 16 through the first).
+   */
+  describe("sanity anchor against the example installation", () => {
+    it("traces CH11 (AES50-A 18) through the cascaded box to its panel socket", () => {
+      const installation = exampleInstallation();
       const { channels } = createDefaultMockSnapshot();
       const routeIndex = buildRouteIndex(installation, channels);
 
       const route = routeIndex.byMixerChannel.get(mixerChannelId(11));
-      // issue #12: MK Front H is numbered by physical position, socket 2 is
-      // the printed "1" on the plate.
-      expect(route?.physicalInputs).toEqual([panelInput("front-right", 2)]);
+      // A18 is snake-b input 2, which the offset panel feeds from socket 3.
+      expect(route?.physicalInputs).toEqual([panelInput("usr-box", 3)]);
     });
 
-    it("traces CH5 (AES50-A 1) to MK Front V socket 1", () => {
-      const installation = loadInstallationFile(VENUE_CONFIG);
+    it("traces CH5 (AES50-A 1) through the first box to its 1:1 panel socket", () => {
+      const installation = exampleInstallation();
       const { channels } = createDefaultMockSnapshot();
       const routeIndex = buildRouteIndex(installation, channels);
 
       const route = routeIndex.byMixerChannel.get(mixerChannelId(5));
-      expect(route?.physicalInputs).toEqual([panelInput("front-left", 1)]);
+      expect(route?.physicalInputs).toEqual([panelInput("dsl-plate", 1)]);
     });
   });
 
@@ -183,21 +183,21 @@ describe("createDefaultMockSnapshot", () => {
       expect(first.outputs).toEqual(second.outputs);
     });
 
-    describe("sanity anchor against the real installation", () => {
-      it("traces Out 13 Front Venstre: Bus 1 -> Stagebox V out 5 -> Front Venstre", () => {
-        const installation = loadInstallationFile(VENUE_CONFIG);
+    describe("sanity anchor against the example installation", () => {
+      it("traces Out 13: Bus 1 -> the OUT9-16 box's out 5 -> its destination", () => {
+        const installation = exampleInstallation();
         const { outputs } = createDefaultMockSnapshot();
         const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
 
         const route = outputRouteIndex.byMixerOutput.get(13);
-        expect(route?.destinations).toEqual([destination("front-venstre")]);
+        expect(route?.destinations).toEqual([destination("house-left")]);
         expect(route?.endpoints).toContain(
-          endpointId(stageboxOutput("stagebox-1", 5)),
+          endpointId(stageboxOutput("snake-a", 5)),
         );
       });
 
       it("shares one route between Out 7 and Out 12, both fed by Bus 3", () => {
-        const installation = loadInstallationFile(VENUE_CONFIG);
+        const installation = exampleInstallation();
         const { outputs } = createDefaultMockSnapshot();
         const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
 
@@ -208,7 +208,7 @@ describe("createDefaultMockSnapshot", () => {
       });
 
       it("presents Out 1's block wholesale: the stagebox XLR carries it, but only the console XLR is declared cabled", () => {
-        const installation = loadInstallationFile(VENUE_CONFIG);
+        const installation = exampleInstallation();
         const { outputs } = createDefaultMockSnapshot();
         const outputRouteIndex = buildOutputRouteIndex(installation, outputs ?? []);
 
@@ -219,9 +219,9 @@ describe("createDefaultMockSnapshot", () => {
         // the route reaches, from either branch.
         expect(route?.endpoints).toContain(endpointId(consoleOutput(1)));
         expect(route?.endpoints).toContain(
-          endpointId(stageboxOutput("stagebox-2", 1)),
+          endpointId(stageboxOutput("snake-b", 1)),
         );
-        expect(route?.destinations).toEqual([destination("sidesal")]);
+        expect(route?.destinations).toEqual([destination("green-room")]);
 
         // `byEndpoint` for the stagebox socket returns this same shared
         // route object — its `destinations` is the whole route's, not this
@@ -231,7 +231,7 @@ describe("createDefaultMockSnapshot", () => {
         // *this* socket declared cabled?" directly from `installation`,
         // never through this index.
         const socketRoutes = outputRouteIndex.byEndpoint.get(
-          endpointId(stageboxOutput("stagebox-2", 1)),
+          endpointId(stageboxOutput("snake-b", 1)),
         );
         expect(socketRoutes).toEqual([route]);
       });

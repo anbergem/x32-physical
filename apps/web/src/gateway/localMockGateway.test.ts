@@ -11,7 +11,7 @@ import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 import type { AppStore } from "../state/store";
 import { createAppStore } from "../state/store";
 
@@ -37,7 +37,7 @@ let mock: MockMixerClient;
 let gateway: LocalMockGateway;
 
 beforeEach(async () => {
-  store = createAppStore(venueInstallation());
+  store = createAppStore(exampleRig());
   mock = new MockMixerClient();
   gateway = new LocalMockGateway(store, mock);
   await gateway.connect();
@@ -175,7 +175,7 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
       channels: [{ channel: CH7, name: "Overhead R", source: { kind: "aes50", bus: "A", channel: 7 } }],
       selectedChannel: null,
     };
-    const freshStore = createAppStore(venueInstallation());
+    const freshStore = createAppStore(exampleRig());
     const freshGateway = new LocalMockGateway(
       freshStore,
       new MockMixerClient(),
@@ -215,7 +215,7 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
     const saver = new LocalMockGateway(store, mock, baselineStore);
     saver.saveBaseline();
 
-    const freshStore = createAppStore(venueInstallation());
+    const freshStore = createAppStore(exampleRig());
     const reader = new LocalMockGateway(freshStore, new MockMixerClient(), baselineStore);
     await reader.connect();
 

@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 import type { AppStore } from "../state/store";
 import { createAppStore } from "../state/store";
 
@@ -58,7 +58,7 @@ function fakeFactory() {
 }
 
 beforeEach(() => {
-  store = createAppStore(venueInstallation());
+  store = createAppStore(exampleRig());
   sockets = [];
   vi.useFakeTimers();
 });

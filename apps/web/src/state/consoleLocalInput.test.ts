@@ -12,7 +12,7 @@ import { deviceId, endpointId, localInput, mixerChannel, mixerChannelId } from "
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectHoverStatus, selectSelectionStatus } from "./selectors";
 import type { AppStore } from "./store";
@@ -20,7 +20,7 @@ import { createAppStore } from "./store";
 
 /** The shared venue fixture plus a declared 32-input console device. */
 function installationWithConsole() {
-  const installation = venueInstallation();
+  const installation = exampleRig();
   installation.devices.push({
     id: deviceId("console"),
     kind: "console",

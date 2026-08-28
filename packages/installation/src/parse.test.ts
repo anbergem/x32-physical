@@ -587,14 +587,11 @@ connections:
     expect(message).toContain("devices.console");
   });
 
-  it("loads the real config/installation.yaml with a 32-input console device", async () => {
-    const { readFile } = await import("node:fs/promises");
-    const { fileURLToPath } = await import("node:url");
-    const path = fileURLToPath(
-      new URL("../../../config/installation.yaml", import.meta.url),
-    );
-    const text = await readFile(path, "utf8");
-    const installation = parseInstallationYaml(text, path);
+  it("carries a console device's full local input count", () => {
+    // The desk's own XLR block is declared truthfully even when only a few
+    // sockets are patched; nothing here reads `config/installation.yaml`
+    // (issue #24).
+    const installation = parseInstallationYaml(CONSOLE_YAML);
     const console_ = installation.devices.find((device) => device.kind === "console");
 
     expect(console_).toMatchObject({ id: "console", kind: "console", inputs: 32 });

@@ -33,13 +33,13 @@ import {
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectHoverStatus, selectSelectionStatus } from "./selectors";
 import type { AppStore } from "./store";
 import { createAppStore } from "./store";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 
 const CH23 = mixerChannelId(23);
 const CH28 = mixerChannelId(28);

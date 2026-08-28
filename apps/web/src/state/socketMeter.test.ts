@@ -17,13 +17,13 @@ import { endpointId, mixerChannelId, panelInput } from "@x32/domain";
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectSocketMeterLevel } from "./selectors";
 import type { AppStore } from "./store";
 import { createAppStore } from "./store";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 
 const CH5 = mixerChannelId(5); // "Vox 1" · AES50-A 1 · front-left socket 1
 const CH6 = mixerChannelId(6); // "Vox 2" · AES50-A 2 · front-left socket 2

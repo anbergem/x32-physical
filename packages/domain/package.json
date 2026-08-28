@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./example-installation": "./src/__fixtures__/example-installation.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

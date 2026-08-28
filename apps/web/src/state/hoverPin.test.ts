@@ -17,13 +17,13 @@ import { deviceId, endpointId, mixerChannel, mixerChannelId, stageboxInput } fro
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectHoverStatus, selectSelectionStatus } from "./selectors";
 import type { AppStore } from "./store";
 import { createAppStore } from "./store";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 
 /** Stagebox 1 input 1, and the channel the default snapshot feeds from it. */
 const STAGEBOX = deviceId("stagebox-1");

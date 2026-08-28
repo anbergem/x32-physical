@@ -28,7 +28,7 @@ import {
 import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import { selectHoverStatus } from "./selectors";
 import type { AppStore } from "./store";
@@ -56,7 +56,7 @@ function renderedEndpoints(installation: Installation): EndpointId[] {
   return endpoints;
 }
 
-const installation = venueInstallation();
+const installation = exampleRig();
 const ALL = renderedEndpoints(installation);
 
 const CH23 = mixerChannelId(23);

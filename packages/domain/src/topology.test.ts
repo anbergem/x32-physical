@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { exampleInstallation } from "./__fixtures__/example-installation";
 import { outputVenueInstallation } from "./__fixtures__/output-venue";
 import { venueInstallation } from "./__fixtures__/venue";
 import type { EndpointRef } from "./endpoints";
@@ -142,92 +143,45 @@ describe("aes50ChannelForInput", () => {
 });
 
 /**
- * Mirrors `config/installation.yaml` exactly (docs/installation.md "Real
- * panel wiring"), not the simplified `venueInstallation()` fixture above:
- * the venue's right side is cabled offset by one, which is precisely the
- * case `aes50ChannelsByEndpoint` exists to get right.
+ * Driven by the shared example fixture (issue #24) rather than a hand-copied
+ * mirror of `config/installation.yaml`: it carries the shapes this function
+ * exists to get right — a 1:1 panel, a panel cabled with an offset, a broken
+ * socket cabled to nothing, and a cascaded box.
  */
-function realVenueInstallation(): Installation {
-  return {
-    devices: [
-      {
-        id: deviceId("stagebox-1"),
-        kind: "stagebox",
-        label: "Stagebox V",
-        inputs: 16,
-        aes50: { bus: "A", offset: 0 },
-      },
-      {
-        id: deviceId("stagebox-2"),
-        kind: "stagebox",
-        label: "Stagebox H",
-        inputs: 16,
-        aes50: { bus: "A", offset: 16 },
-      },
-      {
-        id: deviceId("front-left"),
-        kind: "passive-panel",
-        label: "MK Front V",
-        inputs: 8,
-      },
-      {
-        id: deviceId("front-right"),
-        kind: "passive-panel",
-        label: "MK Front H",
-        inputs: 8,
-        // Physical position 1 is broken and connected to nothing (issue
-        // #12, owner decision 2026-08-27): position-faithful numbering, not
-        // the plate's printed labels.
-        sockets: [{ input: 1, status: "broken" }],
-      },
-    ],
-    connections: [
-      ...[1, 2, 3, 4, 5, 6, 7, 8].map((socket) => ({
-        from: panelInput("front-left", socket),
-        to: stageboxInput("stagebox-1", socket),
-      })),
-      // MK Front H socket n -> Stagebox H input n, n = 2..8 (socket 1 is
-      // broken and not cabled; Stagebox H input 1, "H 01"/A17, is a direct
-      // stage socket).
-      ...[2, 3, 4, 5, 6, 7, 8].map((socket) => ({
-        from: panelInput("front-right", socket),
-        to: stageboxInput("stagebox-2", socket),
-      })),
-    ],
-  };
-}
-
 describe("aes50ChannelsByEndpoint", () => {
-  const installation = realVenueInstallation();
+  const installation = exampleInstallation();
   const map = aes50ChannelsByEndpoint(installation);
 
-  it("maps the left panel 1:1 through its stagebox", () => {
-    expect(map.get(endpointId(panelInput("front-left", 1)))).toEqual(
+  it("maps the 1:1 panel straight through its stagebox", () => {
+    expect(map.get(endpointId(panelInput("dsl-plate", 1)))).toEqual(
       aes50Channel("A", 1),
+    );
+    expect(map.get(endpointId(panelInput("dsl-plate", 8)))).toEqual(
+      aes50Channel("A", 8),
     );
   });
 
-  it("maps the right panel by physical position, dead socket 1 excluded", () => {
-    // MK Front H socket 2 -> Stagebox H input 2 -> A18, through socket 8 ->
-    // A24 (issue #12: position-faithful numbering, not the printed labels).
-    expect(map.get(endpointId(panelInput("front-right", 2)))).toEqual(
+  it("maps the offset panel by physical position, dead socket 1 excluded", () => {
+    // usr-box socket n -> snake-b input n - 1, on the cascaded box: socket 3
+    // -> input 2 -> A18, through socket 6 -> input 5 -> A21.
+    expect(map.get(endpointId(panelInput("usr-box", 3)))).toEqual(
       aes50Channel("A", 18),
     );
-    expect(map.get(endpointId(panelInput("front-right", 8)))).toEqual(
-      aes50Channel("A", 24),
+    expect(map.get(endpointId(panelInput("usr-box", 6)))).toEqual(
+      aes50Channel("A", 21),
     );
     // Socket 1 is broken and uncabled: it reaches no AES50 channel.
-    expect(map.has(endpointId(panelInput("front-right", 1)))).toBe(false);
+    expect(map.has(endpointId(panelInput("usr-box", 1)))).toBe(false);
   });
 
   it("maps direct stage sockets (uncabled stagebox inputs) too", () => {
-    expect(map.get(endpointId(stageboxInput("stagebox-2", 1)))).toEqual(
-      aes50Channel("A", 17),
+    expect(map.get(endpointId(stageboxInput("snake-b", 6)))).toEqual(
+      aes50Channel("A", 22),
     );
-    expect(map.get(endpointId(stageboxInput("stagebox-2", 7)))).toEqual(
+    expect(map.get(endpointId(stageboxInput("snake-b", 7)))).toEqual(
       aes50Channel("A", 23),
     );
-    expect(map.get(endpointId(stageboxInput("stagebox-1", 16)))).toEqual(
+    expect(map.get(endpointId(stageboxInput("snake-a", 16)))).toEqual(
       aes50Channel("A", 16),
     );
   });

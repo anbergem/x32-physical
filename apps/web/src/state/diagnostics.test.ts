@@ -26,7 +26,7 @@ import { createDefaultMockSnapshot } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { describe, expect, it } from "vitest";
 
-import { venueInstallation } from "../__fixtures__/venue";
+import { exampleRig } from "../__fixtures__/example-rig";
 
 import {
   selectDiagnosticStatus,
@@ -36,7 +36,7 @@ import {
 import type { AppStore } from "./store";
 import { createAppStore } from "./store";
 
-const installation = venueInstallation();
+const installation = exampleRig();
 
 const CH1 = mixerChannelId(1);
 const CH2 = mixerChannelId(2);

@@ -1,0 +1,105 @@
+# A starting point: copy this over `config/installation.yaml` and edit it into
+# your own room. Field-by-field reference: docs/installation.md.
+#
+# It is also the proof that the app is not wired to any particular room.
+# Nothing about this file resembles the maintainer's own installation in
+# docs/venue-betania.md: different boxes, a different AES50 bus, different
+# group names, no console device at all — and it renders correctly with no
+# code change, and with the test suite still green.
+#
+# Two things are never written here: coordinates (visual layout is a separate
+# concern) and anything derivable — stagebox -> AES50 edges come from
+# `aes50.offset`, and mixer-output -> stagebox-output edges from
+# `outputBlock.start`.
+
+version: 2
+
+devices:
+  # ONE stagebox, on AES50-B rather than A, presenting the OUT1-8 block.
+  pit-box:
+    kind: stagebox
+    label: "Pit Box"
+    inputs: 16
+    aes50: { bus: B, offset: 0 }
+    outputs: 8
+    outputBlock: { start: 1 }
+    group: "Orchestra pit"
+
+  # A panel in the pit, one of whose sockets is dead.
+  pit-wall:
+    kind: passive-panel
+    label: "Pit Wall Plate"
+    inputs: 6
+    group: "Orchestra pit"
+    sockets:
+      4: { status: broken, note: "Cracked connector — do not use" }
+
+  # A panel in a completely different area, so there are two stage groups
+  # with different shapes (this one has no stagebox of its own).
+  upstage-tie:
+    kind: passive-panel
+    label: "Upstage Tie Line"
+    inputs: 4
+    group: "Upstage"
+
+  # No `kind: console` device at all — the FOH input section should vanish.
+
+  house-left:
+    kind: destination
+    label: "House Left"
+    group: "Auditorium"
+
+  house-right:
+    kind: destination
+    label: "House Right"
+    group: "Auditorium"
+
+  centre-cluster:
+    kind: destination
+    label: "Centre Cluster"
+    group: "Auditorium"
+
+  foyer:
+    kind: destination
+    label: "Foyer Ceiling"
+    group: "Front of house"
+
+  # Deliberately ungrouped, to show ungrouped devices collect on their own.
+  green-room:
+    kind: destination
+    label: "Green Room"
+
+connections:
+  # Pit wall plate 1-3, 5-6 into the pit box (socket 4 is broken, uncabled).
+  - from: { device: pit-wall, input: 1 }
+    to: { device: pit-box, input: 1 }
+  - from: { device: pit-wall, input: 2 }
+    to: { device: pit-box, input: 2 }
+  - from: { device: pit-wall, input: 3 }
+    to: { device: pit-box, input: 3 }
+  - from: { device: pit-wall, input: 5 }
+    to: { device: pit-box, input: 5 }
+  - from: { device: pit-wall, input: 6 }
+    to: { device: pit-box, input: 6 }
+
+  # Upstage tie lines land further up the same box.
+  - from: { device: upstage-tie, input: 1 }
+    to: { device: pit-box, input: 9 }
+  - from: { device: upstage-tie, input: 2 }
+    to: { device: pit-box, input: 10 }
+  - from: { device: upstage-tie, input: 3 }
+    to: { device: pit-box, input: 11 }
+  - from: { device: upstage-tie, input: 4 }
+    to: { device: pit-box, input: 12 }
+
+  # Outputs: three from the pit box, two from console XLRs.
+  - from: { device: pit-box, output: 1 }
+    to: { device: house-left }
+  - from: { device: pit-box, output: 2 }
+    to: { device: house-right }
+  - from: { device: pit-box, output: 3 }
+    to: { device: centre-cluster }
+  - from: { consoleOutput: 5 }
+    to: { device: foyer }
+  - from: { consoleOutput: 6 }
+    to: { device: green-room }
