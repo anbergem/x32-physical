@@ -1,10 +1,13 @@
 /**
- * Seeding and loading the live installation file (issue #26).
+ * Seeding the live installation file (issue #26).
  *
- * The load half is thin (it delegates to `@x32/installation/node`); the seed
- * half carries the whole upgrade-safety promise, so it is tested against real
- * files in a temp directory rather than a mocked `fs` — "the bytes on disk did
- * not change" is the claim, and only real bytes can support it.
+ * Seeding carries the whole upgrade-safety promise, so it is tested against
+ * real files in a temp directory rather than a mocked `fs` — "the bytes on
+ * disk did not change" is the claim, and only real bytes can support it.
+ *
+ * Reading the file is no longer this module's job: `DiskInstallationRepository`
+ * (issue #27) is the single reader *and* writer of the live document, and has
+ * its own suite in `installationRepository.test.ts`.
  */
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -17,7 +20,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_INSTALLATION_FILE,
   INSTALLATION_FILE_NAME,
-  loadInstallationText,
   seedInstallationFile,
   shippedInstallationSeedPath,
 } from "./installationFile";
@@ -145,39 +147,6 @@ describe("installation file locations", () => {
   it("the default live file is in the state directory, not next to the module", () => {
     expect(DEFAULT_INSTALLATION_FILE).toBe(join("data", INSTALLATION_FILE_NAME));
     expect(DEFAULT_INSTALLATION_FILE).not.toContain("config");
-  });
-});
-
-describe("loadInstallationText", () => {
-  let dir: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "x32-bridge-load-"));
-  });
-
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it("returns the file's exact bytes when it validates", async () => {
-    const path = join(dir, INSTALLATION_FILE_NAME);
-    await writeFile(path, VENUE_YAML, "utf8");
-
-    expect(loadInstallationText(path)).toBe(VENUE_YAML);
-  });
-
-  it("returns null and logs one error naming the file when it does not", async () => {
-    const path = join(dir, INSTALLATION_FILE_NAME);
-    await writeFile(path, "not: [an, installation", "utf8");
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    try {
-      expect(loadInstallationText(path)).toBeNull();
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      expect(String(errorSpy.mock.calls[0]?.[0])).toContain(path);
-    } finally {
-      errorSpy.mockRestore();
-    }
   });
 });
 

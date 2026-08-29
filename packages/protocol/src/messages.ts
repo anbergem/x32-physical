@@ -8,6 +8,7 @@
  * objects/arrays, so no separate wire encoding is needed.
  */
 
+import type { InstallationOperation } from "@x32/installation";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -64,17 +65,64 @@ export type ServerMessage =
       mixerConnection: MixerConnectionState;
       baseline: MixerSnapshot | null;
       updateAvailable: UpdateAvailable | null;
+      /**
+       * The version of the `installation.yaml` the bridge currently holds
+       * (issue #27) — the token an edit must send back as `baseVersion`. It
+       * rides on `snapshot` rather than getting a message of its own because
+       * the topology is the *slowest* lifecycle there is (CLAUDE.md invariant
+       * 1), exactly like `baseline` and `updateAvailable`. The document
+       * itself is not here: it is served as raw YAML at `GET
+       * /api/installation`, and duplicating it on every snapshot would put a
+       * whole file on the wire for every reconnect. `null` when the bridge
+       * has no readable installation file at all.
+       */
+      installationVersion: string | null;
     }
   | { type: "event"; event: MixerEvent }
   | { type: "baseline-changed"; baseline: MixerSnapshot }
   | { type: "baseline-save-rejected"; reason: string }
   | { type: "meters"; levels: number[] }
-  | { type: "update-available"; update: UpdateAvailable };
+  | { type: "update-available"; update: UpdateAvailable }
+  /**
+   * An edit landed (issue #27): the complete new document and its version,
+   * broadcast to **every** client so a second browser on the venue LAN sees
+   * the change without a reload. The whole text, not a diff — the receiving
+   * client re-parses it with the same `parseInstallationYaml` it used at
+   * startup, so the two can never disagree about what the file means, and the
+   * document is small enough that a diff would only add a way to be wrong.
+   */
+  | { type: "installation-changed"; text: string; version: string }
+  /**
+   * An edit could not be honoured — a stale `baseVersion`, an operation
+   * naming a device that is not there, or a result that fails validation.
+   * Sent only to the requesting client, like `baseline-save-rejected`, and
+   * worded for the operator: rejection is a normal outcome here, shown
+   * plainly rather than retried or hidden.
+   */
+  | { type: "installation-edit-rejected"; reason: string };
 
 /**
  * Web → bridge. `resync` asks for a fresh snapshot; `save-baseline` (step 13)
- * blesses the mixer's current resolved snapshot as the new baseline — the
- * only client message with a side effect, and that side effect is confined
- * to the bridge's own disk (architecture.md §7, CLAUDE.md invariant 5).
+ * blesses the mixer's current resolved snapshot as the new baseline.
+ *
+ * `apply-installation-edit` (issue #27) is the second message with a side
+ * effect. Like `save-baseline`, that side effect is confined to the bridge's
+ * own disk — this writes the app's *own configuration*, never the mixer
+ * (architecture.md §7, CLAUDE.md invariant 5 untouched).
+ *
+ * It carries a minimal typed `InstallationOperation`, never a whole document:
+ * a re-serialised document loses its comments, which for this file is a
+ * substantial part of its value, and an operation keeps validation errors
+ * specific and conflicts fine-grained. New operation kinds are additive —
+ * they are new members of `InstallationOperation` in `@x32/installation`, and
+ * this message type does not change at all.
  */
-export type ClientMessage = { type: "resync" } | { type: "save-baseline" };
+export type ClientMessage =
+  | { type: "resync" }
+  | { type: "save-baseline" }
+  | {
+      type: "apply-installation-edit";
+      /** The `installationVersion` the client believes it is editing. */
+      baseVersion: string;
+      operation: InstallationOperation;
+    };

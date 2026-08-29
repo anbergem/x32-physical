@@ -25,6 +25,8 @@ import type {
   MixerSourceRef,
 } from "@x32/domain";
 import { MIXER_CHANNEL_COUNT, MIXER_OUTPUT_COUNT, mixerChannelId } from "@x32/domain";
+import type { InstallationOperation } from "@x32/installation";
+import { parseInstallationOperation } from "@x32/installation";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -55,6 +57,16 @@ function malformed(context: string, expected: string, value: unknown): Error {
 function requireString(value: unknown, context: string): string {
   if (typeof value !== "string") throw malformed(context, "a string", value);
   return value;
+}
+
+/**
+ * `null`/absent both mean "no value" — absent is tolerated, like
+ * `updateAvailable`, so a `snapshot` from a bridge that predates the field
+ * still parses; only a present, non-string value is an error.
+ */
+function parseNullableString(value: unknown, context: string): string | null {
+  if (value === null || value === undefined) return null;
+  return requireString(value, context);
 }
 
 function requireNumber(value: unknown, context: string): number {
@@ -489,6 +501,10 @@ export function parseServerMessage(value: unknown): ServerMessage {
           value.updateAvailable,
           "server message.updateAvailable",
         ),
+        installationVersion: parseNullableString(
+          value.installationVersion,
+          "server message.installationVersion",
+        ),
       };
     case "event":
       return {
@@ -515,10 +531,21 @@ export function parseServerMessage(value: unknown): ServerMessage {
         type: "update-available",
         update: parseUpdateAvailable(value.update, "server message.update"),
       };
+    case "installation-changed":
+      return {
+        type: "installation-changed",
+        text: requireString(value.text, "server message.text"),
+        version: requireString(value.version, "server message.version"),
+      };
+    case "installation-edit-rejected":
+      return {
+        type: "installation-edit-rejected",
+        reason: requireString(value.reason, "server message.reason"),
+      };
     default:
       throw malformed(
         "server message.type",
-        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters" | "update-available"',
+        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters" | "update-available" | "installation-changed" | "installation-edit-rejected"',
         value.type,
       );
   }
@@ -534,7 +561,33 @@ export function parseClientMessage(value: unknown): ClientMessage {
       return { type: "resync" };
     case "save-baseline":
       return { type: "save-baseline" };
+    case "apply-installation-edit":
+      return {
+        type: "apply-installation-edit",
+        baseVersion: requireString(value.baseVersion, "client message.baseVersion"),
+        operation: parseOperation(value.operation, "client message.operation"),
+      };
     default:
-      throw malformed("client message.type", '"resync" | "save-baseline"', value.type);
+      throw malformed(
+        "client message.type",
+        '"resync" | "save-baseline" | "apply-installation-edit"',
+        value.type,
+      );
+  }
+}
+
+/**
+ * The operation guard lives in `@x32/installation` alongside the union it
+ * validates, so a new operation kind is one file's worth of change and this
+ * package needs no edit at all (issue #27). Its throws are re-labelled here so
+ * every message-guard failure reads the same way to whoever is reading the
+ * bridge log.
+ */
+function parseOperation(value: unknown, context: string): InstallationOperation {
+  try {
+    return parseInstallationOperation(value, context);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(reason, { cause });
   }
 }

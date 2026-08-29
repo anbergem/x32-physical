@@ -6,7 +6,8 @@
  * leave the route index alone; name and source are configuration.
  */
 
-import { mixerChannelId, panelInput } from "@x32/domain";
+import { deviceId, mixerChannelId, panelInput } from "@x32/domain";
+import { InMemoryInstallationRepository, installationVersion } from "@x32/installation";
 import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -220,5 +221,98 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
     await reader.connect();
 
     expect(freshStore.getState().baseline).toEqual(store.getState().baseline);
+  });
+});
+
+/**
+ * Mock-mode editing (issue #27). The point of this path is that it is *not* a
+ * second implementation: the gateway runs `@x32/installation`'s
+ * `applyInstallationEdit` — the same precondition, the same surgical apply,
+ * the same validate-the-result — against an in-memory repository, so `pnpm
+ * dev` can demonstrate the editor and the pipeline is exercised on both sides.
+ */
+describe("LocalMockGateway.applyInstallationEdit (issue #27)", () => {
+  const MOCK_YAML = `version: 1
+
+devices:
+  # Kept so a mangled write would show up here too.
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+`;
+
+  let repository: InMemoryInstallationRepository;
+  let editingGateway: LocalMockGateway;
+
+  beforeEach(() => {
+    store = createAppStore(exampleRig());
+    repository = new InMemoryInstallationRepository(MOCK_YAML);
+    editingGateway = new LocalMockGateway(
+      store,
+      new MockMixerClient(),
+      fakeBaselineStore(),
+      repository,
+    );
+    store.getState().setInstallationVersion(installationVersion(MOCK_YAML));
+  });
+
+  it("applies a label edit into the structural slice and keeps the comments", async () => {
+    const version = store.getState().installationVersion as string;
+
+    editingGateway.applyInstallationEdit(version, {
+      kind: "set-device-label",
+      device: deviceId("front-left"),
+      label: "Front Left B",
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().installationVersion).not.toBe(version),
+    );
+
+    expect(
+      store.getState().installation.devices.find((d) => d.id === "front-left")?.label,
+    ).toBe("Front Left B");
+    expect(repository.text).toContain("# Kept so a mangled write");
+    expect(store.getState().installationEditError).toBeNull();
+  });
+
+  it("surfaces a rejection in the operator's own words, and writes nothing", async () => {
+    editingGateway.applyInstallationEdit("0000000000000000", {
+      kind: "set-device-label",
+      device: deviceId("front-left"),
+      label: "Front Left B",
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().installationEditError).not.toBeNull(),
+    );
+
+    expect(store.getState().installationEditError).toMatch(/changed since/i);
+    expect(repository.text).toBe(MOCK_YAML);
+  });
+
+  it("rejects an operation naming a device that is not there", async () => {
+    const version = store.getState().installationVersion as string;
+
+    editingGateway.applyInstallationEdit(version, {
+      kind: "set-device-label",
+      device: deviceId("ghost-box"),
+      label: "Nowhere",
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().installationEditError).not.toBeNull(),
+    );
+
+    expect(store.getState().installationEditError).toContain("ghost-box");
+    expect(repository.text).toBe(MOCK_YAML);
   });
 });

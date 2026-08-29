@@ -26,7 +26,12 @@ export function PhysicalInputPanel({ deviceId }: { deviceId: DeviceId }) {
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
   return (
-    <DeviceFrame kind="panel" label={device.label} meta={`${device.inputs} in`}>
+    <DeviceFrame
+      kind="panel"
+      deviceId={device.id}
+      label={device.label}
+      meta={`${device.inputs} in`}
+    >
       {socketNumbers(device.inputs).map((socket) => {
         const endpoint = endpointId(panelInput(device.id, socket));
         // Follows the venue's actual cabling, never the socket index — the

@@ -27,6 +27,7 @@ describe("parseServerMessage: snapshot", () => {
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: null,
+      installationVersion: null,
     };
 
     expect(parseServerMessage(message)).toEqual(message);
@@ -39,6 +40,7 @@ describe("parseServerMessage: snapshot", () => {
       mixerConnection: "connected",
       baseline: validSnapshot(),
       updateAvailable: null,
+      installationVersion: null,
     };
 
     expect(parseServerMessage(message)).toEqual(message);
@@ -51,6 +53,7 @@ describe("parseServerMessage: snapshot", () => {
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: { version: "0.2.0", url: "https://github.com/x/y/releases/tag/v0.2.0" },
+      installationVersion: "0123456789abcdef",
     };
 
     expect(parseServerMessage(message)).toEqual(message);
@@ -64,7 +67,11 @@ describe("parseServerMessage: snapshot", () => {
       baseline: null,
     };
 
-    expect(parseServerMessage(message)).toEqual({ ...message, updateAvailable: null });
+    expect(parseServerMessage(message)).toEqual({
+      ...message,
+      updateAvailable: null,
+      installationVersion: null,
+    });
   });
 
   it("rejects an updateAvailable with a non-https url", () => {
@@ -116,6 +123,7 @@ describe("parseServerMessage: snapshot", () => {
         mixerConnection: "disconnected",
         baseline: null,
         updateAvailable: null,
+        installationVersion: null,
       };
       expect(parseServerMessage(message)).toEqual(message);
     }
@@ -137,6 +145,7 @@ describe("parseServerMessage: snapshot", () => {
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: null,
+      installationVersion: null,
     });
   });
 
@@ -156,6 +165,7 @@ describe("parseServerMessage: snapshot", () => {
       mixerConnection: "connected",
       baseline: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
       updateAvailable: null,
+      installationVersion: null,
     });
   });
 
@@ -552,6 +562,50 @@ describe("parseServerMessage: update-available", () => {
   });
 });
 
+/**
+ * The installation edit path (issue #27). The operation's own guard lives in
+ * `@x32/installation` next to the union it validates; what matters here is
+ * that the three new messages cross the wire intact and that a malformed
+ * variant is rejected rather than reaching the write pipeline.
+ */
+describe("parseServerMessage: installation-changed", () => {
+  it("accepts a well-formed message", () => {
+    const message = {
+      type: "installation-changed",
+      text: "version: 1\ndevices: {}\nconnections: []\n",
+      version: "0123456789abcdef",
+    };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("rejects a missing document text", () => {
+    expect(() =>
+      parseServerMessage({ type: "installation-changed", version: "0123456789abcdef" }),
+    ).toThrow(/server message\.text/);
+  });
+
+  it("rejects a non-string version", () => {
+    expect(() =>
+      parseServerMessage({ type: "installation-changed", text: "version: 1\n", version: 7 }),
+    ).toThrow(/server message\.version/);
+  });
+});
+
+describe("parseServerMessage: installation-edit-rejected", () => {
+  it("accepts a well-formed message", () => {
+    const message = { type: "installation-edit-rejected", reason: "Unknown device \"ghost\"." };
+
+    expect(parseServerMessage(message)).toEqual(message);
+  });
+
+  it("rejects a missing reason", () => {
+    expect(() => parseServerMessage({ type: "installation-edit-rejected" })).toThrow(
+      /server message\.reason/,
+    );
+  });
+});
+
 describe("parseServerMessage: envelope", () => {
   it("rejects null, arrays, and non-objects", () => {
     for (const value of [null, undefined, 42, "snapshot", true, []]) {
@@ -588,5 +642,53 @@ describe("parseClientMessage", () => {
     expect(() => parseClientMessage(null)).toThrow(/client message/);
     expect(() => parseClientMessage("resync")).toThrow(/client message/);
     expect(() => parseClientMessage({})).toThrow(/client message/);
+  });
+});
+
+describe("parseClientMessage: apply-installation-edit (issue #27)", () => {
+  const validEdit = {
+    type: "apply-installation-edit",
+    baseVersion: "0123456789abcdef",
+    operation: { kind: "set-device-label", device: "pit-box", label: "Pit Box" },
+  };
+
+  it("accepts a well-formed edit", () => {
+    expect(parseClientMessage(validEdit)).toEqual(validEdit);
+  });
+
+  it("rejects a missing baseVersion — an edit with no precondition is never applied", () => {
+    const { baseVersion: _omitted, ...withoutVersion } = validEdit;
+
+    expect(() => parseClientMessage(withoutVersion)).toThrow(/client message\.baseVersion/);
+  });
+
+  it("rejects a missing operation", () => {
+    const { operation: _omitted, ...withoutOperation } = validEdit;
+
+    expect(() => parseClientMessage(withoutOperation)).toThrow(/client message\.operation/);
+  });
+
+  it("rejects an operation of an unknown kind", () => {
+    expect(() =>
+      parseClientMessage({ ...validEdit, operation: { kind: "drop-device", device: "pit-box" } }),
+    ).toThrow(/client message\.operation\.kind/);
+  });
+
+  it("rejects an operation whose device id is not a device id", () => {
+    expect(() =>
+      parseClientMessage({
+        ...validEdit,
+        operation: { kind: "set-device-label", device: "../etc/passwd", label: "x" },
+      }),
+    ).toThrow(/client message\.operation\.device/);
+  });
+
+  it("rejects an operation with a non-string label", () => {
+    expect(() =>
+      parseClientMessage({
+        ...validEdit,
+        operation: { kind: "set-device-label", device: "pit-box", label: 42 },
+      }),
+    ).toThrow(/client message\.operation\.label/);
   });
 });

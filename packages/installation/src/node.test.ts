@@ -88,7 +88,16 @@ describe("the browser-safe entry point", () => {
   // `node.ts` is the only module here allowed to reach for Node. A stray
   // builtin or global elsewhere would break the web bundle, and nothing else
   // in the build would catch it: `types: ["node"]` covers the whole package.
-  it.each(["index.ts", "parse.ts", "schema.ts"])(
+  it.each([
+    "index.ts",
+    "parse.ts",
+    "schema.ts",
+    // The edit layer (issue #27) is reachable from `index.ts` and therefore
+    // ships in the web bundle too — mock mode runs the same pipeline.
+    "operations.ts",
+    "repository.ts",
+    "edit.ts",
+  ])(
     "%s reaches for nothing Node-only",
     (file) => {
       const code = codeOf(file);

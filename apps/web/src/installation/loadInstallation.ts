@@ -59,6 +59,18 @@ export interface LoadInstallationOptions {
 }
 
 /**
+ * The topology *and* the document it came from. The raw text is kept (issue
+ * #27) because the editor needs it: mock mode applies operations to it in an
+ * in-memory repository, and both modes hash it into the `version` an edit
+ * quotes back as its `baseVersion`. It is the same text the bridge holds, byte
+ * for byte — `GET /api/installation` serves the file verbatim.
+ */
+export interface LoadedInstallation {
+  readonly installation: Installation;
+  readonly text: string;
+}
+
+/**
  * Fetches and parses the topology. Throws — with the underlying failure as
  * `cause`, which `StartupError` renders — when the endpoint cannot be
  * reached, answers non-2xx (a missing or invalid file on the bridge 404s
@@ -66,7 +78,7 @@ export interface LoadInstallationOptions {
  */
 export async function loadInstallation(
   options: LoadInstallationOptions = {},
-): Promise<Installation> {
+): Promise<LoadedInstallation> {
   const fetchImpl = options.fetch ?? fetch;
 
   let response: Response;
@@ -88,7 +100,7 @@ export async function loadInstallation(
   try {
     const installation = parseInstallationYaml(text, API_SOURCE);
     console.log(`x32: loaded installation topology from ${API_PATH}`);
-    return installation;
+    return { installation, text };
   } catch (error) {
     throw new Error(
       `${API_PATH} returned a document that is not a valid installation: ${errorMessage(error)}`,

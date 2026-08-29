@@ -255,6 +255,61 @@ export function selectBaselineSaveError(state: AppState): string | null {
   return state.baselineSaveError;
 }
 
+// --- installation editing (issue #27) ---------------------------------------
+
+/**
+ * Whether this browser is in edit mode. A primitive, subscribed to by the
+ * header control and by every device frame — the frames need it to know
+ * whether their label is a button, and a boolean is the cheapest thing they
+ * can watch.
+ */
+export function selectEditMode(state: AppState): boolean {
+  return state.editMode;
+}
+
+/** The device whose inspector is open, or `null`. */
+export function selectEditingDevice(state: AppState): DeviceId | null {
+  return state.editingDevice;
+}
+
+/** Whether *this* device is the one being inspected — a primitive per frame. */
+export function selectIsEditingDevice(
+  device: DeviceId,
+): (state: AppState) => boolean {
+  return (state) => state.editMode && state.editingDevice === device;
+}
+
+/** The reason the last edit was refused, shown inline in the inspector. */
+export function selectInstallationEditError(state: AppState): string | null {
+  return state.installationEditError;
+}
+
+/** The `baseVersion` an edit must quote back (issue #27); `null` until known. */
+export function selectInstallationVersion(state: AppState): string | null {
+  return state.installationVersion;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetEditMode(
+  state: AppStoreState,
+): (editing: boolean) => void {
+  return state.setEditMode;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetEditingDevice(
+  state: AppStoreState,
+): (device: DeviceId | null) => void {
+  return state.setEditingDevice;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetInstallationEditError(
+  state: AppStoreState,
+): (reason: string | null) => void {
+  return state.setInstallationEditError;
+}
+
 // --- AES50 link + chain (issue #17) -----------------------------------------
 
 export function selectAes50LinkState(state: AppState): Aes50LinkState | null {

@@ -6,6 +6,7 @@
  */
 
 import { mixerChannelId } from "@x32/domain";
+import { installationVersion } from "@x32/installation";
 import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import type { ServerMessage } from "@x32/protocol";
@@ -837,5 +838,252 @@ describe("in-app update notice (plan step 20)", () => {
       type: "update-available",
       update: { version: "0.3.0", url: "https://example.com/release/v0.3.0" },
     });
+  });
+});
+
+/**
+ * The installation write path (issue #27). End-to-end through a real socket
+ * and a real file, because the two claims worth making — "nothing was
+ * written" and "the previous content is in the .bak" — are claims about
+ * bytes on disk.
+ */
+describe("apply-installation-edit (issue #27)", () => {
+  /** A document with commentary, so comment survival is visible end to end. */
+  const COMMENTED_INSTALLATION_YAML = `# The venue's own notes live here, and must survive an edit.
+version: 1
+
+devices:
+  # Reverse-engineered offset — do not "fix" without measuring.
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+`;
+
+  /**
+   * Schema-valid, domain-invalid: two panel sockets feed the same stagebox
+   * input. `validateInstallation` rejects it, so any edit whose *result* is
+   * this document must be refused however sensible the operation itself was.
+   */
+  const DOMAIN_INVALID_YAML = `version: 1
+
+devices:
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+  - from: { device: front-left, input: 2 }
+    to: { device: stagebox-1, input: 1 }
+`;
+
+  let dir: string;
+  let path: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "x32-bridge-edit-"));
+    path = join(dir, "installation.yaml");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function startWith(yaml: string): Promise<BridgeServer> {
+    await writeFile(path, yaml, "utf8");
+    return startBridgeServer({
+      mixerClient: new MockMixerClient(),
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      installationFilePath: path,
+    });
+  }
+
+  function renameStagebox(baseVersion: string, label = "Stagebox One") {
+    return JSON.stringify({
+      type: "apply-installation-edit",
+      baseVersion,
+      operation: { kind: "set-device-label", device: "stagebox-1", label },
+    });
+  }
+
+  it("carries the current installation version in the on-connect snapshot", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const client = await connectClient(bridge.port);
+    const message = asSnapshot(await client.next());
+
+    expect(message.installationVersion).toBe(installationVersion(COMMENTED_INSTALLATION_YAML));
+  });
+
+  it("applies an edit, keeps every comment, and broadcasts to every connected client", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const first = await connectClient(bridge.port);
+    const second = await connectClient(bridge.port);
+    const { installationVersion: version } = asSnapshot(await first.next());
+    asSnapshot(await second.next());
+    expect(version).not.toBeNull();
+
+    first.socket.send(renameStagebox(version as string));
+
+    for (const client of [first, second]) {
+      const message = await client.next();
+      expect(message.type).toBe("installation-changed");
+      if (message.type !== "installation-changed") continue;
+      expect(message.text).toContain('label: "Stagebox One"');
+      expect(message.version).toBe(installationVersion(message.text));
+    }
+
+    const written = await readFile(path, "utf8");
+    expect(written).toContain('label: "Stagebox One"');
+    expect(written).toContain("# The venue's own notes live here");
+    expect(written).toContain("# Reverse-engineered offset");
+  });
+
+  it("keeps the previous content in a .bak beside the live file", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const client = await connectClient(bridge.port);
+    const { installationVersion: version } = asSnapshot(await client.next());
+    client.socket.send(renameStagebox(version as string));
+    await client.next();
+
+    expect(await readFile(`${path}.bak`, "utf8")).toBe(COMMENTED_INSTALLATION_YAML);
+  });
+
+  it("serves the edited document at GET /api/installation without a restart", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const client = await connectClient(bridge.port);
+    const { installationVersion: version } = asSnapshot(await client.next());
+    client.socket.send(renameStagebox(version as string));
+    await client.next();
+
+    const response = await httpGet(bridge.port, "/api/installation");
+    expect(response.status).toBe(200);
+    expect(response.body).toContain('label: "Stagebox One"');
+  });
+
+  it("rejects a stale baseVersion, tells only the requester, and writes nothing", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const first = await connectClient(bridge.port);
+    const second = await connectClient(bridge.port);
+    asSnapshot(await first.next());
+    asSnapshot(await second.next());
+
+    first.socket.send(renameStagebox("0000000000000000"));
+
+    const message = await first.next();
+    expect(message.type).toBe("installation-edit-rejected");
+    if (message.type === "installation-edit-rejected") {
+      expect(message.reason).toMatch(/changed since/i);
+    }
+
+    expect(await readFile(path, "utf8")).toBe(COMMENTED_INSTALLATION_YAML);
+    expect(existsSync(`${path}.bak`)).toBe(false);
+
+    // The other client heard nothing at all: a rejection is the requester's
+    // business, exactly like `baseline-save-rejected`.
+    second.socket.send(JSON.stringify({ type: "resync" }));
+    expect((await second.next()).type).toBe("snapshot");
+  });
+
+  it("rejects an operation naming a device that does not exist, with a message naming it", async () => {
+    bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+    const client = await connectClient(bridge.port);
+    const { installationVersion: version } = asSnapshot(await client.next());
+
+    client.socket.send(
+      JSON.stringify({
+        type: "apply-installation-edit",
+        baseVersion: version,
+        operation: { kind: "set-device-label", device: "ghost-box", label: "Nowhere" },
+      }),
+    );
+
+    const message = await client.next();
+    expect(message.type).toBe("installation-edit-rejected");
+    if (message.type === "installation-edit-rejected") {
+      expect(message.reason).toContain("ghost-box");
+    }
+    expect(await readFile(path, "utf8")).toBe(COMMENTED_INSTALLATION_YAML);
+  });
+
+  it("rejects an edit whose result fails validation, and writes nothing", async () => {
+    // The file is already domain-invalid, so the bridge 404s the topology
+    // route; the write path must still refuse to store the result of an
+    // otherwise-sensible rename rather than persist an invalid installation.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      bridge = await startWith(DOMAIN_INVALID_YAML);
+
+      const client = await connectClient(bridge.port);
+      const { installationVersion: version } = asSnapshot(await client.next());
+      expect(version).toBe(installationVersion(DOMAIN_INVALID_YAML));
+
+      client.socket.send(renameStagebox(version as string));
+
+      const message = await client.next();
+      expect(message.type).toBe("installation-edit-rejected");
+      if (message.type === "installation-edit-rejected") {
+        expect(message.reason).toMatch(/leave the installation invalid/i);
+      }
+
+      expect(await readFile(path, "utf8")).toBe(DOMAIN_INVALID_YAML);
+      expect(existsSync(`${path}.bak`)).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("ignores a malformed edit message without disturbing the file or the socket", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      bridge = await startWith(COMMENTED_INSTALLATION_YAML);
+
+      const client = await connectClient(bridge.port);
+      asSnapshot(await client.next());
+
+      client.socket.send(
+        JSON.stringify({
+          type: "apply-installation-edit",
+          baseVersion: "0000000000000000",
+          operation: { kind: "set-device-label", device: "Not A Device Id", label: "x" },
+        }),
+      );
+
+      // Nothing comes back for the ignored message; the socket still works.
+      client.socket.send(JSON.stringify({ type: "resync" }));
+      expect((await client.next()).type).toBe("snapshot");
+      expect(await readFile(path, "utf8")).toBe(COMMENTED_INSTALLATION_YAML);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

@@ -477,8 +477,12 @@ Zustand store with three distinct slices — different lifecycles, never merged:
 
 ```ts
 interface AppState {
-  // Structural: set at load, effectively immutable.
+  // Structural: set at load; replaced only by an installation edit (issue #27),
+  // which is the slowest lifecycle of all — a human rewriting the topology.
   installation: Installation;
+  // The content hash of the installation.yaml this app is looking at — the
+  // `baseVersion` an edit quotes back (issue #27). null until known.
+  installationVersion: string | null;
 
   // Mixer configuration: changes occasionally; updating it rebuilds routeIndex
   // (source changes; renames don't invalidate routes).
@@ -507,12 +511,26 @@ interface AppState {
   hoveredEndpoint: EndpointId | null;       // browser-local
   hoverPinned: boolean;                     // browser-local
 
+  // Runtime, browser-local (issue #27). Never persisted, unlike section
+  // visibility: "am I editing?" must never be inherited from a previous
+  // session, so it lives in a store that has no storage of any kind.
+  editMode: boolean;
+  editingDevice: DeviceId | null;
+  installationEditError: string | null;   // a refused edit, shown inline
+
   // Fourth path (step 15): fastest of all, updates several times a second.
   // `null` until the first tick. Its own slice — a meters update never
   // touches any of the above, and none of the above ever touch it.
   meterLevels: number[] | null;
 }
 ```
+
+Replacing `installation` rebuilds exactly what derives from it — `routeIndex`,
+`outputRouteIndex`, `aes50ChainDiscrepancies` — and composes nothing else into
+the patch, so an edit arriving from another browser leaves selection, hover,
+meters, the mixer connection, `channels`, `baseline` and `discrepancies` with
+their exact object identities (`store.test.ts` asserts it). `discrepancies` is
+deliberately not in that set: it depends on `channels` and `baseline` alone.
 
 Selection and hover are independent: hovering must never clear or overwrite
 the physically-selected route, and both can be active at once with distinct
@@ -583,15 +601,20 @@ WebSocket, JSON messages, discriminated unions shared as TS types:
 ```ts
 type ServerMessage =
   | { type: "snapshot"; snapshot: MixerSnapshot; mixerConnection: MixerConnectionState;
-      baseline: MixerSnapshot | null }       // baseline added in step 13
+      baseline: MixerSnapshot | null;        // baseline added in step 13
+      installationVersion: string | null }   // issue #27, see below
   | { type: "event"; event: MixerEvent }     // re-uses mixer-contracts types
   | { type: "baseline-changed"; baseline: MixerSnapshot }
   | { type: "baseline-save-rejected"; reason: string }   // save couldn't be honoured
-  | { type: "meters"; levels: number[] };                // step 15, see below
+  | { type: "meters"; levels: number[] }                 // step 15, see below
+  | { type: "installation-changed"; text: string; version: string }   // issue #27
+  | { type: "installation-edit-rejected"; reason: string };           // issue #27
 
 type ClientMessage =
   | { type: "resync" }                       // explicit full-snapshot request
-  | { type: "save-baseline" };               // bless the current live snapshot
+  | { type: "save-baseline" }                // bless the current live snapshot
+  | { type: "apply-installation-edit";       // issue #27, see below
+      baseVersion: string; operation: InstallationOperation };
 ```
 
 `MixerSnapshot` gains `outputs?: MixerOutputState[]` (issue #11, 16 entries)
@@ -692,6 +715,58 @@ restart — no rebuilt release, no MSI reinstall. There is deliberately no file
 watching: a service restart is the trigger a tech will reach for anyway after
 editing (see docs/installation.md for the location and procedure).
 
+#### Editing the installation from the app (issue #27, epic #25)
+
+The second — and, for the MVP, last — client message with a side effect. Like
+`save-baseline` it writes the app's **own** configuration and never the mixer
+(invariant 5 untouched).
+
+The client sends a minimal typed `InstallationOperation`, never a whole
+document: re-serialising a parsed document loses its comments, which for this
+file is a substantial part of its value, and an operation keeps validation
+errors specific, conflicts fine-grained, and new edit kinds purely additive (a
+new union member in `@x32/installation`, no protocol change). The bridge then
+runs one ordered pipeline:
+
+```text
+1. read the current document                      (InstallationRepository)
+2. reject if baseVersion ≠ the current version    (optimistic concurrency)
+3. apply the operation surgically to the Document (comments survive)
+4. re-parse and validate the RESULT
+5. reject on any error — writing nothing
+6. write atomically, previous kept as .bak        (InstallationRepository)
+7. broadcast installation-changed to every client
+```
+
+Step 4 validates the *result*, never the operation alone: an operation can be
+entirely sensible and still leave an invalid installation (cabling a socket
+another connection already feeds), and only checking the whole resulting
+document catches that. An invalid `installation.yaml` is never written.
+
+`version` is a content hash of the document text — no counter to persist, it
+survives a bridge restart, and it correctly reports "changed" when a tech edits
+the file in Notepad behind the app's back. Two browsers on a venue LAN is an
+ordinary situation, so a stale write is refused rather than allowed to clobber;
+`snapshot` carries `installationVersion` so a client always knows what it is
+editing against without a second round trip. Rejection is a normal outcome,
+shown to the operator in the domain's own words.
+
+Where the pieces live: the operation model, the repository interface, the
+in-memory repository and the pipeline itself are all in `packages/installation`
+(it already owns YAML↔domain, and the `yaml` package is browser-safe), so the
+bridge and the web app run the *same* write path — mock mode drives it against
+an in-memory repository, which is what lets the editor be demonstrated with no
+console and no venue file at risk. Only `DiskInstallationRepository`
+(`apps/x32-bridge/src/installationRepository.ts`) knows about the filesystem;
+it is also the single reader of the live document at startup, so a startup load
+and an edit cannot disagree about what is on disk.
+
+Edit mode in the web app is explicit, off by default, and **never persisted**:
+this app is read at a glance during a live service, and nobody may be unsure
+whether they are viewing or changing. Text fields commit on blur or Enter,
+never per keystroke — a write storm would churn the single `.bak` into
+uselessness.
+
 ## 8. End-to-end event flow (live mode)
 
 ```text
@@ -712,10 +787,10 @@ recomputes `routeIndex`; hover state changes touch only `hoveredEndpoint`.
 
 ## 9. Future boundaries (design for, don't build)
 
-- `InstallationRepository` can later replace the static YAML load; the web
-  app already fetches topology at runtime (§7). The schematic's *membership
-  and grouping* are already data-driven — devices are partitioned by their
-  optional `group`, and no device id appears in component code — so a
+- `InstallationRepository` exists (issue #27) and is how the document is read
+  and written; see §7 "Editing the installation from the app". The schematic's
+  *membership and grouping* are already data-driven — devices are partitioned
+  by their optional `group`, and no device id appears in component code — so a
   `LayoutRepository` would only need to own the remaining hard-coded part:
   the order of the sections themselves.
 - Diagnostics: implemented as the baseline diff (§3 "Routing diff", §7

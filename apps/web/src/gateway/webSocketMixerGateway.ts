@@ -12,6 +12,8 @@
  * reconnect resyncs state with no extra logic here.
  */
 
+import type { InstallationOperation } from "@x32/installation";
+
 import type { AppStore } from "../state/store";
 
 import { applyServerMessage } from "./applyServerMessage";
@@ -153,6 +155,31 @@ export class WebSocketMixerGateway implements MixerGateway {
    */
   saveBaseline(): void {
     this.#socket?.send(JSON.stringify({ type: "save-baseline" }));
+  }
+
+  /**
+   * Sends `apply-installation-edit` (issue #27); the bridge answers
+   * asynchronously with `installation-changed` or
+   * `installation-edit-rejected`, both handled by `applyServerMessage`.
+   *
+   * With no live socket this says so rather than going quietly nowhere, unlike
+   * `saveBaseline`: a baseline save is gated behind a button that is already
+   * disabled while the mixer is down, but a label field can be left at any
+   * moment, and an edit that appeared to be accepted and simply was not is the
+   * worst outcome available here.
+   */
+  applyInstallationEdit(baseVersion: string, operation: InstallationOperation): void {
+    if (this.#socket === null) {
+      this.#store
+        .getState()
+        .setInstallationEditError(
+          "Not connected to the X32 Routing Visualizer service, so nothing was saved.",
+        );
+      return;
+    }
+    this.#socket.send(
+      JSON.stringify({ type: "apply-installation-edit", baseVersion, operation }),
+    );
   }
 
   #open(): void {

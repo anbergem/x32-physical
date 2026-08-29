@@ -15,7 +15,7 @@
  * so StrictMode's double-invoked effects cannot connect it twice.
  */
 
-import type { Installation } from "@x32/domain";
+import { InMemoryInstallationRepository, installationVersion } from "@x32/installation";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -27,6 +27,7 @@ import { LocalMockGateway } from "./gateway/localMockGateway";
 import type { MixerGateway } from "./gateway/mixerGateway";
 import { resolveGatewayMode } from "./gateway/mixerGateway";
 import { resolveBridgeUrl } from "./gateway/webSocketMixerGateway";
+import type { LoadedInstallation } from "./installation/loadInstallation";
 import {
   INSTALLATION_ERROR_HINT,
   loadInstallation,
@@ -53,21 +54,34 @@ function renderStartupFailure(error: unknown, hint?: string): void {
 }
 
 async function start(): Promise<void> {
-  let installation: Installation;
+  let loaded: LoadedInstallation;
   try {
-    installation = await loadInstallation();
+    loaded = await loadInstallation();
   } catch (error) {
     renderStartupFailure(error, INSTALLATION_ERROR_HINT);
     return;
   }
 
-  const store = createAppStore(installation);
+  const store = createAppStore(loaded.installation);
+  // The `baseVersion` an edit quotes back (issue #27). Hashed here from the
+  // exact document this app fetched, so mock mode has a version at all; in
+  // live mode the bridge's own `installationVersion` arrives with the first
+  // snapshot and takes over, since the bridge is what accepts or rejects.
+  store.getState().setInstallationVersion(installationVersion(loaded.text));
+
   const mode = resolveGatewayMode(window.location.search);
   const bridgeUrl = resolveBridgeUrl(window.location);
 
   let gateway: MixerGateway;
   try {
-    gateway = createGateway(store, mode, bridgeUrl);
+    gateway = createGateway(
+      store,
+      mode,
+      bridgeUrl,
+      // Mock mode edits this copy and nothing else — no bridge, no file, and
+      // no pretence that the change outlives the tab.
+      new InMemoryInstallationRepository(loaded.text, "installation.yaml"),
+    );
   } catch (error) {
     // Not a YAML problem: the message names the mode and says what to do.
     renderStartupFailure(error);

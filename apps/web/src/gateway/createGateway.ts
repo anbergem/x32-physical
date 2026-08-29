@@ -3,6 +3,7 @@
  * gateway the app runs; bootstrap asks for a mode and gets a `MixerGateway`.
  */
 
+import type { InstallationRepository } from "@x32/installation";
 import { MockMixerClient } from "@x32/mixer-contracts";
 
 import type { AppStore } from "../state/store";
@@ -16,17 +17,26 @@ import { DEFAULT_BRIDGE_URL, WebSocketMixerGateway } from "./webSocketMixerGatew
  *   mode). Resolving it from `window.location`/Vite env is the caller's job
  *   (`main.tsx`, via `resolveBridgeUrl`) — this function stays `window`-free
  *   so it is constructible in plain Node tests, like `resolveGatewayMode`.
+ * @param installationRepository where mock mode's edits go (issue #27): an
+ *   in-memory repository seeded with the document `loadInstallation` fetched.
+ *   Ignored in live mode, where the bridge owns the only copy that matters.
  */
 export function createGateway(
   store: AppStore,
   mode: GatewayMode,
   bridgeUrl: string = DEFAULT_BRIDGE_URL,
+  installationRepository?: InstallationRepository,
 ): MixerGateway {
   switch (mode) {
     case "mock":
-      return new LocalMockGateway(store, new MockMixerClient());
-    // `LocalMockGateway`'s own default `BaselineStore` (localStorage) is used
-    // when none is passed — see `localMockGateway.ts`.
+      return new LocalMockGateway(
+        store,
+        new MockMixerClient(),
+        // `LocalMockGateway`'s own default `BaselineStore` (localStorage) is
+        // used when none is passed — see `localMockGateway.ts`.
+        undefined,
+        installationRepository,
+      );
     case "live":
       return new WebSocketMixerGateway(store, bridgeUrl);
   }

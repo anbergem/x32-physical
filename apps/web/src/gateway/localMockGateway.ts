@@ -3,13 +3,31 @@
  * no bridge process needed. Mock-first development (CLAUDE.md invariant 4)
  * means this path drives the complete UX; the WebSocket gateway of plan step 9
  * implements the same `MixerGateway` interface and reuses `applyToStore`.
+ *
+ * The installation editor (issue #27) is mock-first too: edits run the very
+ * same `applyInstallationEdit` pipeline the bridge runs, against an
+ * `InMemoryInstallationRepository` instead of the disk. That keeps the editor
+ * demonstrable from a clone of this repo with no console and no venue file to
+ * risk, and it means the pipeline — precondition, surgical apply, validate the
+ * result — is exercised on both sides rather than duplicated on one.
+ * "Persisted" here lasts as long as the tab does, and the UI says so rather
+ * than implying an edit was saved somewhere.
  */
 
+import type { InstallationOperation, InstallationRepository } from "@x32/installation";
+import { applyInstallationEdit, InMemoryInstallationRepository } from "@x32/installation";
 import type { MockMixerClient, Unsubscribe } from "@x32/mixer-contracts";
 
 import type { AppStore } from "../state/store";
 
-import { applyBaseline, applyMeterLevels, applyMixerEvent, applyMixerSnapshot } from "./applyToStore";
+import {
+  applyBaseline,
+  applyInstallation,
+  applyInstallationEditError,
+  applyMeterLevels,
+  applyMixerEvent,
+  applyMixerSnapshot,
+} from "./applyToStore";
 import type { BaselineStore } from "./baselineStore";
 import { LocalStorageBaselineStore } from "./baselineStore";
 import type { MixerGateway } from "./mixerGateway";
@@ -17,6 +35,7 @@ import type { MixerGateway } from "./mixerGateway";
 export class LocalMockGateway implements MixerGateway {
   readonly #store: AppStore;
   readonly #baselineStore: BaselineStore;
+  readonly #installationRepository: InstallationRepository;
   #unsubscribe: Unsubscribe | null = null;
   #unsubscribeMeters: Unsubscribe | null = null;
 
@@ -32,10 +51,12 @@ export class LocalMockGateway implements MixerGateway {
     store: AppStore,
     mock: MockMixerClient,
     baselineStore: BaselineStore = new LocalStorageBaselineStore(),
+    installationRepository: InstallationRepository = emptyInstallationRepository(),
   ) {
     this.#store = store;
     this.mock = mock;
     this.#baselineStore = baselineStore;
+    this.#installationRepository = installationRepository;
   }
 
   async connect(): Promise<void> {
@@ -83,4 +104,38 @@ export class LocalMockGateway implements MixerGateway {
     this.#baselineStore.save(snapshot);
     applyBaseline(this.#store, snapshot);
   }
+
+  /**
+   * Mock mode's stand-in for the bridge's disk write: the identical pipeline
+   * (`@x32/installation`'s `applyInstallationEdit`), an in-memory repository
+   * instead of a file, and the result pushed into the same store slices the
+   * live gateway's `installation-changed`/`installation-edit-rejected`
+   * messages land in.
+   *
+   * Fire-and-forget to match the interface; the pipeline is async only because
+   * the repository seam is.
+   */
+  applyInstallationEdit(baseVersion: string, operation: InstallationOperation): void {
+    void applyInstallationEdit(this.#installationRepository, baseVersion, operation).then(
+      (result) => {
+        if (!result.ok) {
+          applyInstallationEditError(this.#store, result.reason);
+          return;
+        }
+        if (result.state.installation === null) return;
+        applyInstallation(this.#store, result.state.installation, result.state.version);
+        applyInstallationEditError(this.#store, null);
+      },
+    );
+  }
+}
+
+/**
+ * The fallback when no repository is supplied — a document that is not an
+ * installation, so every edit is refused with the loader's own message. Only
+ * reachable from a test that constructs the gateway directly; `main.tsx`
+ * always hands over a repository seeded with the document it fetched.
+ */
+function emptyInstallationRepository(): InstallationRepository {
+  return new InMemoryInstallationRepository("");
 }

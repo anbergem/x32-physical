@@ -44,6 +44,7 @@ export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
   return (
     <DeviceFrame
       kind="stagebox"
+      deviceId={device.id}
       label={device.label}
       meta={metaOf(device)}
       outputs={

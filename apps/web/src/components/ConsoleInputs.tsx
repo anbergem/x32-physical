@@ -29,7 +29,12 @@ export function ConsoleInputs({ deviceId }: { deviceId: DeviceId }) {
   if (device === undefined) return <MissingDevice deviceId={deviceId} />;
 
   return (
-    <DeviceFrame kind="console" label={device.label} meta={`${device.inputs} in`}>
+    <DeviceFrame
+      kind="console"
+      deviceId={device.id}
+      label={device.label}
+      meta={`${device.inputs} in`}
+    >
       {socketNumbers(device.inputs).map((socket) => (
         <InputPort
           key={socket}

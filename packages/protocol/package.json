@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@x32/domain": "workspace:*",
+    "@x32/installation": "workspace:*",
     "@x32/mixer-contracts": "workspace:*"
   }
 }

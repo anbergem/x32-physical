@@ -44,10 +44,13 @@ describe("loadInstallation", () => {
       text: () => Promise.resolve(VALID_YAML),
     });
 
-    const installation = await loadInstallation({ fetch: fetchImpl });
+    const { installation, text } = await loadInstallation({ fetch: fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledWith("/api/installation");
     expect(installation.devices.map((d) => d.id)).toContain("stagebox-1");
+    // The exact bytes come back too (issue #27): the editor edits the
+    // document, not a re-serialisation of the parsed model.
+    expect(text).toBe(VALID_YAML);
   });
 
   it("fetch rejects: throws, naming the endpoint and keeping the cause", async () => {

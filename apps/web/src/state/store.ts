@@ -3,7 +3,13 @@
  *
  * Three slices with three different lifecycles, deliberately never merged:
  *
- * - `installation` — structural, set once at load, effectively immutable.
+ * - `installation` — structural. Set at load and changed only by an
+ *   installation *edit* (issue #27), which is the slowest lifecycle there is:
+ *   a human deliberately rewriting the venue's topology. Replacing it rebuilds
+ *   everything derived *from* it (`routeIndex`, `outputRouteIndex`,
+ *   `aes50ChainDiscrepancies`) and touches no runtime slice at all — selection,
+ *   hover, meters and the mixer connection keep their exact identity, which
+ *   `store.test.ts` asserts.
  * - `channels` / `baseline` — mixer configuration; changes occasionally. A
  *   *source* change rebuilds the derived `routeIndex`; a rename does not,
  *   because routes are derived from sources alone (architecture.md §5).
@@ -28,6 +34,7 @@ import type {
   Aes50Chain,
   Aes50ChainDiscrepancy,
   Aes50LinkState,
+  DeviceId,
   EndpointId,
   Installation,
   MixerChannelId,
@@ -55,8 +62,14 @@ import { createStore } from "zustand/vanilla";
 
 /** The state shape of architecture.md §5, verbatim. */
 export interface AppState {
-  // Structural: set at load, effectively immutable.
+  // Structural: set at load, replaced only by an installation edit (issue #27).
   installation: Installation;
+
+  // Structural (issue #27): the content hash of the `installation.yaml` this
+  // app is looking at — the `baseVersion` an edit quotes back so a stale write
+  // is rejected rather than silently clobbering someone else's. `null` before
+  // it is known (and in a store built by a test that does not care).
+  installationVersion: string | null;
 
   // Mixer configuration: changes occasionally; updating it rebuilds routeIndex.
   channels: MixerChannelState[];
@@ -107,6 +120,23 @@ export interface AppState {
   // nothing about either.
   baselineSaveError: string | null;
 
+  // Runtime, browser-local (issue #27): is this browser in edit mode, and
+  // which device's inspector is open.
+  //
+  // Deliberately **never persisted**, unlike section visibility. This app is
+  // read at a glance during a live service, and "am I editing?" must never be
+  // a fact inherited from a session two weeks ago — every reload starts in
+  // read-only. That is why it lives here, in a store with no storage of any
+  // kind, rather than next to `sectionVisibility.ts`.
+  editMode: boolean;
+  editingDevice: DeviceId | null;
+
+  // Runtime: the bridge's (or mock repository's) reason for refusing an edit,
+  // shown inline in the inspector. A rejection changed nothing about the
+  // installation, so this touches no structural slice — the mirror of
+  // `baselineSaveError`.
+  installationEditError: string | null;
+
   // Runtime: a fourth, fastest state path (architecture.md §5, step 15) —
   // live per-channel meter levels, updated several times a second. `null`
   // until the first `meters` message/mock tick arrives. Its own slice,
@@ -139,6 +169,16 @@ export interface AppState {
 export interface AppActions {
   /** Configuration + runtime, as one atomic mixer snapshot. */
   applySnapshot(snapshot: MixerSnapshot, connection: MixerConnectionState): void;
+
+  /**
+   * Structural slice (issue #27): a new topology, from an
+   * `installation-changed` broadcast or a mock-mode edit. Rebuilds every
+   * value derived from `installation` and nothing else.
+   */
+  setInstallation(installation: Installation, version: string | null): void;
+
+  /** Structural slice: the version alone, when only the token is news. */
+  setInstallationVersion(version: string | null): void;
 
   // Configuration slice — only a source change rebuilds routeIndex.
   setChannelName(channel: MixerChannelId, name: string): void;
@@ -173,6 +213,12 @@ export interface AppActions {
   /** Drops both the pin and the highlight — background tap, or Escape. */
   clearHover(): void;
   setBaselineSaveError(reason: string | null): void;
+
+  // Runtime slice (issue #27) — never rebuilds anything derived.
+  /** Turning edit mode off also closes the inspector and clears its error. */
+  setEditMode(editing: boolean): void;
+  setEditingDevice(device: DeviceId | null): void;
+  setInstallationEditError(reason: string | null): void;
 
   // Fourth path — never composed with any other slice's patch (architecture.md §5).
   setMeterLevels(levels: number[] | null): void;
@@ -237,6 +283,38 @@ type Aes50ChainPatch = Pick<AppState, "aes50Chain" | "aes50ChainDiscrepancies">;
 
 function aes50ChainPatch(installation: Installation, chain: Aes50Chain[]): Aes50ChainPatch {
   return { aes50Chain: chain, aes50ChainDiscrepancies: compareAes50Chain(installation, chain) };
+}
+
+/**
+ * Everything derived from `installation`, rebuilt together when the topology
+ * itself is replaced (issue #27). `discrepancies` is deliberately absent: it
+ * depends on `channels` and `baseline` alone, so an installation edit must
+ * leave it — and its identity — exactly as it was.
+ */
+type InstallationPatch = Pick<
+  AppState,
+  | "installation"
+  | "installationVersion"
+  | "channels"
+  | "routeIndex"
+  | "outputs"
+  | "outputRouteIndex"
+  | "aes50Chain"
+  | "aes50ChainDiscrepancies"
+>;
+
+function installationPatch(
+  state: AppState,
+  installation: Installation,
+  version: string | null,
+): InstallationPatch {
+  return {
+    installation,
+    installationVersion: version,
+    ...configurationPatch(installation, state.channels),
+    ...outputConfigurationPatch(installation, state.outputs),
+    ...aes50ChainPatch(installation, state.aes50Chain),
+  };
 }
 
 /**
@@ -336,6 +414,7 @@ export function createAppStore(
 ): AppStore {
   return createStore<AppStoreState>()((set, get) => ({
     installation,
+    installationVersion: null,
     ...configurationPatch(installation, channels),
     ...outputConfigurationPatch(installation, outputs),
     baseline: null,
@@ -346,6 +425,9 @@ export function createAppStore(
     hoveredEndpoint: null,
     hoverPinned: false,
     baselineSaveError: null,
+    editMode: false,
+    editingDevice: null,
+    installationEditError: null,
     meterLevels: null,
     aes50LinkState: null,
     ...aes50ChainPatch(installation, []),
@@ -363,6 +445,25 @@ export function createAppStore(
         connection,
         aes50LinkState: snapshot.aes50LinkState ?? null,
       });
+    },
+
+    /**
+     * A new topology (issue #27). Rebuilds the three values derived from
+     * `installation` and composes *nothing* else into the patch, so every
+     * runtime slice — selection, hover, meters, connection — keeps its exact
+     * object identity through an edit: a rename on another browser must not
+     * drop the route the operator is holding on this one.
+     */
+    setInstallation(installation, version) {
+      const state = get();
+      if (state.installation === installation && state.installationVersion === version) {
+        return;
+      }
+      set(installationPatch(state, installation, version));
+    },
+
+    setInstallationVersion(version) {
+      if (get().installationVersion !== version) set({ installationVersion: version });
     },
 
     /** Names are not part of a route: no index rebuild — but discrepancies
@@ -465,6 +566,32 @@ export function createAppStore(
 
     setBaselineSaveError(reason) {
       if (get().baselineSaveError !== reason) set({ baselineSaveError: reason });
+    },
+
+    /**
+     * Leaving edit mode closes the inspector and drops any stale rejection
+     * with it: the operator has said they are done, and a message about an
+     * edit they can no longer make would only be confusing.
+     */
+    setEditMode(editing) {
+      const state = get();
+      if (state.editMode === editing) return;
+      set(
+        editing
+          ? { editMode: true }
+          : { editMode: false, editingDevice: null, installationEditError: null },
+      );
+    },
+
+    /** Selecting a different device drops the previous device's rejection. */
+    setEditingDevice(device) {
+      const state = get();
+      if (state.editingDevice === device) return;
+      set({ editingDevice: device, installationEditError: null });
+    },
+
+    setInstallationEditError(reason) {
+      if (get().installationEditError !== reason) set({ installationEditError: reason });
     },
 
     /**

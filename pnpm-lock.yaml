@@ -125,6 +125,9 @@ importers:
       '@x32/domain':
         specifier: workspace:*
         version: link:../domain
+      '@x32/installation':
+        specifier: workspace:*
+        version: link:../installation
       '@x32/mixer-contracts':
         specifier: workspace:*
         version: link:../mixer-contracts

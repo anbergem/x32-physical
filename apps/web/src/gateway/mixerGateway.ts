@@ -7,6 +7,8 @@
  * outside this module knows which mode is active.
  */
 
+import type { InstallationOperation } from "@x32/installation";
+
 /**
  * `mock` runs a `MockMixerClient` in the browser; `live` will connect to the
  * bridge over WebSocket (plan step 9).
@@ -39,6 +41,20 @@ export interface MixerGateway {
    * own storage.
    */
   saveBaseline(): void;
+  /**
+   * Asks for one edit to the venue's `installation.yaml` (issue #27).
+   * Fire-and-forget, exactly like `saveBaseline`: `WebSocketMixerGateway`
+   * sends `apply-installation-edit` and the bridge answers asynchronously
+   * with `installation-changed` (to everyone) or `installation-edit-rejected`
+   * (to this client); `LocalMockGateway` runs the same pipeline against an
+   * in-memory repository and writes the result into the store itself.
+   *
+   * `baseVersion` is the `installationVersion` the caller believes it is
+   * editing — a stale one is rejected rather than allowed to clobber somebody
+   * else's edit. Neither path writes to the mixer (CLAUDE.md invariant 5):
+   * this is the app's own configuration file.
+   */
+  applyInstallationEdit(baseVersion: string, operation: InstallationOperation): void;
 }
 
 /**

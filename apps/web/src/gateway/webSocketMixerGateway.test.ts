@@ -6,6 +6,7 @@
  * API — no real network anywhere in this file.
  */
 
+import { deviceId } from "@x32/domain";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { exampleRig } from "../__fixtures__/example-rig";
@@ -101,6 +102,37 @@ describe("WebSocketMixerGateway.saveBaseline", () => {
     const gateway = new WebSocketMixerGateway(store, "ws://bridge.test", fakeFactory());
 
     expect(() => gateway.saveBaseline()).not.toThrow();
+  });
+});
+
+describe("WebSocketMixerGateway.applyInstallationEdit (issue #27)", () => {
+  const OPERATION = {
+    kind: "set-device-label" as const,
+    device: deviceId("front-left"),
+    label: "Front Left B",
+  };
+
+  it("sends one apply-installation-edit carrying the baseVersion and the operation", async () => {
+    const gateway = new WebSocketMixerGateway(store, "ws://bridge.test", fakeFactory());
+    await gateway.connect();
+
+    gateway.applyInstallationEdit("0123456789abcdef", OPERATION);
+
+    expect(sockets[0]?.sent).toEqual([
+      JSON.stringify({
+        type: "apply-installation-edit",
+        baseVersion: "0123456789abcdef",
+        operation: OPERATION,
+      }),
+    ]);
+  });
+
+  it("says so with no live socket, rather than appearing to have saved", async () => {
+    const gateway = new WebSocketMixerGateway(store, "ws://bridge.test", fakeFactory());
+
+    gateway.applyInstallationEdit("0123456789abcdef", OPERATION);
+
+    expect(store.getState().installationEditError).toMatch(/not connected/i);
   });
 });
 

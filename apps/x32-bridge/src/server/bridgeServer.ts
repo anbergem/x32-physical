@@ -23,10 +23,21 @@
  * of trusting incremental events across the gap (architecture.md §7 — "if the
  * bridge itself resyncs with the mixer, it pushes a fresh snapshot to all
  * clients"). Every other event is forwarded as-is.
+ *
+ * Since issue #27 the bridge also *writes* one file on request: the venue's
+ * own `installation.yaml`, via `apply-installation-edit`. That is the app's
+ * own configuration and nothing else — the mixer stays read-only (CLAUDE.md
+ * invariant 5). The ordering of that pipeline is deliberate and lives in
+ * `@x32/installation`'s `applyInstallationEdit`, shared with mock mode so
+ * there is exactly one write path; this module owns the two ends of it that
+ * are genuinely the server's business: the disk repository, and broadcasting
+ * the result to every connected client.
  */
 
 import { MIXER_CHANNEL_COUNT } from "@x32/domain";
 import type { MixerChannelState } from "@x32/domain";
+import type { InstallationFileState, InstallationOperation } from "@x32/installation";
+import { applyInstallationEdit, describeOperation } from "@x32/installation";
 import type {
   MixerClient,
   MixerConnectionState,
@@ -42,10 +53,10 @@ import { WebSocketServer } from "ws";
 import type { BaselineStore } from "../baselineStore";
 import {
   DEFAULT_INSTALLATION_FILE,
-  loadInstallationText,
   seedInstallationFile,
   shippedInstallationSeedPath,
 } from "../installationFile";
+import { DiskInstallationRepository } from "../installationRepository";
 import { cloneSnapshot } from "../snapshot";
 import type { UpdateChecker } from "../updateCheck";
 import { startUpdateChecker } from "../updateCheck";
@@ -140,9 +151,11 @@ export async function startBridgeServer(
   const { mixerClient, baselineStore } = options;
   const updateChecker = options.updateChecker ?? startUpdateChecker({});
 
-  // Loaded once at startup (CLAUDE.md invariant 1 — topology is static, not
-  // a runtime concern); a bad or missing file logs loudly and 404s the
-  // route rather than blocking the bridge from starting (issue #3).
+  // Read at startup (CLAUDE.md invariant 1 — topology is the slowest
+  // lifecycle, not a runtime concern); a bad or missing file logs loudly and
+  // 404s the route rather than blocking the bridge from starting (issue #3).
+  // The same repository is what the edit pipeline writes through (issue #27),
+  // so there is one reader and one writer of this file, not two.
   //
   // First run creates the live file from the shipped copy; an existing one is
   // left exactly as it is, so no release can overwrite a venue's own topology
@@ -152,9 +165,35 @@ export async function startBridgeServer(
     installationFilePath,
     options.installationSeedPath ?? shippedInstallationSeedPath(),
   );
-  const installationText = loadInstallationText(installationFilePath);
+  const installationRepository = new DiskInstallationRepository(installationFilePath);
+
+  /** `null` when the file could not be read at all; `installation: null` when it read but does not hold up. */
+  let installationState: InstallationFileState | null = null;
+  try {
+    installationState = await installationRepository.read();
+    if (installationState.installation === null) {
+      console.error(
+        `x32-bridge: failed to load installation file: ${installationState.error ?? "unknown error"}`,
+      );
+    }
+  } catch (error) {
+    console.error(`x32-bridge: failed to load installation file: ${errorMessage(error)}`);
+  }
+
+  /**
+   * The bytes `GET /api/installation` serves. A document that does not
+   * validate is served as nothing at all (404), never as a 200 the browser
+   * would then fail to parse — the app renders its startup error instead of
+   * half a schematic (issue #26).
+   */
+  function installationTextForRoute(): string | null {
+    return installationState !== null && installationState.installation !== null
+      ? installationState.text
+      : null;
+  }
+
   console.log(
-    installationText !== null
+    installationTextForRoute() !== null
       ? `x32-bridge: serving installation topology from ${installationFilePath}`
       : `x32-bridge: GET /api/installation will 404 until ${installationFilePath} loads (see docs/installation.md)`,
   );
@@ -179,6 +218,11 @@ export async function startBridgeServer(
       mixerConnection: cachedConnection,
       baseline: cloneNullableSnapshot(cachedBaseline),
       updateAvailable: updateChecker.getUpdate(),
+      // The token an edit must quote back as `baseVersion` (issue #27). The
+      // document itself is not here — it is fetched once from
+      // `GET /api/installation`; only its version rides along, so a client
+      // always knows what it is editing against without a second round trip.
+      installationVersion: installationState?.version ?? null,
     };
   }
 
@@ -257,6 +301,55 @@ export async function startBridgeServer(
   }
 
   /**
+   * The installation write path (issue #27, epic #25). The ordered pipeline —
+   * read, reject a stale `baseVersion`, apply surgically, validate the
+   * *result*, write atomically with a `.bak` — is `applyInstallationEdit` in
+   * `@x32/installation`, shared verbatim with the web app's mock mode so a
+   * second write path cannot drift into existence. What is genuinely this
+   * server's own is the two ends: the disk repository it runs against, and
+   * the broadcast afterwards.
+   *
+   * A rejection goes only to the requesting client (like
+   * `baseline-save-rejected`) and is worded for the operator; a success is
+   * broadcast to everyone, because a second browser on the venue LAN is
+   * showing the same schematic and must not keep displaying the old label.
+   *
+   * Nothing here touches the mixer (CLAUDE.md invariant 5) — this writes the
+   * app's own configuration file and nothing else.
+   */
+  async function handleApplyInstallationEdit(
+    socket: WebSocket,
+    baseVersion: string,
+    operation: InstallationOperation,
+  ): Promise<void> {
+    const result = await applyInstallationEdit(
+      installationRepository,
+      baseVersion,
+      operation,
+      installationFilePath,
+    );
+
+    if (!result.ok) {
+      console.warn(
+        `x32-bridge: installation edit rejected (${describeOperation(operation)}): ${result.reason}`,
+      );
+      send(socket, { type: "installation-edit-rejected", reason: result.reason });
+      return;
+    }
+
+    installationState = result.state;
+    console.log(
+      `x32-bridge: installation edited (${describeOperation(operation)}), ` +
+        `broadcasting to ${wss.clients.size} client(s)`,
+    );
+    broadcast({
+      type: "installation-changed",
+      text: result.state.text,
+      version: result.state.version,
+    });
+  }
+
+  /**
    * Meters (architecture.md §5/§7, step 15): forwarded as their own `meters`
    * message, never through `event` — too chatty for that fan-out. Rounded to
    * 3 decimals to keep frames small; skipped entirely when nobody is
@@ -315,7 +408,7 @@ export async function startBridgeServer(
       ? createStaticFileHandler(options.webDist)
       : createWsOnlyHandler();
   const httpServer = createServer(
-    createInstallationAwareHandler(baseHttpHandler, () => installationText),
+    createInstallationAwareHandler(baseHttpHandler, installationTextForRoute),
   );
   const wss = new WebSocketServer({ server: httpServer });
 
@@ -348,6 +441,14 @@ export async function startBridgeServer(
       if (message.type === "save-baseline") {
         console.log("x32-bridge: client requested save-baseline");
         void handleSaveBaseline(socket);
+        return;
+      }
+
+      if (message.type === "apply-installation-edit") {
+        console.log(
+          `x32-bridge: client requested installation edit (${describeOperation(message.operation)})`,
+        );
+        void handleApplyInstallationEdit(socket, message.baseVersion, message.operation);
       }
     });
 

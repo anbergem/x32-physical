@@ -8,16 +8,19 @@
  * every memoised highlight lookup in steps 7–8.
  */
 
-import type { MixerChannelState, MixerOutputState } from "@x32/domain";
+import type { Installation, MixerChannelState, MixerOutputState } from "@x32/domain";
 import {
   consoleOutput,
   destination,
+  deviceId,
   endpointId,
   mixerChannelId,
   panelInput,
   stageboxOutput,
 } from "@x32/domain";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { exampleRig } from "../__fixtures__/example-rig";
@@ -716,5 +719,154 @@ describe("outputs slice + outputRouteIndex (issue #11)", () => {
     const after = store.getState();
     expect(after.outputs).toBe(before.outputs);
     expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
+  });
+});
+
+/**
+ * The installation editor's slices (issue #27). Two claims:
+ *
+ * - replacing the *topology* rebuilds only what derives from it, and leaves
+ *   every runtime slice's object identity intact — an edit arriving from
+ *   another browser must not drop the route this operator has pinned, blank
+ *   the meters, or disturb the mixer connection;
+ * - edit mode is off in a fresh store and is not restored from anywhere.
+ */
+describe("installation slice (issue #27)", () => {
+  /** The same rig with one device renamed — a plausible `set-device-label` result. */
+  function renamedRig(): Installation {
+    const rig = exampleRig();
+    return {
+      ...rig,
+      devices: rig.devices.map((device) =>
+        device.id === "front-left" ? { ...device, label: "Front Left (renamed)" } : device,
+      ),
+    };
+  }
+
+  it("starts with no installation version until one is known", () => {
+    expect(createStore().getState().installationVersion).toBeNull();
+  });
+
+  it("setInstallation replaces the topology and rebuilds what derives from it", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store.getState().setInstallation(renamedRig(), "0123456789abcdef");
+
+    const after = store.getState();
+    expect(after.installation.devices.find((d) => d.id === "front-left")?.label).toBe(
+      "Front Left (renamed)",
+    );
+    expect(after.installationVersion).toBe("0123456789abcdef");
+    expect(after.routeIndex).not.toBe(before.routeIndex);
+    expect(after.outputRouteIndex).not.toBe(before.outputRouteIndex);
+  });
+
+  it("setInstallation leaves every runtime slice's identity untouched", () => {
+    const store = createStore();
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setConnection("connected");
+    store.getState().setMeterLevels(new Array(32).fill(0.5));
+    const before = store.getState();
+
+    store.getState().setInstallation(renamedRig(), "0123456789abcdef");
+
+    const after = store.getState();
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+    expect(after.hoveredEndpoint).toBe(before.hoveredEndpoint);
+    expect(after.hoverPinned).toBe(before.hoverPinned);
+    expect(after.connection).toBe(before.connection);
+    expect(after.meterLevels).toBe(before.meterLevels);
+    // Mixer configuration is not the topology either: the channels the desk
+    // reported are exactly as they were.
+    expect(after.channels).toBe(before.channels);
+    expect(after.outputs).toBe(before.outputs);
+    expect(after.baseline).toBe(before.baseline);
+    expect(after.discrepancies).toBe(before.discrepancies);
+  });
+
+  it("ignores a setInstallation that changes nothing", () => {
+    const store = createStore();
+    store.getState().setInstallation(renamedRig(), "aaaa");
+    const before = store.getState();
+
+    store.getState().setInstallation(before.installation, "aaaa");
+
+    expect(store.getState().routeIndex).toBe(before.routeIndex);
+  });
+
+  it("runtime writes never touch the installation slice", () => {
+    const store = createStore();
+    const before = store.getState();
+
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setConnection("disconnected");
+    store.getState().setEditMode(true);
+    store.getState().setEditingDevice(deviceId("front-left"));
+    store.getState().setInstallationEditError("nope");
+
+    const after = store.getState();
+    expect(after.installation).toBe(before.installation);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
+  });
+});
+
+describe("edit mode (issue #27)", () => {
+  it("is off in a fresh store, with nothing selected and no error", () => {
+    const state = createStore().getState();
+
+    expect(state.editMode).toBe(false);
+    expect(state.editingDevice).toBeNull();
+    expect(state.installationEditError).toBeNull();
+  });
+
+  it("is not inherited from a previous session — a new store is always off", () => {
+    const first = createStore();
+    first.getState().setEditMode(true);
+    first.getState().setEditingDevice(deviceId("front-left"));
+
+    // What a reload produces. Unlike section visibility, "am I editing?" must
+    // never come back: this app is read at a glance during a live service.
+    expect(createStore().getState().editMode).toBe(false);
+    expect(createStore().getState().editingDevice).toBeNull();
+  });
+
+  it("has nowhere to be persisted: the store module touches no web storage", () => {
+    // The thing being ruled out is a *write*, which no behavioural test on a
+    // fresh store can observe — the same reasoning as
+    // `loadInstallation.test.ts`'s "no bundled installation copy".
+    const source = readFileSync(
+      fileURLToPath(new URL("./store.ts", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB/);
+  });
+
+  it("leaving edit mode closes the inspector and drops a stale rejection", () => {
+    const store = createStore();
+    store.getState().setEditMode(true);
+    store.getState().setEditingDevice(deviceId("front-left"));
+    store.getState().setInstallationEditError("The installation file changed.");
+
+    store.getState().setEditMode(false);
+
+    const state = store.getState();
+    expect(state.editMode).toBe(false);
+    expect(state.editingDevice).toBeNull();
+    expect(state.installationEditError).toBeNull();
+  });
+
+  it("selecting a different device drops the previous device's rejection", () => {
+    const store = createStore();
+    store.getState().setEditingDevice(deviceId("front-left"));
+    store.getState().setInstallationEditError("Unknown device.");
+
+    store.getState().setEditingDevice(deviceId("stagebox-1"));
+
+    expect(store.getState().installationEditError).toBeNull();
   });
 });

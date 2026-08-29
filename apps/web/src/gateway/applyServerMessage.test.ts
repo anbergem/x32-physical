@@ -5,7 +5,7 @@
  * seam `WebSocketMixerGateway.onmessage` is a one-line wrapper around.
  */
 
-import { mixerChannelId, panelInput } from "@x32/domain";
+import { endpointId, mixerChannelId, panelInput } from "@x32/domain";
 import type { ServerMessage } from "@x32/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -40,6 +40,7 @@ function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {
     },
     baseline: null,
     updateAvailable: null,
+    installationVersion: null,
   };
 }
 
@@ -247,6 +248,121 @@ describe("applyServerMessage: updateAvailable (plan step 20)", () => {
     expect(after.channels).toBe(before.channels);
     expect(after.routeIndex).toBe(before.routeIndex);
     expect(after.discrepancies).toBe(before.discrepancies);
+  });
+});
+
+/**
+ * The installation edit path (issue #27). `installation-changed` is the one
+ * message that replaces *structural* state, so what matters is not only that
+ * the new topology arrives but that nothing else moves with it.
+ */
+describe("applyServerMessage: installation (issue #27)", () => {
+  const RENAMED_YAML = `version: 1
+
+devices:
+  # A comment, to prove the wire carries the document and not a re-serialisation.
+  stagebox-1:
+    kind: stagebox
+    label: "Stagebox 1 (renamed)"
+    inputs: 16
+    aes50: { bus: A, offset: 0 }
+
+  front-left:
+    kind: passive-panel
+    label: "Front Left"
+    inputs: 8
+
+connections:
+  - from: { device: front-left, input: 1 }
+    to: { device: stagebox-1, input: 1 }
+`;
+
+  it("applies a snapshot message's installationVersion", () => {
+    applyServerMessage(store, { ...snapshotMessage(), installationVersion: "0123456789abcdef" });
+
+    expect(store.getState().installationVersion).toBe("0123456789abcdef");
+  });
+
+  it("routes installation-changed to the structural slice, re-parsing the document", () => {
+    applyServerMessage(store, {
+      type: "installation-changed",
+      text: RENAMED_YAML,
+      version: "0123456789abcdef",
+    });
+
+    const state = store.getState();
+    expect(state.installation.devices.find((d) => d.id === "stagebox-1")?.label).toBe(
+      "Stagebox 1 (renamed)",
+    );
+    expect(state.installationVersion).toBe("0123456789abcdef");
+  });
+
+  it("leaves every runtime slice's identity intact — an edit elsewhere disturbs nothing here", () => {
+    applyServerMessage(store, snapshotMessage());
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setHoveredEndpoint(endpointId(panelInput("front-left", 4)));
+    store.getState().setMeterLevels(new Array(32).fill(0.25));
+    const before = store.getState();
+
+    applyServerMessage(store, {
+      type: "installation-changed",
+      text: RENAMED_YAML,
+      version: "0123456789abcdef",
+    });
+
+    const after = store.getState();
+    expect(after.installation).not.toBe(before.installation);
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+    expect(after.hoveredEndpoint).toBe(before.hoveredEndpoint);
+    expect(after.hoverPinned).toBe(before.hoverPinned);
+    expect(after.connection).toBe(before.connection);
+    expect(after.meterLevels).toBe(before.meterLevels);
+    expect(after.channels).toBe(before.channels);
+    expect(after.baseline).toBe(before.baseline);
+    expect(after.discrepancies).toBe(before.discrepancies);
+  });
+
+  it("ignores an installation-changed document that will not parse, keeping the last good topology", () => {
+    const before = store.getState().installation;
+
+    applyServerMessage(store, {
+      type: "installation-changed",
+      text: "not: [an, installation",
+      version: "0123456789abcdef",
+    });
+
+    expect(store.getState().installation).toBe(before);
+  });
+
+  it("routes installation-edit-rejected to the runtime installationEditError slice", () => {
+    const before = store.getState();
+
+    applyServerMessage(store, {
+      type: "installation-edit-rejected",
+      reason: 'Unknown device "ghost-box".',
+    });
+
+    const after = store.getState();
+    expect(after.installationEditError).toBe('Unknown device "ghost-box".');
+    // A rejection changed nothing about the installation.
+    expect(after.installation).toBe(before.installation);
+    expect(after.installationVersion).toBe(before.installationVersion);
+    expect(after.routeIndex).toBe(before.routeIndex);
+  });
+
+  it("a successful installation-changed clears a previous rejection", () => {
+    applyServerMessage(store, {
+      type: "installation-edit-rejected",
+      reason: "The installation file changed.",
+    });
+
+    applyServerMessage(store, {
+      type: "installation-changed",
+      text: RENAMED_YAML,
+      version: "0123456789abcdef",
+    });
+
+    expect(store.getState().installationEditError).toBeNull();
   });
 });
 

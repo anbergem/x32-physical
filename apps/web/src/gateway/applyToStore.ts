@@ -15,8 +15,13 @@
  *
  * `applyBaseline` (step 13) is the sibling entry point for the `baseline`
  * slice — not a `MixerEvent` variant, since it is not mixer state at all.
+ * `applyInstallation` (issue #27) is the same idea for the *structural*
+ * slice: an edit is not mixer state either, and it lands through one function
+ * both gateways call, so a live broadcast and a mock-mode edit cannot end up
+ * writing different slices.
  */
 
+import type { Installation } from "@x32/domain";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -63,6 +68,35 @@ export function applyUpdateAvailable(
  */
 export function applyMeterLevels(store: AppStore, levels: number[]): void {
   store.getState().setMeterLevels(levels);
+}
+
+/**
+ * The structural slice's own entry point (issue #27): a topology that has
+ * been edited, from the bridge's `installation-changed` broadcast or from a
+ * mock-mode edit against the in-memory repository. Rebuilds what derives from
+ * `installation` and touches no runtime slice — a second browser renaming a
+ * device must not disturb the route this one has pinned, the meters it is
+ * watching, or its connection state.
+ */
+export function applyInstallation(
+  store: AppStore,
+  installation: Installation,
+  version: string | null,
+): void {
+  store.getState().setInstallation(installation, version);
+}
+
+/** The `installationVersion` alone — the `snapshot` message's field. */
+export function applyInstallationVersion(
+  store: AppStore,
+  version: string | null,
+): void {
+  store.getState().setInstallationVersion(version);
+}
+
+/** A refused edit (issue #27) — the mirror of `baseline-save-rejected`. */
+export function applyInstallationEditError(store: AppStore, reason: string | null): void {
+  store.getState().setInstallationEditError(reason);
 }
 
 export function applyMixerEvent(store: AppStore, event: MixerEvent): void {

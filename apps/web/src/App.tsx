@@ -22,6 +22,13 @@
  * `SectionsControl` in the header is the one exception, kept as minimal
  * chrome as possible: a single trigger opening a popover, not a row of
  * inline toggles (see `SectionsControl`, `sectionVisibility.ts`).
+ *
+ * Edit mode (issue #27) is the second exception, and it is deliberately loud:
+ * a toggle in the header, an outline around the whole page, and a banner
+ * naming what is happening. Nobody glancing at this during a service may ever
+ * be unsure whether they are reading the venue or changing it — so the
+ * treatment is unmistakable rather than tasteful, and the mode is never
+ * inherited from a previous session (see `EditModeControl`).
  */
 
 import { useEffect, useState } from "react";
@@ -30,7 +37,9 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { ConsoleSection } from "./components/ConsoleSection";
 import { Destinations } from "./components/Destinations";
+import { DeviceInspector } from "./components/DeviceInspector";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
+import { EditModeControl } from "./components/EditModeControl";
 import { Mixer } from "./components/Mixer";
 import { MixerOutputs } from "./components/MixerOutputs";
 import {
@@ -44,7 +53,7 @@ import { Stage } from "./components/Stage";
 import { SystemStatus } from "./components/SystemStatus";
 import { UpdateNotice } from "./components/UpdateNotice";
 import type { GatewayMode, MixerGateway } from "./gateway/mixerGateway";
-import { selectClearHover } from "./state/selectors";
+import { selectClearHover, selectEditMode } from "./state/selectors";
 import { useAppStore } from "./state/storeContext";
 
 function initialVisibility(): SectionVisibility {
@@ -55,6 +64,7 @@ function initialVisibility(): SectionVisibility {
 export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGateway }) {
   const [visibility, setVisibility] = useState<SectionVisibility>(initialVisibility);
   const clearHover = useAppStore(selectClearHover);
+  const editMode = useAppStore(selectEditMode);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -87,17 +97,26 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
   }
 
   return (
-    <div className="app">
+    <div className={`app${editMode ? " app--editing" : ""}`}>
       <header className="app__bar">
         <h1 className="app__title">X32 Physical Routing Visualizer</h1>
         <div className="app__bar-status">
           <UpdateNotice />
+          <EditModeControl />
           <DiagnosticsControl gateway={gateway} />
           <SystemStatus />
           <ConnectionStatus mockData={mode === "mock"} />
           <SectionsControl visibility={visibility} onChange={setVisibility} />
         </div>
       </header>
+
+      {editMode && (
+        <p className="app__editing-banner" role="status">
+          {mode === "mock"
+            ? "Edit mode — simulated data, so changes stay in this tab. Select a device to edit it."
+            : "Edit mode — changes are written to installation.yaml. Select a device to edit it."}
+        </p>
+      )}
 
       <main className="schematic" onPointerUp={handleBackgroundPointerUp}>
         {allHidden && (
@@ -121,6 +140,8 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
 
         {visibility.outputs && <MixerOutputs />}
       </main>
+
+      {editMode && <DeviceInspector gateway={gateway} mode={mode} />}
     </div>
   );
 }
