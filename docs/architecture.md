@@ -641,8 +641,9 @@ straight to the store's `meterLevels` slice.
 `GET /api/installation` — plain HTTP, same port as the WS API and the static
 web app, matched before any static file resolution. The bridge reads
 `installation.yaml` once at startup (`X32_INSTALLATION_FILE`, default
-`config/installation.yaml` resolved next to the server module) via
-`@x32/installation/node`, and serves it back **as raw YAML text**
+`installation.yaml` in the state directory — see "Where the installation file
+lives" below) via `@x32/installation/node`, and serves it back **as raw YAML
+text**
 (`Content-Type: text/yaml`, `Cache-Control: no-cache`) — never parsed JSON.
 Keeping `parseInstallationYaml` the only thing that turns text into an
 `Installation` means the bridge and the browser can never disagree about what
@@ -651,18 +652,45 @@ a file means.
 A missing or invalid file is logged once and the route answers `404` — never
 an empty `200`, and never fatal to startup; the WS API and any configured
 static serving come up regardless. The web app's `loadInstallation`
-(`apps/web/src/installation/loadInstallation.ts`) tries this endpoint first
-and falls back to the copy Vite bundled at build time (`?raw`) on any
-failure — a rejected fetch, a non-2xx status, or an unparseable body — so the
-schematic always renders even if the endpoint is broken. Under the Vite dev
-server the fetch is skipped entirely (`import.meta.env.DEV`), matching how
-`resolveBridgeUrl` already branches on `DEV`: mock-mode development needs no
-bridge running.
+(`apps/web/src/installation/loadInstallation.ts`) has **this endpoint as its
+only source**: a rejected fetch, a non-2xx status or an unparseable body all
+raise, and `main.tsx` renders the full-page startup error. There is no bundled
+`?raw` fallback (removed in issue #26): a fallback can only ever render *some
+other* installation, and a schematic that answers "which socket is this
+channel on?" confidently and wrongly is a worse outcome than one that says it
+has nothing to show. It is also what let a venue's `installation.yaml` leave
+the repository entirely (issue #24) — the build no longer needs one to exist.
+One code path serves dev and production alike; under the Vite dev server the
+`/api` proxy in `apps/web/vite.config.ts` forwards the same request to the
+bridge's own port.
+
+#### Where the installation file lives (issue #26)
+
+Two files, and the distinction is the whole point:
+
+| | Path | Lifecycle |
+| --- | --- | --- |
+| **Live** | `<state dir>/installation.yaml` — the same directory as `baseline.json`; `%ProgramData%\X32RoutingVisualizer\` under the MSI, `data/` in dev | Venue data. Created once; never removed or overwritten by any upgrade or uninstall. `Users` has Modify, so a tech edits it without admin rights. |
+| **Seed** | `config/installation.yaml` next to the server module, i.e. inside `%ProgramFiles%` | Program data. Removed and reinstalled wholesale by `MajorUpgrade`. |
+
+`config.ts`'s `resolveStateDirectory` derives the state directory from
+`resolveBaselineFilePath` rather than taking a second setting, so the two
+things that must live together cannot drift apart.
+`resolveInstallationFilePath` is then `X32_INSTALLATION_FILE ?? <state
+dir>/installation.yaml`.
+
+On startup `seedInstallationFile` (`installationFile.ts`) copies the seed into
+the live path **only when the live path does not exist**, via the same
+temp-file + `rename` the baseline uses. Before this, the live file *was* the
+`%ProgramFiles%` copy, so every venue edit was silently destroyed by the next
+MSI upgrade — the kind of failure that surfaces months later, at a venue, to
+someone who did not make the edits. Seeding never replaces an existing file
+for the same reason a release never replaces `baseline.json`.
 
 This turns a cabling correction at the venue into a file edit plus a service
 restart — no rebuilt release, no MSI reinstall. There is deliberately no file
 watching: a service restart is the trigger a tech will reach for anyway after
-editing (see docs/installation.md for the override path and procedure).
+editing (see docs/installation.md for the location and procedure).
 
 ## 8. End-to-end event flow (live mode)
 

@@ -12,13 +12,16 @@
  * | `X32_DEMO`         | dev-only scripted mock sequence      | off     |
  * | `X32_BASELINE_FILE`| disk path for the persisted baseline (architecture.md §7) | `data/baseline.json` |
  * | `X32_WEB_DIST`      | static root for the built web app (plan step 16); unset = WS only | unset |
- * | `X32_INSTALLATION_FILE` | override path for `installation.yaml`, served at `GET /api/installation` (architecture.md §7) | `config/installation.yaml` next to the server module |
+ * | `X32_INSTALLATION_FILE` | override path for `installation.yaml`, served at `GET /api/installation` (architecture.md §7) | `installation.yaml` in the state directory (issue #26) |
  * | `X32_SETTINGS_FILE` | optional `KEY=VALUE` file (plan step 19's MSI venue override path) merged in *underneath* real env vars — see `parseSettingsFileContents`/`applySettingsFileOverrides` | unset |
  */
+
+import { dirname, join } from "node:path";
 
 import type { MixerClient } from "@x32/mixer-contracts";
 import { MockMixerClient } from "@x32/mixer-contracts";
 
+import { INSTALLATION_FILE_NAME } from "./installationFile";
 import { X32_OSC_PORT } from "./x32/addresses";
 import { createDgramTransport } from "./x32/dgramTransport";
 import type { X32Discovered, X32Discoverer } from "./x32/discovery";
@@ -83,16 +86,48 @@ export function resolveWebDistPath(env: NodeJS.ProcessEnv): string | undefined {
 }
 
 /**
- * Env override for the installation file path (architecture.md §7):
- * `%ProgramData%\X32RoutingVisualizer\installation.yaml` for a venue-local
- * edit, or any other path a tech points it at. `undefined` means "use the
- * default next to the server module" — `installationFile.ts`'s
- * `defaultInstallationFilePath()`, which the shipped `%ProgramFiles%` copy
- * (releases stay the source of truth) resolves to.
+ * The bridge's **state directory**: the one place venue data lives —
+ * `baseline.json` and, since issue #26, the live `installation.yaml`.
+ *
+ * It is derived from wherever the baseline is configured to live rather than
+ * configured twice, so the two can never drift apart. Under the MSI that is
+ * `C:\ProgramData\X32RoutingVisualizer\` (set as `X32_BASELINE_FILE` in
+ * `deploy/msi/winsw/X32RoutingVisualizer.xml`) — a directory the installer
+ * creates, grants `Users` Modify on, and **never removes or overwrites** on
+ * upgrade or uninstall. In dev it is `data/`, relative to the bridge
+ * process's cwd (gitignored).
+ */
+export function resolveStateDirectory(env: NodeJS.ProcessEnv): string {
+  return dirname(resolveBaselineFilePath(env));
+}
+
+/**
+ * Env override for the installation file path (architecture.md §7): any path
+ * a tech points the bridge at. `undefined` means "use the state directory",
+ * i.e. `resolveInstallationFilePath` below.
  */
 export function resolveInstallationFileOverride(env: NodeJS.ProcessEnv): string | undefined {
   const raw = env.X32_INSTALLATION_FILE;
   return raw !== undefined && raw.trim() !== "" ? raw : undefined;
+}
+
+/**
+ * Where the **live** installation file is read from (issue #26):
+ * `X32_INSTALLATION_FILE` when set, otherwise `installation.yaml` in the
+ * state directory.
+ *
+ * It is deliberately *not* the copy next to the running server module any
+ * more. That copy lives in `%ProgramFiles%`, which `MajorUpgrade` removes and
+ * reinstalls, so every venue edit made there would be destroyed by the next
+ * release. The shipped copy is now only a seed
+ * (`installationFile.ts`'s `seedInstallationFile`), and the file a technician
+ * edits — no admin rights needed — is this one.
+ */
+export function resolveInstallationFilePath(env: NodeJS.ProcessEnv): string {
+  return (
+    resolveInstallationFileOverride(env) ??
+    join(resolveStateDirectory(env), INSTALLATION_FILE_NAME)
+  );
 }
 
 /**

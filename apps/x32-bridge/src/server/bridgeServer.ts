@@ -40,7 +40,12 @@ import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
 import type { BaselineStore } from "../baselineStore";
-import { defaultInstallationFilePath, loadInstallationText } from "../installationFile";
+import {
+  DEFAULT_INSTALLATION_FILE,
+  loadInstallationText,
+  seedInstallationFile,
+  shippedInstallationSeedPath,
+} from "../installationFile";
 import { cloneSnapshot } from "../snapshot";
 import type { UpdateChecker } from "../updateCheck";
 import { startUpdateChecker } from "../updateCheck";
@@ -66,15 +71,21 @@ export interface BridgeServerOptions {
    */
   webDist?: string;
   /**
-   * Path to `installation.yaml`, served raw at `GET /api/installation`
-   * (issue #3, architecture.md §7). Defaults to
-   * `defaultInstallationFilePath()` (`config/installation.yaml` next to the
-   * server module); `config.ts`'s `resolveInstallationFileOverride` supplies
-   * `X32_INSTALLATION_FILE` here when a venue override is set. A missing or
-   * invalid file is logged once and the route 404s — never fatal to
-   * startup.
+   * Path to the **live** `installation.yaml`, served raw at
+   * `GET /api/installation` (issue #3, architecture.md §7). `main.ts` always
+   * supplies `config.ts`'s `resolveInstallationFilePath` here (the state
+   * directory, or `X32_INSTALLATION_FILE`); the default is only for tests
+   * and standalone embedding. A missing or invalid file is logged once and
+   * the route 404s — never fatal to startup.
    */
   installationFilePath?: string;
+  /**
+   * The read-only copy a release ships, used **only** to create
+   * `installationFilePath` when that file does not exist yet (issue #26).
+   * Defaults to `shippedInstallationSeedPath()`. An existing live file is
+   * never replaced from here.
+   */
+  installationSeedPath?: string;
   /**
    * The in-app update notice's checker (plan step 20, architecture.md §7).
    * Defaults to a real `startUpdateChecker()` (own VERSION file, real
@@ -132,12 +143,20 @@ export async function startBridgeServer(
   // Loaded once at startup (CLAUDE.md invariant 1 — topology is static, not
   // a runtime concern); a bad or missing file logs loudly and 404s the
   // route rather than blocking the bridge from starting (issue #3).
-  const installationFilePath = options.installationFilePath ?? defaultInstallationFilePath();
+  //
+  // First run creates the live file from the shipped copy; an existing one is
+  // left exactly as it is, so no release can overwrite a venue's own topology
+  // (issue #26).
+  const installationFilePath = options.installationFilePath ?? DEFAULT_INSTALLATION_FILE;
+  seedInstallationFile(
+    installationFilePath,
+    options.installationSeedPath ?? shippedInstallationSeedPath(),
+  );
   const installationText = loadInstallationText(installationFilePath);
   console.log(
     installationText !== null
       ? `x32-bridge: serving installation topology from ${installationFilePath}`
-      : `x32-bridge: GET /api/installation will 404 until ${installationFilePath} is fixed`,
+      : `x32-bridge: GET /api/installation will 404 until ${installationFilePath} loads (see docs/installation.md)`,
   );
 
   // Establish the baseline before subscribing: `getSnapshot()` returns

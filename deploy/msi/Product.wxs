@@ -30,10 +30,13 @@
                                              `node.exe server.mjs` as WinSW's
                                              supervised child
 
-  State lives in %ProgramData%\X32RoutingVisualizer\ (baseline.json, WinSW's
-  logs, optional settings.env) — created once, permanently, and NEVER removed
-  by an upgrade or uninstall: it is venue data (the blessed baseline), not
-  program data. See the AppDataFolder component below for why.
+  State lives in %ProgramData%\X32RoutingVisualizer\ (installation.yaml,
+  baseline.json, WinSW's logs, optional settings.env) — created once,
+  permanently, and NEVER removed by an upgrade or uninstall: it is venue data
+  (the room's own wiring and the blessed baseline), not program data. The
+  config\ folder harvested into INSTALLFOLDER below is only the *seed* the
+  bridge copies from on first run (issue #26). See the AppDataFolder
+  component below for why.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
@@ -110,7 +113,8 @@
     </StandardDirectory>
 
     <!--
-      Venue state — baseline.json, WinSW's logs, and an optional
+      Venue state — installation.yaml (the room's own wiring, seeded here on
+      the bridge's first run), baseline.json, WinSW's logs, and an optional
       settings.env override (X32_HOST / X32_BRIDGE_PORT for an unusual
       network — see apps/x32-bridge/src/config.ts's
       parseSettingsFileContents/applySettingsFileOverrides and
@@ -118,11 +122,11 @@
 
       `Permanent="yes"` + `RemoveFolder On="never"` mean neither an upgrade
       nor a full uninstall ever deletes this directory or its contents: the
-      blessed baseline is venue data, captured by hand on-site, and must
-      outlive the program that produced it. `util:PermissionEx` grants the
-      built-in Users group Modify rights so the LocalSystem-run service (and
-      a venue tech editing settings.env by hand) can both write here without
-      further ACL surgery.
+      topology and the blessed baseline are venue data, captured by hand
+      on-site, and must outlive the program that produced them.
+      `util:PermissionEx` grants the built-in Users group Modify rights so the
+      LocalSystem-run service (and a venue tech editing installation.yaml or
+      settings.env by hand) can both write here without further ACL surgery.
     -->
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="APPDATAFOLDER" Name="X32RoutingVisualizer">
@@ -131,8 +135,9 @@
             <util:PermissionEx User="Users" GenericAll="yes" />
           </CreateFolder>
           <!-- Deliberately NO <RemoveFolder>: this directory holds the
-               blessed baseline and logs, which are venue data and must
-               survive both upgrade and uninstall. WiX has no On="never"
+               live installation.yaml, the blessed baseline and the logs,
+               which are venue data and must survive both upgrade and
+               uninstall. WiX has no On="never"
                (only install|uninstall|both) - omitting the element IS
                how a folder is kept. -->
           <RegistryValue

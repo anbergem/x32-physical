@@ -1,18 +1,17 @@
 /**
- * `loadInstallation` (issue #3): fetch `/api/installation` with the bundled
- * `?raw` copy as fallback. A real `fetch` is never exercised here — every
- * test injects one, per the module's own `LoadInstallationOptions`.
+ * `loadInstallation` (issue #3, reshaped by issue #26): the bridge's
+ * `/api/installation` is the *only* source of topology, so every failure is a
+ * startup failure rather than a quiet fall back to a bundled copy. A real
+ * `fetch` is never exercised here — every test injects one, per the module's
+ * own `LoadInstallationOptions`.
  */
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { loadInstallation } from "./loadInstallation";
-
-/** `env.DEV: false` — the production-build branch that actually fetches. */
-const PROD_ENV: ImportMetaEnv = { DEV: false };
-
-/** `env.DEV: true` — the dev-server branch that must never fetch. */
-const DEV_ENV: ImportMetaEnv = { DEV: true };
+import { INSTALLATION_ERROR_HINT, loadInstallation } from "./loadInstallation";
 
 const VALID_YAML = `version: 1
 
@@ -38,57 +37,91 @@ function fetchResolvingTo(response: Partial<Response> & { text?: () => Promise<s
 }
 
 describe("loadInstallation", () => {
-  it("successful fetch: parses the fetched text, bundled copy unused", async () => {
+  it("parses the fetched document", async () => {
     const fetchImpl = fetchResolvingTo({
       ok: true,
       status: 200,
       text: () => Promise.resolve(VALID_YAML),
     });
 
-    const installation = await loadInstallation({ fetch: fetchImpl, env: PROD_ENV });
+    const installation = await loadInstallation({ fetch: fetchImpl });
 
     expect(fetchImpl).toHaveBeenCalledWith("/api/installation");
     expect(installation.devices.map((d) => d.id)).toContain("stagebox-1");
   });
 
-  it("fetch rejects: falls back to the bundled copy, no throw", async () => {
+  it("fetch rejects: throws, naming the endpoint and keeping the cause", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("network down")) as unknown as typeof fetch;
 
-    const installation = await loadInstallation({ fetch: fetchImpl, env: PROD_ENV });
-
-    expect(installation.devices.length).toBeGreaterThan(0);
+    await expect(loadInstallation({ fetch: fetchImpl })).rejects.toThrow(
+      /Could not reach \/api\/installation/,
+    );
+    await expect(loadInstallation({ fetch: fetchImpl })).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: "network down" }),
+    });
   });
 
-  it("non-200: falls back to the bundled copy", async () => {
+  it("non-200: throws rather than rendering some other installation", async () => {
     const fetchImpl = fetchResolvingTo({
       ok: false,
       status: 404,
       text: () => Promise.resolve(""),
     });
 
-    const installation = await loadInstallation({ fetch: fetchImpl, env: PROD_ENV });
-
-    expect(installation.devices.length).toBeGreaterThan(0);
+    await expect(loadInstallation({ fetch: fetchImpl })).rejects.toThrow(/returned 404/);
   });
 
-  it("200 with an unparseable body: falls back to the bundled copy", async () => {
+  it("200 with an unparseable body: throws, carrying the parser's own message", async () => {
     const fetchImpl = fetchResolvingTo({
       ok: true,
       status: 200,
       text: () => Promise.resolve("not: [valid, installation, shape"),
     });
 
-    const installation = await loadInstallation({ fetch: fetchImpl, env: PROD_ENV });
-
-    expect(installation.devices.length).toBeGreaterThan(0);
+    await expect(loadInstallation({ fetch: fetchImpl })).rejects.toThrow(
+      /not a valid installation/,
+    );
   });
 
-  it("DEV: fetch is never called, bundled copy used directly", async () => {
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
+  it("fetches in dev too — no environment branch is left to skip it", async () => {
+    // Under `vite dev` the same request is proxied to the bridge
+    // (apps/web/vite.config.ts); there is no second code path to take.
+    const fetchImpl = fetchResolvingTo({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(VALID_YAML),
+    });
 
-    const installation = await loadInstallation({ fetch: fetchImpl, env: DEV_ENV });
+    await loadInstallation({ fetch: fetchImpl });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(installation.devices.length).toBeGreaterThan(0);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("points the operator at the bridge, not at a file they cannot see", () => {
+    expect(INSTALLATION_ERROR_HINT).toMatch(/service/i);
+    expect(INSTALLATION_ERROR_HINT).toMatch(/installation\.yaml/);
+  });
+});
+
+/**
+ * The bundled fallback is gone for good (issue #26): a build-time copy of one
+ * venue's wiring, rendered confidently whenever the bridge is unreachable, is
+ * a worse failure than an honest error — and it is what kept
+ * `config/installation.yaml` from being gitignorable (issue #24). Asserted
+ * against the module's own source, because the thing being ruled out is an
+ * *import*, which no behavioural test can observe.
+ */
+describe("no bundled installation copy", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./loadInstallation.ts", import.meta.url)),
+    "utf8",
+  );
+
+  it("does not import any file as raw text", () => {
+    expect(source).not.toMatch(/^\s*import .*\?raw/m);
+  });
+
+  it("does not reach out of the app into config/", () => {
+    expect(source).not.toMatch(/^\s*import .*config\/installation/m);
   });
 });

@@ -13,8 +13,10 @@ drift shows up as a badge rather than a mystery mid-service.
 
 Built for a **Behringer X32**; that part is deliberate and hard-coded. Your
 room is not: stageboxes, panels, cabling, speakers and how they group are all
-declared in [`config/installation.yaml`](config/installation.yaml), and the
-schematic derives itself from whatever you declare.
+declared in an `installation.yaml`, and the schematic derives itself from
+whatever you declare. Start from
+[`config/installation.sample.yaml`](config/installation.sample.yaml) — a
+venue's own file is deliberately not kept in this repository.
 
 Docs: [architecture](docs/architecture.md) · [X32 OSC subset](docs/x32-protocol.md)
 · [installation schema](docs/installation.md) · [example venue](docs/venue-betania.md)
@@ -24,8 +26,22 @@ Docs: [architecture](docs/architecture.md) · [X32 OSC subset](docs/x32-protocol
 
 ```sh
 pnpm install
-pnpm dev          # → http://localhost:5173  (mock mode, default)
+mkdir -p apps/x32-bridge/data
+cp config/installation.sample.yaml apps/x32-bridge/data/installation.yaml
+pnpm bridge       # terminal 1 — serves the topology (mock mixer, no X32)
+pnpm dev          # terminal 2 — → http://localhost:5173  (mock mode, default)
 ```
+
+The bridge owns the venue topology and serves it at `GET /api/installation`;
+the dev server proxies `/api` to it (`apps/web/vite.config.ts`). The app
+deliberately bundles no installation of its own — rendering someone else's
+wiring when the real one is unavailable would be worse than saying so, and
+this is what keeps any venue's file out of the repository. If the bridge
+isn't up, or has no usable file, the page says exactly that instead of
+showing a room that isn't yours.
+
+`apps/x32-bridge/data/` is the bridge's state directory in dev (gitignored),
+the same place `baseline.json` lands; the copy step above is a one-off.
 
 Mock mode runs a `MockMixerClient` in the browser. The **Mock X32** panel
 (bottom right) simulates console actions: select a channel, rename, change a
@@ -67,9 +83,10 @@ Notes for first bring-up:
 - Requires console firmware 4.0+ (`/config/userrout` + `UIN` routing blocks).
 - If the console is in Playback routing (`routswitch = PLAY`), the bridge
   logs a warning and keeps showing REC/IN-block routing.
-- The panel wiring in [config/installation.yaml](config/installation.yaml) is
-  the venue's real cabling, captured from the patch sheet and confirmed on
-  site (see [docs/venue-betania.md](docs/venue-betania.md)).
+- The panel wiring in your `installation.yaml` is real cabling, captured from
+  a patch sheet and confirmed on site — see
+  [docs/venue-betania.md](docs/venue-betania.md) for how one real venue was
+  captured, quirks and all.
 - **Auto-discovery is currently unreliable** — it finds the console once and
   then stops (issue #14). Until that is fixed, pass `X32_HOST` explicitly;
   with it the bridge is rock solid.
@@ -134,13 +151,15 @@ directory is deliberately left behind (see below).
 
 - `%ProgramFiles%\X32 Routing Visualizer\` — the app itself (`server.mjs`,
   `web\`, `config\`, portable `node.exe`, the WinSW service host). Replaced
-  wholesale by every upgrade; removed by uninstall.
-- `%ProgramData%\X32RoutingVisualizer\` — venue state: `baseline.json` (the
-  "known correct routing" saved via **Save as correct**), the service's
+  wholesale by every upgrade; removed by uninstall. The
+  `config\installation.yaml` in there is only a **seed** — never edit it, an
+  upgrade throws it away.
+- `%ProgramData%\X32RoutingVisualizer\` — venue state: `installation.yaml`
+  (your room's wiring — the file the app actually reads), `baseline.json`
+  (the "known correct routing" saved via **Save as correct**), the service's
   rotated logs, and an *optional* `settings.env`. **The MSI never removes or
-  overwrites this directory**, on upgrade or uninstall — the blessed
-  baseline is venue data captured by hand on-site, not program data that
-  ships with a release.
+  overwrites this directory**, on upgrade or uninstall — this is venue data
+  captured by hand on-site, not program data that ships with a release.
 
 **Overriding auto-discovery:** if the console is on an unusual network (or
 there are several X32s and the wrong one gets picked), create
@@ -156,25 +175,35 @@ Restart the "X32 Routing Visualizer" service (Services app, or `net stop` /
 `net start`) for it to take effect. Any variable actually set in the
 service's own environment always wins over this file — it only fills gaps.
 
-**Changing the physical wiring:** the bridge reads `installation.yaml` at
-startup and serves it to the web app over `GET /api/installation` — a
-cabling correction is a file edit plus a service restart, not a new release.
-Edit `%ProgramFiles%\X32 Routing Visualizer\config\installation.yaml` (an
-admin-elevated editor is needed there), then restart the "X32 Routing
-Visualizer" service (Services app, or `net stop` / `net start`) for it to
-take effect.
+**Changing the physical wiring:** edit
+`%ProgramData%\X32RoutingVisualizer\installation.yaml` in Notepad (the
+`Users` group has write access — **no admin rights needed**), then restart
+the "X32 Routing Visualizer" service (Services app, or `net stop` /
+`net start`). The bridge reads that file at startup and serves it to the web
+app over `GET /api/installation`, so a cabling correction is a file edit plus
+a restart, never a new release.
 
-For a venue-local override that doesn't touch the `%ProgramFiles%` copy —
-useful for a one-off on-site fix before the "real" file gets updated and
-re-released — point `X32_INSTALLATION_FILE` at a copy under
-`%ProgramData%\X32RoutingVisualizer\` (the same `settings.env` file used for
-`X32_HOST` above, e.g.
-`X32_INSTALLATION_FILE=C:\ProgramData\X32RoutingVisualizer\installation.yaml`),
-place your edited copy there by hand, and restart the service. The MSI never
-copies into `%ProgramData%` automatically — an override only takes effect
-once a tech deliberately creates that file. If the file is ever missing or
-invalid, the bridge logs it and falls back automatically to the copy bundled
-in the web app, so the schematic keeps rendering either way.
+That file is created on first run by copying the seed the release ships
+(`%ProgramFiles%\...\config\installation.yaml`), and **only when it does not
+already exist**. Once it is there, no upgrade ever touches it again — which is
+the point: `%ProgramFiles%` is wiped and reinstalled by every upgrade, so
+edits made there would vanish silently, discovered months later by whoever
+next looks at the schematic. Edit the `%ProgramData%` copy, always.
+
+*Upgrading from a version that kept the topology in `%ProgramFiles%`*: copy
+that file to `%ProgramData%\X32RoutingVisualizer\installation.yaml` **before**
+installing the new MSI. First run only seeds when nothing is there, so your
+own wiring stays; without it, the venue gets whatever wiring the release
+shipped.
+
+If the file is missing or invalid, the bridge logs the reason (see the
+service log in the same directory) and the app shows a startup error naming
+the problem. It deliberately does **not** fall back to some other
+installation: a schematic confidently showing the wrong room is worse than
+one that admits it has nothing to show.
+
+`X32_INSTALLATION_FILE` (in `settings.env`, alongside `X32_HOST` above) still
+overrides the location entirely, if you want the file somewhere else.
 
 ## Layout
 

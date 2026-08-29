@@ -22,11 +22,13 @@
  *                        behaviour.
  *   X32_INSTALLATION_FILE override path for installation.yaml, served raw at
  *                        GET /api/installation (issue #3, architecture.md
- *                        §7); unset defaults to config/installation.yaml
- *                        next to the server module (the release layout
- *                        scripts/release-build.mjs stages). A tech points
- *                        this at a ProgramData copy for a venue-local edit
- *                        without a new release.
+ *                        §7); unset defaults to installation.yaml in the
+ *                        bridge's state directory — the same directory as
+ *                        the baseline, %ProgramData%\X32RoutingVisualizer\
+ *                        under the MSI (issue #26). That file is created
+ *                        once from the copy a release ships, and never
+ *                        overwritten afterwards, so a venue's own topology
+ *                        survives every upgrade.
  *   X32_SETTINGS_FILE    optional path to a venue-editable `KEY=VALUE` file
  *                        (plan step 19's MSI override path — WinSW's own
  *                        config sets this to `%ProgramData%\...\settings.env`
@@ -47,7 +49,7 @@ import {
   parseSettingsFileContents,
   resolveBaselineFilePath,
   resolveDemoMode,
-  resolveInstallationFileOverride,
+  resolveInstallationFilePath,
   resolveMixerMode,
   resolvePort,
   resolveWebDistPath,
@@ -81,7 +83,7 @@ async function main(): Promise<void> {
   const demo = resolveDemoMode(env);
   const baselineStore = new DiskBaselineStore(resolveBaselineFilePath(env));
   const webDist = resolveWebDistPath(env);
-  const installationFilePath = resolveInstallationFileOverride(env);
+  const installationFilePath = resolveInstallationFilePath(env);
 
   const mixerClient = createMixerClient(mode, env);
   const bridge = await startBridgeServer({

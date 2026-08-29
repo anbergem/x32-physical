@@ -1,39 +1,38 @@
 /**
- * Loads the venue topology at startup.
+ * Loads the venue topology at startup, from the bridge and nowhere else:
+ * `GET /api/installation` (issue #3, architecture.md §7) serves the raw YAML
+ * of the live `installation.yaml`, the file a tech edits and restarts the
+ * service for — no rebuild required.
  *
- * In a production build, this first tries the bridge's own copy over
- * `GET /api/installation` (issue #3, architecture.md §7) — the file a tech
- * edits and restarts the service for, no rebuild required. If that request
- * fails outright, 404s (missing/invalid file — `apps/x32-bridge/src/
- * installationFile.ts`), or returns a body `parseInstallationYaml` cannot
- * parse, it falls back to the copy Vite bundled as raw text at build time.
- * That bundled copy is the one and only safety net: whatever else breaks,
- * the schematic still renders, never a blank page.
+ * **There is deliberately no bundled fallback** (issue #26). This app used to
+ * ship a build-time `?raw` copy of `config/installation.yaml` and fall back
+ * to it whenever the endpoint failed. That guaranteed *something* rendered,
+ * but the something could be a stale — or, once anyone else clones this repo,
+ * an entirely foreign — installation, presented with exactly the same
+ * confidence as the real one. For a tool whose whole job is answering "which
+ * socket is this channel on?", a confident wrong answer is the worst possible
+ * failure. So a failure here is a failure: `main.tsx` renders the full-page
+ * startup error with `INSTALLATION_ERROR_HINT`, and the operator learns the
+ * bridge is not serving its topology instead of being quietly misled.
  *
- * Under the Vite dev server (`import.meta.env.DEV`) the fetch is skipped
- * entirely and the bundled copy is used directly — mock-mode development
- * needs no bridge running at all, matching how `resolveBridgeUrl` already
- * branches on `DEV`.
+ * Dropping the bundled copy is also what lets `config/installation.yaml` stay
+ * out of the repository entirely (issue #24) — the build no longer needs a
+ * venue's wiring to exist.
  *
- * Either way, `parseInstallationYaml` (the browser-safe entry point of
+ * One code path, dev and production alike: under the Vite dev server the
+ * `/api` proxy in `apps/web/vite.config.ts` forwards this same request to the
+ * bridge's own port, so nothing here branches on `import.meta.env.DEV`.
+ *
+ * `parseInstallationYaml` (the browser-safe entry point of
  * `@x32/installation`) is the only thing that turns text into an
- * `Installation`, so the bridge and the browser can never disagree about
- * what a file means (architecture.md §7's "one parser" decision). The
- * topology is static (CLAUDE.md invariant 1), so this runs exactly once,
- * before the store exists.
- *
- * Failures propagate only when *both* sources are unusable: a broken or
- * invalid bundled fallback must render as a clear startup error, never as a
- * blank page or half a schematic. Bootstrap catches it — see `main.tsx`.
+ * `Installation`, so the bridge and the browser can never disagree about what
+ * a file means (architecture.md §7's "one parser" decision). The topology is
+ * static (CLAUDE.md invariant 1), so this runs exactly once, before the store
+ * exists.
  */
 
 import type { Installation } from "@x32/domain";
 import { parseInstallationYaml } from "@x32/installation";
-
-import installationYaml from "../../../../config/installation.yaml?raw";
-
-/** How the bundled fallback is named in parse/validation error messages. */
-const SOURCE = "config/installation.yaml";
 
 /** The bridge's own copy, served raw (architecture.md §7). */
 const API_PATH = "/api/installation";
@@ -45,41 +44,44 @@ const API_SOURCE = API_PATH;
  * What the operator can do about a failure *from this loader*. It travels with
  * the loader so no other failure inherits advice that does not apply to it.
  */
-export const INSTALLATION_ERROR_HINT = `Fix ${SOURCE} and reload.`;
+export const INSTALLATION_ERROR_HINT =
+  "The venue topology comes from the bridge. Check that the X32 Routing " +
+  "Visualizer service is running, and that its installation.yaml loads " +
+  "(the service log names the problem), then reload this page.";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Parses the bundled copy — the guaranteed-available fallback. */
-function loadBundledInstallation(): Installation {
-  return parseInstallationYaml(installationYaml, SOURCE);
+export interface LoadInstallationOptions {
+  /** Injected for tests — never hits the network otherwise. Defaults to `fetch`. */
+  fetch?: typeof fetch;
 }
 
 /**
- * Tries `GET /api/installation`. Returns the parsed `Installation` on
- * success; returns `null` (never throws) on any failure — a rejected fetch,
- * a non-200 response, or a body that fails to parse — logging which case it
- * was so the fallback is traceable in the console.
+ * Fetches and parses the topology. Throws — with the underlying failure as
+ * `cause`, which `StartupError` renders — when the endpoint cannot be
+ * reached, answers non-2xx (a missing or invalid file on the bridge 404s
+ * here), or returns a body that fails to parse.
  */
-async function tryFetchInstallation(
-  fetchImpl: typeof fetch,
-): Promise<Installation | null> {
+export async function loadInstallation(
+  options: LoadInstallationOptions = {},
+): Promise<Installation> {
+  const fetchImpl = options.fetch ?? fetch;
+
   let response: Response;
   try {
     response = await fetchImpl(API_PATH);
   } catch (error) {
-    console.warn(
-      `x32: could not reach ${API_PATH} (${errorMessage(error)}); using the bundled installation copy instead`,
-    );
-    return null;
+    throw new Error(`Could not reach ${API_PATH} to load the venue topology.`, {
+      cause: error instanceof Error ? error : new Error(String(error)),
+    });
   }
 
   if (!response.ok) {
-    console.warn(
-      `x32: ${API_PATH} returned ${response.status}; using the bundled installation copy instead`,
+    throw new Error(
+      `${API_PATH} returned ${response.status}. The bridge has no usable installation file.`,
     );
-    return null;
   }
 
   const text = await response.text();
@@ -88,31 +90,8 @@ async function tryFetchInstallation(
     console.log(`x32: loaded installation topology from ${API_PATH}`);
     return installation;
   } catch (error) {
-    console.warn(
-      `x32: ${API_PATH} returned a body that failed to parse (${errorMessage(error)}); using the bundled installation copy instead`,
+    throw new Error(
+      `${API_PATH} returned a document that is not a valid installation: ${errorMessage(error)}`,
     );
-    return null;
   }
-}
-
-export interface LoadInstallationOptions {
-  /** Injected for tests — never hits the network otherwise. Defaults to `fetch`. */
-  fetch?: typeof fetch;
-  /** Injected for tests. Defaults to `import.meta.env`. */
-  env?: ImportMetaEnv;
-}
-
-export async function loadInstallation(
-  options: LoadInstallationOptions = {},
-): Promise<Installation> {
-  const env = options.env ?? import.meta.env;
-
-  if (!env.DEV) {
-    const fetchImpl = options.fetch ?? fetch;
-    const fetched = await tryFetchInstallation(fetchImpl);
-    if (fetched !== null) return fetched;
-  }
-
-  console.log(`x32: using the bundled installation copy (${SOURCE})`);
-  return loadBundledInstallation();
 }

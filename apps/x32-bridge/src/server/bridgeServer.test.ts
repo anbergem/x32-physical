@@ -9,7 +9,8 @@ import { mixerChannelId } from "@x32/domain";
 import { MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import type { ServerMessage } from "@x32/protocol";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -674,6 +675,108 @@ describe("GET /api/installation (issue #3)", () => {
       expect(outsideAttempt.headers["content-type"]).not.toBe("text/yaml");
     } finally {
       await rm(webDist, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Seeding at startup (issue #26). The live installation file lives in the
+ * bridge's state directory, which survives MSI upgrades; the copy a release
+ * ships is only ever used to *create* it.
+ */
+describe("seeding the live installation file (issue #26)", () => {
+  /** A different valid document, so "which file won" is never ambiguous. */
+  const SHIPPED_INSTALLATION_YAML = VALID_INSTALLATION_YAML.replace(
+    'label: "Stagebox 1"',
+    'label: "Shipped stagebox"',
+  );
+
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "x32-bridge-seeding-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("first run: creates the live file from the shipped copy and serves it", async () => {
+    const seedPath = join(dir, "shipped", "installation.yaml");
+    const livePath = join(dir, "state", "installation.yaml");
+    await mkdir(join(dir, "shipped"), { recursive: true });
+    await writeFile(seedPath, SHIPPED_INSTALLATION_YAML, "utf8");
+
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      installationFilePath: livePath,
+      installationSeedPath: seedPath,
+    });
+
+    // The state directory did not exist before startup; the live file does now.
+    expect(await readFile(livePath, "utf8")).toBe(SHIPPED_INSTALLATION_YAML);
+
+    const response = await httpGet(bridge.port, "/api/installation");
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(SHIPPED_INSTALLATION_YAML);
+  });
+
+  it("an existing live file is served and left byte-for-byte alone", async () => {
+    const seedPath = join(dir, "shipped", "installation.yaml");
+    const livePath = join(dir, "state", "installation.yaml");
+    await mkdir(join(dir, "shipped"), { recursive: true });
+    await mkdir(join(dir, "state"), { recursive: true });
+    await writeFile(seedPath, SHIPPED_INSTALLATION_YAML, "utf8");
+    await writeFile(livePath, VALID_INSTALLATION_YAML, "utf8");
+
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({
+      mixerClient: mock,
+      port: 0,
+      baselineStore: inMemoryBaselineStore(),
+      installationFilePath: livePath,
+      installationSeedPath: seedPath,
+    });
+
+    // What a venue would lose if seeding ever overwrote: its own topology.
+    expect(await readFile(livePath, "utf8")).toBe(VALID_INSTALLATION_YAML);
+
+    const response = await httpGet(bridge.port, "/api/installation");
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(VALID_INSTALLATION_YAML);
+    expect(response.body).not.toContain("Shipped stagebox");
+  });
+
+  it("no live file and no shipped copy: the bridge still starts, 404s, and serves WS", async () => {
+    const livePath = join(dir, "state", "installation.yaml");
+    const missingSeed = join(dir, "shipped", "installation.yaml");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const mock = new MockMixerClient();
+      bridge = await startBridgeServer({
+        mixerClient: mock,
+        port: 0,
+        baselineStore: inMemoryBaselineStore(),
+        installationFilePath: livePath,
+        installationSeedPath: missingSeed,
+      });
+
+      // Nothing invented on disk when there was nothing to seed from.
+      expect(existsSync(livePath)).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+
+      const response = await httpGet(bridge.port, "/api/installation");
+      expect(response.status).toBe(404);
+
+      const client = await connectClient(bridge.port);
+      const message = asSnapshot(await client.next());
+      expect(message.snapshot.channels).toHaveLength(32);
+    } finally {
+      errorSpy.mockRestore();
     }
   });
 });

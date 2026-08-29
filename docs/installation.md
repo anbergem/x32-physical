@@ -13,16 +13,33 @@ is declared here, and the schematic derives itself from it.
 
 ### Getting started
 
-Copy **[`config/installation.sample.yaml`](../config/installation.sample.yaml)**
-over `config/installation.yaml` and edit it into your own room. The sample is
-a small, deliberately unlike-anyone's installation — one stagebox on AES50-B,
-two panels (one with a dead socket), five destinations across two groups plus
-one ungrouped, and no console device — commented section by section, so every
-field below has a worked line to copy.
+The live file lives in the **bridge's state directory** — the same directory
+as `baseline.json`: `%ProgramData%\X32RoutingVisualizer\installation.yaml` on
+an MSI install, `apps/x32-bridge/data/installation.yaml` in dev (issue #26).
+It is deliberately not inside the installed program folder, which an upgrade
+replaces wholesale.
 
-Nothing in the app, and nothing in the test suite, depends on what
-`config/installation.yaml` contains: replacing it with your own installation
-is a YAML-only edit.
+Two ways to get one:
+
+- **Let first run seed it.** If the file is absent, the bridge copies the
+  read-only copy the release ships into place, logs that it did, and carries
+  on. It only ever *creates* the file — an existing one is never overwritten,
+  by this or any later release, so your edits are safe across upgrades.
+- **Put it there yourself.** Copy
+  **[`config/installation.sample.yaml`](../config/installation.sample.yaml)**
+  to that path and edit it into your own room. The sample is a small,
+  deliberately unlike-anyone's installation — one stagebox on AES50-B, two
+  panels (one with a dead socket), five destinations across two groups plus
+  one ungrouped, and no console device — commented section by section, so
+  every field below has a worked line to copy.
+
+`X32_INSTALLATION_FILE` overrides the location outright if you want the file
+somewhere else.
+
+Nothing in the app, and nothing in the test suite, depends on what your
+installation contains: describing your own room is a YAML-only edit. A venue's
+own `installation.yaml` is not kept in this repository at all — only the
+sample is.
 
 A complete real example, with all its awkward real-world quirks, lives in
 **[venue-betania.md](venue-betania.md)** — the maintainer's own installation.
@@ -52,8 +69,8 @@ layout is a separate concern.
 
 `version: 1` and `version: 2` are accepted and behave **identically**. Every
 v2 addition below is optional, so a v1 file with no output content stays
-valid; `2` is only a signal that the file uses output features — the repo's
-own `config/installation.yaml` is `2` because it does. The parser branches on
+valid; `2` is only a signal that the file uses output features — the sample
+is `2` because it does. The parser branches on
 `version` nowhere, and it is **not** bumped for each new optional field (see
 "Why no version bump" under [`group`](#group--naming-a-part-of-the-installation-issue-20)).
 
@@ -165,8 +182,8 @@ devices:
   arrange the groups however it likes, or ignore them entirely.
 - **Optional everywhere**, including `destination`. A device with no `group`
   is ungrouped, which is an ordinary state, and a file with no groups at all
-  is perfectly valid. The repo's own `config/installation.yaml` leaves the
-  `console` device ungrouped.
+  is perfectly valid. The sample leaves one destination ungrouped on purpose,
+  to show what that looks like.
 - **Free text**, not an enum. Venues differ: "Balcony", "Foyer" or "Under the
   gallery" must be expressible without a schema change.
 - The value is **trimmed**, and an empty or whitespace-only string
@@ -287,11 +304,18 @@ connections:
 ## Editing it at the venue
 
 In production the bridge reads this file at startup and serves it to the web
-app over `GET /api/installation`; the web app's bundled copy is only a
-fallback for when that fails. A cabling correction is therefore a file edit
-plus a service restart, not a new release — see the README's "Changing the
-physical wiring" for the exact steps, including the `X32_INSTALLATION_FILE`
-override for a venue-local copy that a release will not overwrite.
+app over `GET /api/installation`. A cabling correction is therefore a file
+edit plus a service restart, not a new release — see the README's "Changing
+the physical wiring" for the exact steps.
+
+The file to edit is the one in the state directory
+(`%ProgramData%\X32RoutingVisualizer\installation.yaml`), which needs no admin
+rights and which no upgrade overwrites. The copy under `%ProgramFiles%` is a
+seed, and editing it is pointless: the next upgrade deletes it.
+
+There is **no fallback topology**. If the file is missing or invalid the app
+shows a startup error naming the problem rather than rendering some other
+installation — a confident wrong answer is this tool's worst failure mode.
 
 There is deliberately no file watching: a service restart is a predictable
 trigger, and reloading topology under a live service mid-event is a footgun.

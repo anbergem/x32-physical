@@ -4,11 +4,14 @@
  * keeps `"types": []` and picks up no global type surface by accident.
  */
 
-/** `import text from "./file.yaml?raw"` — Vite inlines the file as a string. */
-declare module "*?raw" {
-  const content: string;
-  export default content;
-}
+/*
+ * There is deliberately no `declare module "*?raw"` here. The app used to
+ * inline `config/installation.yaml` at build time as a fallback topology;
+ * issue #26 removed it (a foreign installation rendered confidently is worse
+ * than an honest error) and the build no longer depends on that file
+ * existing. Leaving the declaration out means a re-introduced `?raw` import
+ * fails typecheck rather than quietly bundling a venue's wiring again.
+ */
 
 /** Side-effect stylesheet imports. */
 declare module "*.css";

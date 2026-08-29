@@ -5,6 +5,14 @@ dist/
 .env
 .env.local
 
-# x32-bridge's disk-persisted baseline (architecture.md §7); the default
-# X32_BASELINE_FILE location relative to the bridge process's cwd.
+# x32-bridge's state directory (architecture.md §7): the default
+# X32_BASELINE_FILE / installation.yaml location relative to the bridge
+# process's cwd. Venue data, never repo content.
 apps/x32-bridge/data/
+
+# A venue's own topology (issue #26). The live copy belongs in the bridge's
+# state directory (`%ProgramData%\X32RoutingVisualizer\` under the MSI), where
+# no upgrade can overwrite it; this path is only the seed a release ships, and
+# whatever room you happen to be describing is yours, not the repo's.
+# `config/installation.sample.yaml` stays tracked as the starting point.
+config/installation.yaml

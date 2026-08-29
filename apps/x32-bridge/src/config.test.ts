@@ -1,6 +1,13 @@
+import { join } from "node:path";
+
 import { MockMixerClient } from "@x32/mixer-contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  DEFAULT_INSTALLATION_FILE,
+  INSTALLATION_FILE_NAME,
+  shippedInstallationSeedPath,
+} from "./installationFile";
 import {
   applySettingsFileOverrides,
   createMixerClient,
@@ -12,8 +19,10 @@ import {
   resolveBaselineFilePath,
   resolveDemoMode,
   resolveInstallationFileOverride,
+  resolveInstallationFilePath,
   resolveMixerMode,
   resolvePort,
+  resolveStateDirectory,
   resolveWebDistPath,
   resolveX32HostOverride,
   resolveX32Port,
@@ -142,7 +151,7 @@ describe("resolveWebDistPath", () => {
 });
 
 describe("resolveInstallationFileOverride (issue #3)", () => {
-  it("is unset by default (the module-relative default applies)", () => {
+  it("is unset by default (the state-directory default applies)", () => {
     expect(resolveInstallationFileOverride({})).toBeUndefined();
   });
 
@@ -156,6 +165,46 @@ describe("resolveInstallationFileOverride (issue #3)", () => {
 
   it("treats a blank override as unset", () => {
     expect(resolveInstallationFileOverride({ X32_INSTALLATION_FILE: "   " })).toBeUndefined();
+  });
+});
+
+describe("the state directory (issue #26)", () => {
+  it("defaults to the directory holding the default baseline", () => {
+    expect(resolveStateDirectory({})).toBe("data");
+  });
+
+  it("follows the baseline wherever it is configured — the MSI's ProgramData directory", () => {
+    // POSIX-form path so this asserts the derivation itself on any platform;
+    // on Windows the same call resolves C:\ProgramData\X32RoutingVisualizer.
+    expect(
+      resolveStateDirectory({ X32_BASELINE_FILE: "/var/lib/x32/baseline.json" }),
+    ).toBe("/var/lib/x32");
+  });
+});
+
+describe("resolveInstallationFilePath (issue #26)", () => {
+  it("the override wins when it is set", () => {
+    expect(
+      resolveInstallationFilePath({
+        X32_INSTALLATION_FILE: "/etc/x32/venue.yaml",
+        X32_BASELINE_FILE: "/var/lib/x32/baseline.json",
+      }),
+    ).toBe("/etc/x32/venue.yaml");
+  });
+
+  it("with no override, it is installation.yaml in the state directory", () => {
+    expect(
+      resolveInstallationFilePath({ X32_BASELINE_FILE: "/var/lib/x32/baseline.json" }),
+    ).toBe(join("/var/lib/x32", INSTALLATION_FILE_NAME));
+  });
+
+  it("with neither set, it is the documented dev default under data/", () => {
+    expect(resolveInstallationFilePath({})).toBe(DEFAULT_INSTALLATION_FILE);
+    expect(DEFAULT_INSTALLATION_FILE).toBe(join("data", "installation.yaml"));
+  });
+
+  it("is never the copy next to the server module — that one only seeds", () => {
+    expect(resolveInstallationFilePath({})).not.toBe(shippedInstallationSeedPath());
   });
 });
 
