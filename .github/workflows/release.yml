@@ -56,8 +56,6 @@ jobs:
 
       - run: pnpm test
 
-      - run: pnpm release:build
-
       - name: Derive version
         id: version
         shell: bash
@@ -74,6 +72,8 @@ jobs:
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - run: pnpm release:build --version "${{ steps.version.outputs.version }}"
 
       - name: Download and verify the portable Node.js runtime (win-x64)
         shell: bash
@@ -200,6 +200,28 @@ jobs:
             exit 1
           }
           Write-Host "Service is registered and Running (display name: $($svc.DisplayName))."
+
+      - name: Assert the installed VERSION matches the release
+        shell: pwsh
+        run: |
+          # The bug this guards (issue #30): release-build.mjs used to stamp
+          # VERSION from the root package.json, which is permanently 0.0.0, so
+          # every installed build advertised an update to the release it was
+          # already running. Asserted before the uninstall, which removes the
+          # file along with the rest of INSTALLFOLDER.
+          $versionFile = "C:\Program Files\X32 Routing Visualizer\VERSION"
+          if (-not (Test-Path $versionFile)) {
+            Write-Error "No VERSION file at '$versionFile' after install."
+            exit 1
+          }
+          $content = (Get-Content $versionFile -Raw).Trim()
+          $expected = "${{ needs.build.outputs.version }}"
+          Write-Host "Installed VERSION: '$content' (expected prefix: '$expected+')"
+          if (-not $content.StartsWith("$expected+")) {
+            Write-Error "Installed VERSION '$content' does not start with '$expected+' — the release build stamped the wrong version."
+            exit 1
+          }
+          Write-Host "Installed VERSION names the release being built, as expected."
 
       - name: Uninstall silently
         shell: pwsh

@@ -29,6 +29,15 @@ describe("isNewerVersion", () => {
     ["0.1.0", "not-a-version", false],
     ["garbage", "garbage", false],
     ["0.1.0", "v0.2.0", true], // leading "v" tolerated
+    // The staged VERSION shapes, in the exact forms release-build.mjs writes
+    // (issue #30). The `dev+<hash>` fallback must carry no parseable triple,
+    // and a released build must not offer an update to its own version.
+    ["dev+abc1234", "0.1.2", false],
+    ["0.1.2+abc1234", "0.1.2", false],
+    ["0.1.2+abc1234", "0.2.0", true],
+    // The regression itself: the old fallback did parse, as [0,0,0], so every
+    // published release compared as newer on every installed build.
+    ["0.0.0+abc1234", "0.1.2", true],
   ])("isNewerVersion(%j, %j) -> %j", (local, remote, expected) => {
     expect(isNewerVersion(local, remote)).toBe(expected);
   });
@@ -73,6 +82,23 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 }
 
 describe("checkForUpdate", () => {
+  it("reports nothing for an unversioned dev build", async () => {
+    // `dev+<hash>` is what `release:build` stages without `--version`
+    // (issue #30). It is not `null`, so the fetch still happens — the release
+    // is simply never newer than a local version with no `x.y.z` in it.
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({ tag_name: "v9.9.9", html_url: "https://github.com/x/y/releases/tag/v9.9.9" }),
+    );
+
+    const result = await checkForUpdate({
+      localVersion: "dev+abc1234",
+      repo: "x/y",
+      fetchImpl,
+    });
+
+    expect(result).toBeNull();
+  });
+
   it("reports a strictly newer release", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({ tag_name: "v0.2.0", html_url: "https://github.com/x/y/releases/tag/v0.2.0" }),

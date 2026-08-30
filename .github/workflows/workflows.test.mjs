@@ -44,6 +44,46 @@ describe("release.yml", () => {
     expect(publishNeeds).toContain("build");
     expect(publishNeeds).toContain("verify");
   });
+
+  /*
+   * Issue #30. The staged VERSION must name the release being built, which
+   * takes three pieces of wiring that a reordering could silently break:
+   * the version has to be derived before the build that consumes it, it has
+   * to actually be passed, and the installed result has to be asserted while
+   * the install still exists. Ordering is the part unit tests cannot see, so
+   * it is asserted here on step indices.
+   */
+  it("derives the version before staging, and passes it to release:build", async () => {
+    const raw = await readFile(join(HERE, "release.yml"), "utf8");
+    const doc = parse(raw);
+    const steps = doc.jobs.build.steps;
+
+    const deriveIndex = steps.findIndex((step) => step.name === "Derive version");
+    const buildIndex = steps.findIndex((step) => step.run?.includes("pnpm release:build"));
+
+    expect(deriveIndex).toBeGreaterThanOrEqual(0);
+    expect(buildIndex).toBeGreaterThanOrEqual(0);
+    expect(deriveIndex).toBeLessThan(buildIndex);
+    expect(steps[buildIndex].run).toContain("--version");
+    expect(steps[buildIndex].run).toContain("steps.version.outputs.version");
+  });
+
+  it("asserts the installed VERSION while the install still exists", async () => {
+    const raw = await readFile(join(HERE, "release.yml"), "utf8");
+    const doc = parse(raw);
+    const steps = doc.jobs.verify.steps;
+
+    const assertIndex = steps.findIndex(
+      (step) => step.name === "Assert the installed VERSION matches the release",
+    );
+    const installIndex = steps.findIndex((step) => step.name === "Install silently");
+    const uninstallIndex = steps.findIndex((step) => step.name === "Uninstall silently");
+
+    expect(assertIndex).toBeGreaterThanOrEqual(0);
+    expect(installIndex).toBeLessThan(assertIndex);
+    expect(assertIndex).toBeLessThan(uninstallIndex);
+    expect(steps[assertIndex].run).toContain("needs.build.outputs.version");
+  });
 });
 
 describe("ci.yml", () => {

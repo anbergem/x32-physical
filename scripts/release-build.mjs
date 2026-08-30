@@ -8,7 +8,21 @@
  *     web/               the web app's Vite build, VITE_DEFAULT_MODE=live
  *     config/installation.yaml   the installation *seed*: the copy first run
  *                                creates the live file from (issue #26)
- *     VERSION            package.json version + git short hash
+ *     VERSION            release version + git short hash (see below)
+ *
+ * `VERSION` is `<x.y.z>+<git short hash>` when `--version` is given — the
+ * release tag stripped of its leading `v`, passed in by
+ * `.github/workflows/release.yml`'s `Derive version` step, the same value the
+ * MSI's `ProductVersion` is built from. Without `--version` (any local
+ * `pnpm release:build`) it is `dev+<git short hash>`, which deliberately
+ * contains no `x.y.z` triple: `apps/x32-bridge/src/updateCheck.ts` can then
+ * find no version to compare, so the update check silently disables itself
+ * instead of treating the build as ancient.
+ *
+ * It used to read the root `package.json` version. That is permanently
+ * `0.0.0` (releases are cut by git tag, nothing bumps it), so every installed
+ * build compared as older than every published release and permanently
+ * advertised an update to the version it was already running (issue #30).
  *
  * Run the staged server with `node dist/release/app/server.mjs`, pointing
  * `X32_WEB_DIST` at `dist/release/app/web` (or leave it — `main.ts` doesn't
@@ -26,10 +40,12 @@
 import { execFileSync } from "node:child_process";
 import { build } from "esbuild";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { assertSemverTriple } from "./lib/version.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const RELEASE_DIR = join(ROOT, "dist", "release", "app");
@@ -122,20 +138,46 @@ async function copyInstallationYaml() {
   console.log(`release:build: staged the installation seed from ${relative(ROOT, source)}`);
 }
 
-async function writeVersionFile() {
-  const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
-  let gitHash = "unknown";
+/**
+ * The string to stage as `VERSION` (without its trailing newline).
+ *
+ * `--version x.y.z` -> `x.y.z+<hash>`; omitted -> `dev+<hash>`. An invalid
+ * `--version` throws rather than warning: a release that silently stages the
+ * wrong version is the failure this whole path exists to prevent (issue #30).
+ */
+export function resolveStagedVersion(argv, gitHash) {
+  const index = argv.indexOf("--version");
+  if (index === -1) return `dev+${gitHash}`;
+
+  const version = argv[index + 1];
+  if (version === undefined) {
+    throw new Error(
+      'release:build: --version was given without a value (expected `--version x.y.z`).',
+    );
+  }
+
+  assertSemverTriple(version, "release:build");
+  return `${version}+${gitHash}`;
+}
+
+function gitShortHash() {
   try {
-    gitHash = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT })
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT })
       .toString()
       .trim();
   } catch (error) {
     console.warn(`release:build: could not determine git hash: ${error.message}`);
+    return "unknown";
   }
-  await writeFile(join(RELEASE_DIR, "VERSION"), `${pkg.version}+${gitHash}\n`);
 }
 
-async function main() {
+async function writeVersionFile(argv) {
+  const staged = resolveStagedVersion(argv, gitShortHash());
+  await writeFile(join(RELEASE_DIR, "VERSION"), `${staged}\n`);
+  console.log(`release:build: staged VERSION ${staged}`);
+}
+
+async function main(argv) {
   await rm(join(ROOT, "dist", "release"), { recursive: true, force: true });
   await mkdir(RELEASE_DIR, { recursive: true });
 
@@ -143,12 +185,18 @@ async function main() {
   await bundleBridge();
   await copyWebDist();
   await copyInstallationYaml();
-  await writeVersionFile();
+  await writeVersionFile(argv);
 
   console.log(`release:build: staged ${RELEASE_DIR}`);
 }
 
-main().catch((error) => {
-  console.error("release:build: failed:", error);
-  process.exit(1);
-});
+// Guarded like `build-msi.mjs` so importing this module (its tests import
+// `resolveStagedVersion`) never kicks off a real release build.
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error("release:build: failed:", error);
+    process.exit(1);
+  });
+}

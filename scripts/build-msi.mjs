@@ -25,6 +25,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildHarvestXml } from "./generate-msi-harvest.mjs";
+import { assertSemverTriple } from "./lib/version.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const MSI_SOURCE_DIR = join(ROOT, "deploy", "msi");
@@ -39,15 +40,6 @@ export function parseArgs(argv) {
     }
   }
   return args;
-}
-
-/** `x.y.z` only — MSI `ProductVersion` (via the `Package/@Version` field) requires a numeric dotted version; a `v` prefix or pre-release suffix (`1.2.3-rc1`) is invalid and must be stripped/rejected before this point. */
-export function assertSemverTriple(version) {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(
-      `build-msi: --version "${version}" is not a plain x.y.z version (MSI ProductVersion requires numeric dotted components; strip any leading "v" or pre-release suffix before calling this script).`,
-    );
-  }
 }
 
 async function main() {

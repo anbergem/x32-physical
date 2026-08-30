@@ -5,14 +5,27 @@
  * download, no self-replace, ever. The tech downloads and double-clicks the
  * new MSI by hand.
  *
- * `readLocalVersion` reads the staged `VERSION` file (plan step 16:
- * `<package.json version>+<git short hash>`) from a path resolved relative to
- * this module's own `import.meta.url` — after `scripts/release-build.mjs`
- * bundles the bridge into `server.mjs`, that file and `VERSION` sit side by
- * side in the release directory. In dev (`tsx` running this file straight out
- * of `src/`) no `VERSION` file exists there, so the local version is
- * `null` and checking is silently disabled — no noise, matching the "no
- * internet at the venue" failure mode.
+ * `readLocalVersion` reads the staged `VERSION` file from a path resolved
+ * relative to this module's own `import.meta.url` — after
+ * `scripts/release-build.mjs` bundles the bridge into `server.mjs`, that file
+ * and `VERSION` sit side by side in the release directory.
+ *
+ * `VERSION` holds `<release version>+<git short hash>` for a real release —
+ * the release tag the workflow passes to `release:build --version`, the same
+ * value the MSI's `ProductVersion` is built from. A local `pnpm release:build`
+ * with no `--version` stages `dev+<git short hash>` instead, which carries no
+ * `x.y.z` for `parseVersionTriple` to find, so `checkForUpdate` returns `null`
+ * and an unversioned build never advertises an update. In dev (`tsx` running
+ * this file straight out of `src/`) there is no `VERSION` file at all, so the
+ * local version is `null` and checking is silently disabled the same way — no
+ * noise, matching the "no internet at the venue" failure mode.
+ *
+ * That "no triple means disabled" property is load-bearing, not incidental.
+ * `VERSION` used to be stamped from the root `package.json` version, which is
+ * permanently `0.0.0`, so every installed build read as older than every
+ * published release and permanently offered an update to the release it was
+ * already running (issue #30). The fallback must therefore never be a
+ * parseable version.
  *
  * `X32_UPDATE_REPO` (default `anbergem/x32-physical`) selects the GitHub
  * repo; set it to `""`, or set `X32_UPDATE_CHECK=0`, to disable checking

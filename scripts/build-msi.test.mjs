@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { assertSemverTriple, parseArgs } from "./build-msi.mjs";
+import { parseArgs } from "./build-msi.mjs";
+import { assertSemverTriple } from "./lib/version.mjs";
 
 // build-msi.mjs's `main()` runs `wix build`, which only exists on Windows —
 // this test file exercises only its pure, platform-independent helpers. The
