@@ -174,6 +174,7 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
   it("applies a previously persisted baseline on connect", async () => {
     const persisted: MixerSnapshot = {
       channels: [{ channel: CH7, name: "Overhead R", source: { kind: "aes50", bus: "A", channel: 7 } }],
+      outputs: [],
       selectedChannel: null,
     };
     const freshStore = createAppStore(exampleRig());
@@ -194,7 +195,7 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
     expect(store.getState().baseline).toBeNull();
   });
 
-  it("saveBaseline persists the current channels/selection and updates the store", () => {
+  it("saveBaseline persists the current channels/outputs/selection and updates the store", () => {
     const baselineStore = fakeBaselineStore();
     const localGateway = new LocalMockGateway(store, mock, baselineStore);
 
@@ -204,8 +205,13 @@ describe("LocalMockGateway baseline persistence (architecture.md §7)", () => {
     const state = store.getState();
     expect(state.baseline).toEqual({
       channels: state.channels,
+      // Outputs are part of what "correct" means (issue #31). Without them the
+      // baseline blesses only the input half and an output re-patch would
+      // never register as a deviation.
+      outputs: state.outputs,
       selectedChannel: CH12,
     });
+    expect(state.baseline?.outputs.length).toBeGreaterThan(0);
     // Round-trips through the store: a fresh gateway reading the same store
     // sees exactly what was just saved.
     expect(baselineStore.load()).toEqual(state.baseline);

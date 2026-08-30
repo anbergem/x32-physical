@@ -69,6 +69,7 @@ describe("createAppStore", () => {
     store.getState().applySnapshot(
       {
         channels: [channel(12, "Keys R", 8)],
+        outputs: [],
         selectedChannel: CH12,
       },
       "connected",
@@ -277,7 +278,7 @@ describe("meters slice", () => {
     store.getState().setConnection("disconnected");
     store.getState().setChannelName(CH7, "Renamed");
     store.getState().setChannelSource(CH12, { kind: "aes50", bus: "A", channel: 9 });
-    store.getState().setBaseline({ channels: [], selectedChannel: null });
+    store.getState().setBaseline({ channels: [], outputs: [], selectedChannel: null });
 
     expect(store.getState().meterLevels).toBe(before);
   });
@@ -285,7 +286,7 @@ describe("meters slice", () => {
 
 describe("baseline / discrepancies slice", () => {
   function baselineSnapshot(channels: MixerChannelState[]): MixerSnapshot {
-    return { channels, selectedChannel: null };
+    return { channels, outputs: [], selectedChannel: null };
   }
 
   it("starts with no baseline and no discrepancies", () => {
@@ -394,7 +395,7 @@ describe("baseline / discrepancies slice", () => {
       .setBaseline(baselineSnapshot([channel(7, "OH R", 7), channel(12, "Keys R", 12)]));
 
     store.getState().applySnapshot(
-      { channels: [channel(12, "Keys R", 9)], selectedChannel: null },
+      { channels: [channel(12, "Keys R", 9)], outputs: [], selectedChannel: null },
       "connected",
     );
 
@@ -474,6 +475,7 @@ describe("aes50 slice", () => {
     const store = createStore();
     const snapshot: MixerSnapshot = {
       channels: [channel(7, "OH R", 7), channel(12, "Keys R", 12)],
+      outputs: [],
       selectedChannel: null,
       aes50LinkState: {
         buses: [
@@ -505,6 +507,7 @@ describe("aes50 slice", () => {
     const store = createStore();
     const snapshot: MixerSnapshot = {
       channels: [channel(7, "OH R", 7), channel(12, "Keys R", 12)],
+      outputs: [],
       selectedChannel: null,
     };
 
@@ -605,7 +608,7 @@ describe("updateAvailable slice", () => {
 
     store.getState().setChannelName(CH7, "Overhead Right");
     store.getState().setChannelSource(CH12, { kind: "aes50", bus: "A", channel: 20 });
-    store.getState().setBaseline({ channels: [channel(7, "OH R", 7)], selectedChannel: null });
+    store.getState().setBaseline({ channels: [channel(7, "OH R", 7)], outputs: [], selectedChannel: null });
     store.getState().setMeterLevels(new Array(32).fill(0.1));
 
     expect(store.getState().updateAvailable).toBe(before);
@@ -678,7 +681,7 @@ describe("outputs slice + outputRouteIndex (issue #11)", () => {
     const store = createStore();
 
     store.getState().applySnapshot(
-      { channels: [channel(7, "OH R", 7)], selectedChannel: null },
+      { channels: [channel(7, "OH R", 7)], outputs: [], selectedChannel: null },
       "connected",
     );
 

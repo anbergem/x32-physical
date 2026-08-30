@@ -100,7 +100,14 @@ export class LocalMockGateway implements MixerGateway {
    */
   saveBaseline(): void {
     const state = this.#store.getState();
-    const snapshot = { channels: state.channels, selectedChannel: state.selectedChannel };
+    const snapshot = {
+      channels: state.channels,
+      // Outputs belong in the baseline too: without them "save as correct"
+      // blesses only the input half, and an output re-patch would never show
+      // up as a deviation (issue #31 made this omission a type error).
+      outputs: state.outputs,
+      selectedChannel: state.selectedChannel,
+    };
     this.#baselineStore.save(snapshot);
     applyBaseline(this.#store, snapshot);
   }

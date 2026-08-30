@@ -260,11 +260,20 @@ function parseMixerOutputState(value: unknown, context: string): MixerOutputStat
  * parses. Unlike `aes50Chain` (normalized to `[]`), `undefined` is preserved
  * rather than coerced, matching the field's own optionality on `MixerSnapshot`.
  */
+/**
+ * `MixerSnapshot.outputs` is a required field (issue #31) and is required on
+ * the wire and on disk too: an absent `outputs` is an error, not an empty
+ * list. Backward compatibility with baselines written before the field
+ * existed was explicitly waived by the project owner (2026-08-30) — such a
+ * baseline is now rejected on load and simply re-blessed with "Save as
+ * correct". Silently substituting `[]` would be worse than failing: it would
+ * present a baseline that claims every output is unrouted, and every real
+ * output would then read as a deviation.
+ */
 function parseMixerOutputList(
   value: unknown,
   context: string,
-): MixerOutputState[] | undefined {
-  if (value === undefined) return undefined;
+): MixerOutputState[] {
   if (!Array.isArray(value)) throw malformed(context, "an array", value);
   return value.map((output, index) => parseMixerOutputState(output, `${context}[${index}]`));
 }

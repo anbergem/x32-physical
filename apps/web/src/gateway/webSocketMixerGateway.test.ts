@@ -42,7 +42,7 @@ function snapshotMessage() {
   return {
     type: "snapshot",
     mixerConnection: "connected",
-    snapshot: { channels: [], selectedChannel: null },
+    snapshot: { channels: [], outputs: [], selectedChannel: null },
     baseline: null,
   };
 }

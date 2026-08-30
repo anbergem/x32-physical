@@ -105,10 +105,14 @@ actual cabling. The bus/matrix sources ("Fed from" below) are live mixer
 configuration, read from the console at runtime, and are not recorded in the
 static topology file — only the physical-output → destination cabling is.
 
+The "Fed from" column below was **read off the console** on 2026-08-30 (the
+first session in which live output routing reached the app — see issue #31),
+superseding the values inferred from the patch sheet:
+
 | Out | Name | Fed from | Emerges at |
 |---|---|---|---|
-| 1 | Sidesal | Matrix | console XLR 1 |
-| 2 | Vip Rom | Matrix | console XLR 2 |
+| 1 | Sidesal | Matrix 3 | console XLR 1 |
+| 2 | Vip Rom | Matrix 4 | console XLR 2 |
 | 6 | Bak Høyre (rear right) | Bus 5 | Stagebox H out 6 |
 | 7 | Piano Høyre | Bus 3 | Stagebox H out 7 |
 | 8 | Front Høyre | Bus 2 | Stagebox H out 8 |
@@ -116,10 +120,20 @@ static topology file — only the physical-output → destination cabling is.
 | 12 | Piano Venstre | Bus 3 | Stagebox V out 4 |
 | 13 | Front Venstre | Bus 1 | Stagebox V out 5 |
 | 14 | Sub | **M/C** | Stagebox V out 6 |
-| 15 | Main Left | **Main L** | Stagebox V out 7 |
-| 16 | Main Right | **Main R** | Stagebox V out 8 |
+| 15 | Main Left | **Matrix 5** | Stagebox V out 7 |
+| 16 | Main Right | **Matrix 6** | Stagebox V out 8 |
 
-Outputs 3, 4, 5, 9, 10 are unused.
+Outputs 3, 4, 5, 9, 10 read OFF, confirming the sheet's "unused".
+
+**The mains reach the house through Matrix 5/6, not Main L/R directly.** The
+patch sheet recorded the *intent* ("15 and 16 are Main L/R"), which is how the
+room is described; the desk implements it through a matrix pair, the usual way
+to get zone level/EQ/delay on the mains. Both statements are true at different
+levels of description, and the console's is the one this table records.
+
+Nothing here lives in `installation.yaml`, and nothing here needed changing in
+the app — the schematic reads these values from the console at runtime and was
+already reporting them correctly.
 
 ### The output-block assignment — the hop OSC cannot see
 

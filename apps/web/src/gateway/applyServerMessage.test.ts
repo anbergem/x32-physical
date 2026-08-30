@@ -29,6 +29,7 @@ function snapshotMessage(): Extract<ServerMessage, { type: "snapshot" }> {
     type: "snapshot",
     mixerConnection: "connected",
     snapshot: {
+      outputs: [],
       selectedChannel: null,
       channels: Array.from({ length: 32 }, (_, index) => ({
         channel: mixerChannelId(index + 1),

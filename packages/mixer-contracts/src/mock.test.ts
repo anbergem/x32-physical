@@ -200,6 +200,7 @@ describe("MockMixerClient simulation API", () => {
           source: { kind: "aes50", bus: "A", channel: 12 },
         },
       ],
+      outputs: [],
       selectedChannel: null,
     };
     const client = new MockMixerClient(snapshot);

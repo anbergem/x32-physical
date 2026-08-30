@@ -13,6 +13,7 @@ function validSnapshot(): MixerSnapshot {
       { channel: CH12, name: "Keys L", source: { kind: "aes50", bus: "A", channel: 12 } },
       { channel: CH28, name: "Playback", source: { kind: "card", input: 1 } },
     ],
+    outputs: [],
     selectedChannel: null,
     aes50LinkState: null,
     aes50Chain: [],
@@ -116,6 +117,7 @@ describe("parseServerMessage: snapshot", () => {
         type: "snapshot",
         snapshot: {
           channels: [{ channel: 1, name: "CH1", source }],
+          outputs: [],
           selectedChannel: null,
           aes50LinkState: null,
           aes50Chain: [],
@@ -132,7 +134,7 @@ describe("parseServerMessage: snapshot", () => {
   it("re-brands channel ids through the domain constructor", () => {
     const message = {
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: 12 },
+      snapshot: { channels: [], outputs: [], selectedChannel: 12 },
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: null,
@@ -141,7 +143,7 @@ describe("parseServerMessage: snapshot", () => {
     const parsed = parseServerMessage(message);
     expect(parsed).toEqual({
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
+      snapshot: { channels: [], outputs: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
       mixerConnection: "connected",
       baseline: null,
       updateAvailable: null,
@@ -152,27 +154,39 @@ describe("parseServerMessage: snapshot", () => {
   it("re-brands channel ids inside the baseline too", () => {
     const message = {
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: null },
+      snapshot: { channels: [], outputs: [], selectedChannel: null },
       mixerConnection: "connected",
-      baseline: { channels: [], selectedChannel: 12 },
+      baseline: { channels: [], outputs: [], selectedChannel: 12 },
       updateAvailable: null,
     };
 
     const parsed = parseServerMessage(message);
     expect(parsed).toEqual({
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: null, aes50LinkState: null, aes50Chain: [] },
+      snapshot: { channels: [], outputs: [], selectedChannel: null, aes50LinkState: null, aes50Chain: [] },
       mixerConnection: "connected",
-      baseline: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
+      baseline: { channels: [], outputs: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
       updateAvailable: null,
       installationVersion: null,
     });
   });
 
+  it("still rejects an outputs field that is present but not an array", () => {
+    const message = {
+      type: "snapshot",
+      snapshot: { channels: [], outputs: "nope", selectedChannel: null },
+      mixerConnection: "connected",
+      baseline: null,
+      updateAvailable: null,
+    };
+
+    expect(() => parseServerMessage(message)).toThrow(/outputs/);
+  });
+
   it("rejects a channel id out of the 1-32 range", () => {
     const message = {
       type: "snapshot",
-      snapshot: { channels: [], selectedChannel: 99 },
+      snapshot: { channels: [], outputs: [], selectedChannel: 99 },
       mixerConnection: "connected",
       baseline: null,
     };
@@ -369,6 +383,7 @@ describe("parseServerMessage: snapshot outputs (issue #11)", () => {
   function baseSnapshot() {
     return {
       channels: [],
+      outputs: [],
       selectedChannel: null,
       aes50LinkState: null,
       aes50Chain: [],
@@ -392,15 +407,21 @@ describe("parseServerMessage: snapshot outputs (issue #11)", () => {
     expect(parsed.type === "snapshot" ? parsed.snapshot.outputs : undefined).toEqual(outputs);
   });
 
-  it("tolerates a snapshot with no outputs field (older-peer compatibility)", () => {
+  it("rejects a snapshot with no outputs field", () => {
+    // `outputs` is required on the wire and on disk (issue #31). Older-peer
+    // tolerance was deliberately dropped: substituting `[]` would present a
+    // baseline claiming every output is unrouted, so every real output would
+    // read as a deviation — worse than failing loudly. A baseline blessed
+    // before the field existed is re-saved with "Save as correct".
+    const { outputs: _omitted, ...withoutOutputs } = baseSnapshot();
     const message = {
       type: "snapshot",
-      snapshot: baseSnapshot(),
+      snapshot: withoutOutputs,
       mixerConnection: "connected",
       baseline: null,
     };
 
-    expect(() => parseServerMessage(message)).not.toThrow();
+    expect(() => parseServerMessage(message)).toThrow(/outputs/);
   });
 
   it("rejects a malformed output entry inside the snapshot", () => {
@@ -436,12 +457,12 @@ describe("parseServerMessage: baseline-changed", () => {
   it("re-brands channel ids inside the baseline", () => {
     const message = {
       type: "baseline-changed",
-      baseline: { channels: [], selectedChannel: 12 },
+      baseline: { channels: [], outputs: [], selectedChannel: 12 },
     };
 
     expect(parseServerMessage(message)).toEqual({
       type: "baseline-changed",
-      baseline: { channels: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
+      baseline: { channels: [], outputs: [], selectedChannel: CH12, aes50LinkState: null, aes50Chain: [] },
     });
   });
 

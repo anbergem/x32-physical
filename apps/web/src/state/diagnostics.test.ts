@@ -89,6 +89,7 @@ function statusOf(store: AppStore, endpoint: EndpointId) {
 function driftedBaseline(): MixerSnapshot {
   const channels = liveChannels();
   return {
+    outputs: [],
     selectedChannel: null,
     channels: channels.map((channel) => {
       if (channel.channel === CH1) {
@@ -116,7 +117,7 @@ describe("selectDiagnosticStatus · no baseline / no drift", () => {
 
   it("is 'none' everywhere when the baseline matches live state exactly", () => {
     const store = diagnosticsStore();
-    const matching: MixerSnapshot = { channels: liveChannels(), selectedChannel: null };
+    const matching: MixerSnapshot = { channels: liveChannels(), outputs: [], selectedChannel: null };
 
     store.getState().setBaseline(matching);
 

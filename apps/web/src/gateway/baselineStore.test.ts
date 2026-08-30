@@ -30,6 +30,7 @@ function snapshot(): MixerSnapshot {
         source: { kind: "aes50", bus: "A", channel: 3 },
       },
     ],
+    outputs: [],
     selectedChannel: null,
     aes50LinkState: null,
     aes50Chain: [],

@@ -24,12 +24,17 @@ export interface MixerSnapshot {
   /** Exactly 32 entries — the X32's input channels, 1-based. */
   channels: MixerChannelState[];
   /**
-   * Exactly 16 entries — the X32's output slots, 1-based (issue #11). A
-   * client that predates this field (an older bridge, a stored baseline)
-   * omits it entirely; consumers treat that the same as `[]` (§Resolution
-   * pattern already established for `aes50LinkState`/`aes50Chain`).
+   * Exactly 16 entries — the X32's output slots, 1-based (issue #11).
+   *
+   * Deliberately **required**. It was optional so that a snapshot written by
+   * a bridge predating the field could still be read, but that optionality is
+   * what let issue #31 ship: `cloneSnapshot` omitted `outputs` and the
+   * compiler had nothing to say, so live output routing silently never
+   * reached the browser. Requiring it makes that class of omission a type
+   * error at every construction site (the project owner waived the
+   * backward-compatibility concern, 2026-08-30).
    */
-  outputs?: MixerOutputState[];
+  outputs: MixerOutputState[];
   /** The channel SELECTed on the physical console, if any. */
   selectedChannel: MixerChannelId | null;
   /**

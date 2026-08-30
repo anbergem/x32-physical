@@ -394,6 +394,7 @@ describe("baseline persistence (architecture.md §7)", () => {
       channels: [
         { channel: CH12, name: "Only one", source: { kind: "aes50", bus: "A", channel: 1 } },
       ],
+      outputs: [],
       selectedChannel: null,
     });
     const filePath = baselineFilePath();
