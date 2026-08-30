@@ -20,7 +20,7 @@ import type { MixerSnapshot } from "@x32/mixer-contracts";
 import { parseMixerSnapshot } from "@x32/protocol";
 
 export interface BaselineStore {
-  /** `null` when no baseline has ever been saved, or the file is corrupt. */
+  /** `null` when no baseline has ever been saved, or the file could not be read. */
   load(): Promise<MixerSnapshot | null>;
   save(snapshot: MixerSnapshot): Promise<void>;
 }
@@ -61,7 +61,9 @@ export class DiskBaselineStore implements BaselineStore {
       return parseMixerSnapshot(parsed, "baseline file");
     } catch (error) {
       console.warn(
-        `x32-bridge: baseline file ${this.#filePath} is corrupt (${errorMessage(error)}) — starting with no baseline`,
+        `x32-bridge: could not read the baseline file ${this.#filePath} (${errorMessage(error)}) — ` +
+          `starting with no baseline. This is expected after an upgrade that added a field: ` +
+          `re-save it with "Save as correct". Nothing was written or deleted.`,
       );
       return null;
     }
