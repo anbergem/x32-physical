@@ -41,6 +41,7 @@ import type {
   MixerChannelState,
   MixerOutputSourceRef,
   MixerOutputState,
+  MixerSourceMeterLevels,
   MixerSourceRef,
   OutputRouteIndex,
   RouteIndex,
@@ -145,6 +146,18 @@ export interface AppState {
   // those setters ever touch it (`store.test.ts` asserts both directions).
   meterLevels: number[] | null;
 
+  /**
+   * Bus/matrix levels feeding the outputs (issue #36) — the output side's
+   * equivalent of `meterLevels`, on the same fast fourth path and with the
+   * same disjointness guarantee.
+   *
+   * `null` means **not metered**, never silent: the bridge omits it entirely
+   * when the adapter cannot read the console's internal strips. Renderers
+   * must show nothing in that case rather than an empty bar, so a working
+   * speaker is never drawn as dead.
+   */
+  sourceMeterLevels: MixerSourceMeterLevels | null;
+
   // Config lifecycle (issue #17): `/-stat/aes50/state` and
   // `/-stat/aes50/[A,B]` change on the order of "console reboots or a box
   // is swapped" — never the fast runtime path, and neither ever touches
@@ -222,6 +235,7 @@ export interface AppActions {
 
   // Fourth path — never composed with any other slice's patch (architecture.md §5).
   setMeterLevels(levels: number[] | null): void;
+  setSourceMeterLevels(levels: MixerSourceMeterLevels | null): void;
 
   // Config lifecycle (issue #17) — never touches routeIndex/discrepancies.
   setAes50LinkState(state: Aes50LinkState | null): void;
@@ -429,6 +443,7 @@ export function createAppStore(
     editingDevice: null,
     installationEditError: null,
     meterLevels: null,
+    sourceMeterLevels: null,
     aes50LinkState: null,
     ...aes50ChainPatch(installation, []),
 
@@ -603,6 +618,11 @@ export function createAppStore(
      */
     setMeterLevels(levels) {
       set({ meterLevels: levels });
+    },
+
+    /** Same fourth-path discipline as `setMeterLevels`: one key, no equality check. */
+    setSourceMeterLevels(levels) {
+      set({ sourceMeterLevels: levels });
     },
 
     /** Never touches routeIndex/discrepancies — config-lifecycle only. */

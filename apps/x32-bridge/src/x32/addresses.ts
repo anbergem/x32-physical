@@ -85,6 +85,16 @@ export function metersReplyAddress(): string {
   return "/meters/1";
 }
 
+/**
+ * The second meter block we subscribe to (issue #36): the console's internal
+ * strips, from which the bus and matrix levels that feed output slots are
+ * taken. Kept as a separate subscription from `/meters/1` so the verified
+ * input-channel meter path is untouched by output metering.
+ */
+export function sourceMetersReplyAddress(): string {
+  return "/meters/0";
+}
+
 export type ParsedAddress =
   | { kind: "xinfo" }
   | { kind: "routswitch" }
@@ -96,6 +106,7 @@ export type ParsedAddress =
   | { kind: "output-main-src"; output: number }
   | { kind: "out-routing-block"; blockIndex: 0 | 1 | 2 | 3 }
   | { kind: "meters" }
+  | { kind: "source-meters" }
   | { kind: "aes50-chain"; bus: "A" | "B" }
   | { kind: "aes50-state" }
   | { kind: "unknown" };
@@ -110,6 +121,7 @@ export function parseAddress(address: string): ParsedAddress {
   if (address === "/config/routing/routswitch") return { kind: "routswitch" };
   if (address === "/-stat/selidx") return { kind: "selidx" };
   if (address === "/meters/1") return { kind: "meters" };
+  if (address === "/meters/0") return { kind: "source-meters" };
   if (address === "/-stat/aes50/A") return { kind: "aes50-chain", bus: "A" };
   if (address === "/-stat/aes50/B") return { kind: "aes50-chain", bus: "B" };
   if (address === "/-stat/aes50/state") return { kind: "aes50-state" };

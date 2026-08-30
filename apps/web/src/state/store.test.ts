@@ -256,6 +256,34 @@ describe("meters slice", () => {
     expect(after.connection).toBe(before.connection);
   });
 
+  it("setSourceMeterLevels touches only its own slice, including meterLevels", () => {
+    // Issue #36's levels ride the same fast fourth path as the input meters,
+    // and must be just as disjoint — including from each other, so an output
+    // tick never rerenders an input strip.
+    const store = createStore();
+    store.getState().setSelectedChannel(CH12);
+    store.getState().setMeterLevels(new Array(32).fill(0.1));
+    const before = store.getState();
+
+    store.getState().setSourceMeterLevels({
+      buses: new Array(16).fill(0.5),
+      matrices: new Array(6).fill(0.25),
+    });
+
+    const after = store.getState();
+    expect(after.sourceMeterLevels?.buses[0]).toBe(0.5);
+    expect(after.meterLevels).toBe(before.meterLevels);
+    expect(after.outputs).toBe(before.outputs);
+    expect(after.outputRouteIndex).toBe(before.outputRouteIndex);
+    expect(after.routeIndex).toBe(before.routeIndex);
+    expect(after.channels).toBe(before.channels);
+    expect(after.selectedChannel).toBe(before.selectedChannel);
+  });
+
+  it("starts with no source meter levels — absent is not silent", () => {
+    expect(createStore().getState().sourceMeterLevels).toBeNull();
+  });
+
   it("setMeterLevels(null) clears the slice without touching anything else", () => {
     const store = createStore();
     store.getState().setMeterLevels([1, 2, 3]);

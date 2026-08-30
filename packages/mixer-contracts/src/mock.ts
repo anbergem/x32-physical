@@ -20,6 +20,7 @@ import type {
   MixerChannelState,
   MixerOutputSourceRef,
   MixerOutputState,
+  MixerSourceMeterLevels,
   MixerSourceRef,
 } from "@x32/domain";
 import { MIXER_CHANNEL_COUNT } from "@x32/domain";
@@ -54,6 +55,10 @@ interface Subscription {
 
 interface MeterSubscription {
   listener: (levels: number[]) => void;
+}
+
+interface SourceMeterSubscription {
+  listener: (levels: MixerSourceMeterLevels) => void;
 }
 
 function cloneChannel(channel: MixerChannelState): MixerChannelState {
@@ -107,6 +112,7 @@ export class MockMixerClient implements MixerClient {
   #connectionState: MixerConnectionState = "disconnected";
   readonly #subscriptions = new Set<Subscription>();
   readonly #meterSubscriptions = new Set<MeterSubscription>();
+  readonly #sourceMeterSubscriptions = new Set<SourceMeterSubscription>();
   /** Non-`null` only while `simulateMetersStart()` is running — the mock is otherwise timer-free by design. */
   #meterTimer: unknown = null;
   #meterTick = 0;
@@ -158,6 +164,21 @@ export class MockMixerClient implements MixerClient {
     this.#meterSubscriptions.add(subscription);
     return () => {
       this.#meterSubscriptions.delete(subscription);
+    };
+  }
+
+  /**
+   * The output side's equivalent (issue #36). Mock-first (CLAUDE.md invariant
+   * 4) means output meters must work with no X32 present, so the same
+   * simulation timer drives both.
+   */
+  subscribeSourceMeters(
+    listener: (levels: MixerSourceMeterLevels) => void,
+  ): Unsubscribe {
+    const subscription: SourceMeterSubscription = { listener };
+    this.#sourceMeterSubscriptions.add(subscription);
+    return () => {
+      this.#sourceMeterSubscriptions.delete(subscription);
     };
   }
 
@@ -285,6 +306,7 @@ export class MockMixerClient implements MixerClient {
     this.#meterTimer = setInterval(() => {
       this.#meterTick += 1;
       this.#emitMeterLevels(this.#generateLevels());
+      this.#emitSourceMeterLevels(this.#generateSourceLevels());
     }, intervalMs);
   }
 
@@ -360,6 +382,46 @@ export class MockMixerClient implements MixerClient {
       levels.push(Math.min(1, Math.max(0, wave + noise)));
     }
     return levels;
+  }
+
+  /**
+   * Bus/matrix levels for the mock. Only the buses and matrices this mock's
+   * outputs actually reference are driven; the rest read 0, so the mock shows
+   * the same "patched but silent" distinction a real console does.
+   */
+  #generateSourceLevels(): MixerSourceMeterLevels {
+    const inUse = new Set<string>();
+    for (const output of this.#snapshot.outputs ?? []) {
+      if (output.source.kind === "bus") inUse.add(`bus:${output.source.bus}`);
+      if (output.source.kind === "matrix") inUse.add(`matrix:${output.source.matrix}`);
+    }
+
+    const level = (phase: number): number => {
+      const wave = 0.085 + 0.075 * Math.sin(this.#meterTick / 6 + phase);
+      const noise = (Math.random() - 0.5) * 0.05;
+      return Math.min(1, Math.max(0, wave + noise));
+    };
+
+    return {
+      buses: Array.from({ length: 16 }, (_, i) =>
+        inUse.has(`bus:${i + 1}`) ? level(i * 0.9) : 0,
+      ),
+      matrices: Array.from({ length: 6 }, (_, i) =>
+        inUse.has(`matrix:${i + 1}`) ? level(i * 1.3 + 4) : 0,
+      ),
+    };
+  }
+
+  #emitSourceMeterLevels(levels: MixerSourceMeterLevels): void {
+    for (const subscription of [...this.#sourceMeterSubscriptions]) {
+      try {
+        subscription.listener(levels);
+      } catch (error) {
+        queueMicrotask(() => {
+          throw error;
+        });
+      }
+    }
   }
 
   #emitMeterLevels(levels: number[]): void {

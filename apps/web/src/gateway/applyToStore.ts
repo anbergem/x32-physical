@@ -21,7 +21,7 @@
  * writing different slices.
  */
 
-import type { Installation } from "@x32/domain";
+import type { Installation, MixerSourceMeterLevels } from "@x32/domain";
 import type {
   MixerConnectionState,
   MixerEvent,
@@ -68,6 +68,14 @@ export function applyUpdateAvailable(
  */
 export function applyMeterLevels(store: AppStore, levels: number[]): void {
   store.getState().setMeterLevels(levels);
+}
+
+/** The output side's equivalent (issue #36); same fast path, same slice discipline. */
+export function applySourceMeterLevels(
+  store: AppStore,
+  levels: MixerSourceMeterLevels,
+): void {
+  store.getState().setSourceMeterLevels(levels);
 }
 
 /**

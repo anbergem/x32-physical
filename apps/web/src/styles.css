@@ -575,6 +575,35 @@ body {
   background: var(--meter-hot);
 }
 
+/* --- output slot meter (issue #36) ---------------------------------------
+   Same construction as `.strip__meter`, narrowed for the shorter output cell.
+   The slot is already `position: relative` for its tooltip, so this anchors
+   to it and never shifts the cell's own content. Absent entirely when the
+   source is not metered — a missing bar must not read as silence. */
+.output-slot__meter {
+  position: absolute;
+  right: 2px;
+  bottom: 3px;
+  width: 2px;
+  height: calc(100% - 6px);
+  background: var(--meter-track);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.output-slot__meter-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--meter);
+  border-radius: 1px;
+}
+
+.output-slot__meter-fill--hot {
+  background: var(--meter-hot);
+}
+
 /* --- diagnostics header (plan step 14) ---------------------------------- */
 
 .diagnostics {

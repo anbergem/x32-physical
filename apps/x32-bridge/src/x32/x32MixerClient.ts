@@ -50,7 +50,7 @@
  * (re)connect attempt; see that option's doc comment.
  */
 
-import type { MixerSourceRef } from "@x32/domain";
+import type { MixerSourceMeterLevels, MixerSourceRef } from "@x32/domain";
 import {
   aes50ChainEquals,
   aes50LinkStateEquals,
@@ -76,6 +76,7 @@ import {
   inBlockAddress,
   metersReplyAddress,
   metersSubscribeAddress,
+  sourceMetersReplyAddress,
   outputMainSourceAddress,
   outRoutingBlockAddress,
   parseAddress,
@@ -85,7 +86,7 @@ import {
   xinfoAddress,
   xremoteAddress,
 } from "./addresses";
-import { decodeMeterBlob } from "./meters";
+import { decodeMeterBlob, extractSourceMeterLevels } from "./meters";
 import type { OscArgument, OscMessage } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import { MIXER_OUTPUT_COUNT, OUT_ROUTING_BLOCK_COUNT, sourceRefEquals, X32State } from "./resolve";
@@ -146,6 +147,10 @@ interface MeterSubscription {
   listener: (levels: number[]) => void;
 }
 
+interface SourceMeterSubscription {
+  listener: (levels: MixerSourceMeterLevels) => void;
+}
+
 interface PendingRead {
   address: string;
   resolve: () => void;
@@ -184,6 +189,9 @@ export class X32MixerClient implements MixerClient {
   readonly #state = new X32State();
   readonly #subscriptions = new Set<Subscription>();
   readonly #meterSubscriptions = new Set<MeterSubscription>();
+  readonly #sourceMeterSubscriptions = new Set<SourceMeterSubscription>();
+  /** Logged once, not once per ~250ms tick, if `/meters/0` is not the expected length. */
+  #warnedUnexpectedSourceMeterBlock = false;
 
   #connectionState: MixerConnectionState = "disconnected";
   #closed = false;
@@ -294,6 +302,20 @@ export class X32MixerClient implements MixerClient {
     this.#meterSubscriptions.add(subscription);
     return () => {
       this.#meterSubscriptions.delete(subscription);
+    };
+  }
+
+  /**
+   * Bus/matrix levels for the output side (issue #36). A separate
+   * subscription from `subscribeMeters` on purpose: it reads a different
+   * console meter block (`/meters/0`), and keeping the two apart means output
+   * metering cannot perturb the verified input-channel path.
+   */
+  subscribeSourceMeters(listener: (levels: MixerSourceMeterLevels) => void): Unsubscribe {
+    const subscription: SourceMeterSubscription = { listener };
+    this.#sourceMeterSubscriptions.add(subscription);
+    return () => {
+      this.#sourceMeterSubscriptions.delete(subscription);
     };
   }
 
@@ -608,8 +630,48 @@ export class X32MixerClient implements MixerClient {
         return;
       }
 
+      case "source-meters": {
+        const blob = firstBlob(args);
+        if (blob === undefined) return;
+        let values: number[];
+        try {
+          values = decodeMeterBlob(blob);
+        } catch (error) {
+          console.warn(`x32-bridge: ignoring malformed /meters/0 blob: ${errorMessage(error)}`);
+          return;
+        }
+        // `null` when the block is not the expected length — the layout does
+        // not apply, so report nothing rather than misaligned levels
+        // (meters.ts's SOURCE_METER_* constants).
+        const levels = extractSourceMeterLevels(values);
+        if (levels === null) {
+          if (!this.#warnedUnexpectedSourceMeterBlock) {
+            this.#warnedUnexpectedSourceMeterBlock = true;
+            console.warn(
+              `x32-bridge: /meters/0 returned ${values.length} values, expected 70 — ` +
+                `output meters disabled (docs/x32-protocol.md §Meters).`,
+            );
+          }
+          return;
+        }
+        this.#emitSourceMeterLevels(levels);
+        return;
+      }
+
       case "unknown":
         return; // ignored silently, per docs/x32-protocol.md.
+    }
+  }
+
+  #emitSourceMeterLevels(levels: MixerSourceMeterLevels): void {
+    for (const subscription of [...this.#sourceMeterSubscriptions]) {
+      try {
+        subscription.listener(levels);
+      } catch (error) {
+        queueMicrotask(() => {
+          throw error;
+        });
+      }
     }
   }
 
@@ -659,6 +721,16 @@ export class X32MixerClient implements MixerClient {
       this.#transport.send(
         encodeOscMessage(metersSubscribeAddress(), [
           { type: "s", value: metersReplyAddress() },
+          { type: "i", value: 0 },
+          { type: "i", value: 0 },
+          { type: "i", value: this.#meterTimeFactor },
+        ]),
+      );
+      // The output side's block (issue #36), renewed on the same tick for the
+      // same reason: the console expires meter subscriptions after ~10s.
+      this.#transport.send(
+        encodeOscMessage(metersSubscribeAddress(), [
+          { type: "s", value: sourceMetersReplyAddress() },
           { type: "i", value: 0 },
           { type: "i", value: 0 },
           { type: "i", value: this.#meterTimeFactor },

@@ -19,6 +19,7 @@ import {
   applyInstallationEditError,
   applyInstallationVersion,
   applyMeterLevels,
+  applySourceMeterLevels,
   applyMixerEvent,
   applyMixerSnapshot,
   applyUpdateAvailable,
@@ -71,6 +72,9 @@ export function applyServerMessage(store: AppStore, data: unknown): void {
       return;
     case "meters":
       applyMeterLevels(store, message.levels);
+      return;
+    case "source-meters":
+      applySourceMeterLevels(store, message.levels);
       return;
     case "update-available":
       applyUpdateAvailable(store, message.update);

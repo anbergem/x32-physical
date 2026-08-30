@@ -713,3 +713,37 @@ describe("parseClientMessage: apply-installation-edit (issue #27)", () => {
     ).toThrow(/client message\.operation\.label/);
   });
 });
+
+describe("parseServerMessage: source-meters (issue #36)", () => {
+  function levels(buses = 16, matrices = 6) {
+    return {
+      buses: Array.from({ length: buses }, () => 0.1),
+      matrices: Array.from({ length: matrices }, () => 0.2),
+    };
+  }
+
+  it("accepts 16 bus and 6 matrix levels", () => {
+    const parsed = parseServerMessage({ type: "source-meters", levels: levels() });
+
+    expect(parsed.type).toBe("source-meters");
+    expect(parsed.type === "source-meters" ? parsed.levels.buses : []).toHaveLength(16);
+    expect(parsed.type === "source-meters" ? parsed.levels.matrices : []).toHaveLength(6);
+  });
+
+  it("rejects a wrong number of buses or matrices", () => {
+    // A length mismatch means the sender's layout differs from ours, and
+    // accepting it would put a meter beside the wrong speaker.
+    expect(() => parseServerMessage({ type: "source-meters", levels: levels(8) })).toThrow(
+      /buses/,
+    );
+    expect(() => parseServerMessage({ type: "source-meters", levels: levels(16, 4) })).toThrow(
+      /matrices/,
+    );
+  });
+
+  it("rejects non-numeric levels and a non-object payload", () => {
+    const bad = { buses: Array.from({ length: 16 }, () => "loud"), matrices: [0, 0, 0, 0, 0, 0] };
+    expect(() => parseServerMessage({ type: "source-meters", levels: bad })).toThrow(/buses/);
+    expect(() => parseServerMessage({ type: "source-meters", levels: null })).toThrow();
+  });
+});

@@ -15,6 +15,7 @@ import type {
   MixerChannelState,
   MixerOutputSourceRef,
   MixerOutputState,
+  MixerSourceMeterLevels,
   MixerSourceRef,
 } from "@x32/domain";
 
@@ -109,4 +110,17 @@ export interface MixerClient {
    * conversion or smoothing applied by the adapter.
    */
   subscribeMeters?(listener: (levels: number[]) => void): Unsubscribe;
+
+  /**
+   * Live bus/matrix levels — what feeds the output slots (issue #36).
+   *
+   * A separate capability from `subscribeMeters` because it comes from a
+   * different console meter block, so an implementation can support input
+   * meters without output meters (and the reverse). Levels are linear
+   * amplitude 0.0–1.0, same scale and no smoothing, delivered on the same
+   * cadence.
+   */
+  subscribeSourceMeters?(
+    listener: (levels: MixerSourceMeterLevels) => void,
+  ): Unsubscribe;
 }

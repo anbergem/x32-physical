@@ -8,6 +8,7 @@
  * objects/arrays, so no separate wire encoding is needed.
  */
 
+import type { MixerSourceMeterLevels } from "@x32/domain";
 import type { InstallationOperation } from "@x32/installation";
 import type {
   MixerConnectionState,
@@ -82,6 +83,14 @@ export type ServerMessage =
   | { type: "baseline-changed"; baseline: MixerSnapshot }
   | { type: "baseline-save-rejected"; reason: string }
   | { type: "meters"; levels: number[] }
+  /**
+   * Bus/matrix levels for the output side (issue #36). Its own message rather
+   * than a field on `meters`, mirroring the two separate `MixerClient`
+   * capabilities: a console (or a future adapter) can supply input meters
+   * without output meters. Absent entirely when the bridge has none, which
+   * the UI must render as "no meter", never as silence.
+   */
+  | { type: "source-meters"; levels: MixerSourceMeterLevels }
   | { type: "update-available"; update: UpdateAvailable }
   /**
    * An edit landed (issue #27): the complete new document and its version,

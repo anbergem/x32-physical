@@ -11,7 +11,13 @@
 import type { MixerEvent } from "@x32/mixer-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { metersReplyAddress, metersSubscribeAddress, outRoutingBlockAddress, outputMainSourceAddress } from "./addresses";
+import {
+  metersReplyAddress,
+  metersSubscribeAddress,
+  outRoutingBlockAddress,
+  outputMainSourceAddress,
+  sourceMetersReplyAddress,
+} from "./addresses";
 import type { OscArgument } from "./osc";
 import { decodeOscMessage, encodeOscMessage } from "./osc";
 import type { UdpTransport } from "./transport";
@@ -631,13 +637,34 @@ describe("meters (plan step 15)", () => {
     await client.connect();
     await vi.advanceTimersByTimeAsync(8000); // one renewal tick (default xremoteRenewalMs)
 
-    const metersRequests = transport.sent.filter(
-      (r) => r.address === metersSubscribeAddress(),
+    // Two blocks are subscribed per tick since issue #36 — the input
+    // channels' and the output side's — so filter by reply address rather
+    // than assuming /meters carries only one.
+    const inputMeterRequests = transport.sent.filter(
+      (r) =>
+        r.address === metersSubscribeAddress() &&
+        r.args[0]?.value === metersReplyAddress(),
     );
-    expect(metersRequests.length).toBeGreaterThanOrEqual(2); // initial + at least one renewal
-    for (const request of metersRequests) {
+    expect(inputMeterRequests.length).toBeGreaterThanOrEqual(2); // initial + at least one renewal
+    for (const request of inputMeterRequests) {
       expect(request.args).toEqual([
         { type: "s", value: metersReplyAddress() },
+        { type: "i", value: 0 },
+        { type: "i", value: 0 },
+        { type: "i", value: DEFAULTS.meterTimeFactor },
+      ]);
+    }
+
+    // The output block rides the identical ,siii form and cadence.
+    const sourceMeterRequests = transport.sent.filter(
+      (r) =>
+        r.address === metersSubscribeAddress() &&
+        r.args[0]?.value === sourceMetersReplyAddress(),
+    );
+    expect(sourceMeterRequests.length).toBe(inputMeterRequests.length);
+    for (const request of sourceMeterRequests) {
+      expect(request.args).toEqual([
+        { type: "s", value: sourceMetersReplyAddress() },
         { type: "i", value: 0 },
         { type: "i", value: 0 },
         { type: "i", value: DEFAULTS.meterTimeFactor },
@@ -660,18 +687,73 @@ describe("meters (plan step 15)", () => {
     await vi.advanceTimersByTimeAsync(0);
     await connectPromise;
 
-    const metersRequestsAfterConnect = transport.sent.filter(
-      (r) => r.address === metersSubscribeAddress(),
-    ).length;
-    expect(metersRequestsAfterConnect).toBe(1); // the immediate renewal on connect
+    // Counted per reply address: each tick sends one subscribe per meter
+    // block (input channels, and the output side since issue #36).
+    const countFor = (replyAddress: string): number =>
+      transport.sent.filter(
+        (r) =>
+          r.address === metersSubscribeAddress() && r.args[0]?.value === replyAddress,
+      ).length;
+
+    expect(countFor(metersReplyAddress())).toBe(1); // the immediate renewal on connect
+    expect(countFor(sourceMetersReplyAddress())).toBe(1);
 
     await vi.advanceTimersByTimeAsync(1000 * 3 + 10);
 
-    const metersRequestsAfterTicks = transport.sent.filter(
-      (r) => r.address === metersSubscribeAddress(),
-    ).length;
-    expect(metersRequestsAfterTicks).toBe(4); // 1 immediate + 3 renewals
+    expect(countFor(metersReplyAddress())).toBe(4); // 1 immediate + 3 renewals
+    expect(countFor(sourceMetersReplyAddress())).toBe(4);
     expect(DEFAULTS.xremoteRenewalMs).toBeLessThan(10_000);
+  });
+
+  it("delivers bus and matrix levels from a 70-float /meters/0 blob (issue #36)", async () => {
+    const { transport } = await connectedClient();
+    const seen: { buses: number[]; matrices: number[] }[] = [];
+    client!.subscribeSourceMeters((levels) => seen.push(levels));
+
+    // Value == index, so the assertions below pin the offsets themselves.
+    const values = Array.from({ length: 70 }, (_, i) => Math.fround(i / 100));
+    transport.push(sourceMetersReplyAddress(), [{ type: "b", value: meterBlob(values) }]);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.buses).toEqual(values.slice(48, 64));
+    expect(seen[0]?.matrices).toEqual(values.slice(64, 70));
+  });
+
+  it("delivers nothing at all when /meters/0 is an unexpected length", async () => {
+    // Wrong length means the layout does not apply; no meters is correct,
+    // misaligned meters would be a bar beside the wrong speaker.
+    const { transport } = await connectedClient();
+    const seen: unknown[] = [];
+    client!.subscribeSourceMeters((levels) => seen.push(levels));
+
+    transport.push(sourceMetersReplyAddress(), [
+      { type: "b", value: meterBlob(Array.from({ length: 96 }, () => 0.5)) },
+    ]);
+
+    expect(seen).toEqual([]);
+  });
+
+  it("keeps the input and output meter paths independent", async () => {
+    const { transport } = await connectedClient();
+    const inputs: number[][] = [];
+    const sources: unknown[] = [];
+    client!.subscribeMeters((levels) => inputs.push(levels));
+    client!.subscribeSourceMeters((levels) => sources.push(levels));
+
+    transport.push(metersReplyAddress(), [
+      { type: "b", value: meterBlob(Array.from({ length: 96 }, () => 0.25)) },
+    ]);
+
+    // A /meters/1 blob must not reach source-meter subscribers, and vice versa.
+    expect(inputs).toHaveLength(1);
+    expect(sources).toHaveLength(0);
+
+    transport.push(sourceMetersReplyAddress(), [
+      { type: "b", value: meterBlob(Array.from({ length: 70 }, () => 0.5)) },
+    ]);
+
+    expect(inputs).toHaveLength(1);
+    expect(sources).toHaveLength(1);
   });
 
   it("delivers the first 32 of a 96-float /meters/1 blob to subscribers", async () => {

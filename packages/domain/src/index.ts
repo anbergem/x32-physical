@@ -66,8 +66,12 @@ export {
 export type { MixerChannelState, MixerSourceRef } from "./mixer";
 export { mixerSourceRefEquals } from "./mixer";
 
-export type { MixerOutputSourceRef, MixerOutputState } from "./output-mixer";
-export { mixerOutputSourceRefEquals } from "./output-mixer";
+export type {
+  MixerOutputSourceRef,
+  MixerOutputState,
+  MixerSourceMeterLevels,
+} from "./output-mixer";
+export { meterLevelForOutputSource, mixerOutputSourceRefEquals } from "./output-mixer";
 
 export type { OutputRoute, OutputRouteIndex } from "./output-routing";
 export { buildOutputRouteIndex } from "./output-routing";

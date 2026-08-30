@@ -22,6 +22,7 @@ import type {
   MixerChannelState,
   MixerOutputSourceRef,
   MixerOutputState,
+  MixerSourceMeterLevels,
   MixerSourceRef,
 } from "@x32/domain";
 import { MIXER_CHANNEL_COUNT, MIXER_OUTPUT_COUNT, mixerChannelId } from "@x32/domain";
@@ -490,6 +491,31 @@ function parseMeterLevels(value: unknown, context: string): number[] {
   return value.map((level, index) => requireNumber(level, `${context}[${index}]`));
 }
 
+/**
+ * `source-meters` messages (issue #36): exactly 16 bus and 6 matrix levels.
+ *
+ * Both lengths are fixed by the console's own strip layout, so a short or
+ * long array means the sender's idea of the layout differs from ours — and
+ * silently accepting it would put a meter beside the wrong speaker. Reject
+ * instead; the UI then shows no meter, which is the honest outcome.
+ */
+function parseSourceMeterLevels(value: unknown, context: string): MixerSourceMeterLevels {
+  if (!isRecord(value)) throw malformed(context, "an object", value);
+
+  const list = (raw: unknown, expected: number, name: string): number[] => {
+    if (!Array.isArray(raw)) throw malformed(`${context}.${name}`, "an array", raw);
+    if (raw.length !== expected) {
+      throw malformed(`${context}.${name}`, `an array of exactly ${expected} numbers`, raw);
+    }
+    return raw.map((level, index) => requireNumber(level, `${context}.${name}[${index}]`));
+  };
+
+  return {
+    buses: list(value.buses, 16, "buses"),
+    matrices: list(value.matrices, 6, "matrices"),
+  };
+}
+
 /** Validates a `ServerMessage` decoded from `JSON.parse`d WebSocket data. */
 export function parseServerMessage(value: unknown): ServerMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -535,6 +561,11 @@ export function parseServerMessage(value: unknown): ServerMessage {
         type: "meters",
         levels: parseMeterLevels(value.levels, "server message.levels"),
       };
+    case "source-meters":
+      return {
+        type: "source-meters",
+        levels: parseSourceMeterLevels(value.levels, "server message.levels"),
+      };
     case "update-available":
       return {
         type: "update-available",
@@ -554,7 +585,7 @@ export function parseServerMessage(value: unknown): ServerMessage {
     default:
       throw malformed(
         "server message.type",
-        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters" | "update-available" | "installation-changed" | "installation-edit-rejected"',
+        '"snapshot" | "event" | "baseline-changed" | "baseline-save-rejected" | "meters" | "source-meters" | "update-available" | "installation-changed" | "installation-edit-rejected"',
         value.type,
       );
   }

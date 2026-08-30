@@ -25,6 +25,7 @@ import {
   applyInstallation,
   applyInstallationEditError,
   applyMeterLevels,
+  applySourceMeterLevels,
   applyMixerEvent,
   applyMixerSnapshot,
 } from "./applyToStore";
@@ -38,6 +39,7 @@ export class LocalMockGateway implements MixerGateway {
   readonly #installationRepository: InstallationRepository;
   #unsubscribe: Unsubscribe | null = null;
   #unsubscribeMeters: Unsubscribe | null = null;
+  #unsubscribeSourceMeters: Unsubscribe | null = null;
 
   /**
    * The mock is public on purpose: it is this gateway's entire reason to
@@ -71,6 +73,11 @@ export class LocalMockGateway implements MixerGateway {
     this.#unsubscribeMeters ??= this.mock.subscribeMeters((levels) => {
       applyMeterLevels(this.#store, levels);
     });
+    // Output meters (issue #36): mock-first means the output side must show
+    // levels with no X32 present, driven by the same simulation timer.
+    this.#unsubscribeSourceMeters ??= this.mock.subscribeSourceMeters((levels) => {
+      applySourceMeterLevels(this.#store, levels);
+    });
 
     this.#store.getState().setConnection("connecting");
     await this.mock.connect();
@@ -88,6 +95,8 @@ export class LocalMockGateway implements MixerGateway {
     this.#unsubscribe = null;
     this.#unsubscribeMeters?.();
     this.#unsubscribeMeters = null;
+    this.#unsubscribeSourceMeters?.();
+    this.#unsubscribeSourceMeters = null;
     await this.mock.disconnect();
     this.#store.getState().setConnection("disconnected");
   }

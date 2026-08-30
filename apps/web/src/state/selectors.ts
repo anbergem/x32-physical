@@ -29,7 +29,13 @@ import type {
   RouteIndex,
   RoutingDiscrepancy,
 } from "@x32/domain";
-import { endpointId, mixerChannel, mixerSourceRefEquals, parseEndpointId } from "@x32/domain";
+import {
+  endpointId,
+  meterLevelForOutputSource,
+  mixerChannel,
+  mixerSourceRefEquals,
+  parseEndpointId,
+} from "@x32/domain";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 import type { UpdateAvailable } from "@x32/protocol";
 
@@ -434,6 +440,32 @@ export function selectMeterLevel(
  * bar would wrongly imply silence rather than "not monitored". Primitive per
  * endpoint, for the same rerender-discipline reason as `selectMeterLevel`.
  */
+/**
+ * One output slot's level: the level of whatever source feeds it (issue #36).
+ *
+ * The console meters buses and matrices, not output sockets, so an output's
+ * meter *is* its source's meter — which is exactly right, since two outputs
+ * fed by the same bus genuinely carry the same signal.
+ *
+ * `null` means "not metered", never "silent", and covers three cases the UI
+ * must render identically (as no bar at all): no source-meter data flowing;
+ * an output that is OFF; and an output fed by Main L/R, M/C, the monitor bus
+ * or talkback, whose meter block layout is not verified (docs/x32-protocol.md
+ * §Meters). At this venue that last case is Out 14, the sub.
+ *
+ * Primitive per output, for the same rerender discipline as
+ * `selectMeterLevel`: one slot's tick must not rerender the other fifteen.
+ */
+export function selectOutputMeterLevel(
+  output: number,
+): (state: AppState) => number | null {
+  return (state) => {
+    const outputState = state.outputs.find((candidate) => candidate.output === output);
+    if (outputState === undefined) return null;
+    return meterLevelForOutputSource(outputState.source, state.sourceMeterLevels);
+  };
+}
+
 export function selectSocketMeterLevel(
   endpoint: EndpointId,
 ): (state: AppState) => number | null {

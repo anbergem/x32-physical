@@ -190,6 +190,69 @@ every other event consumer pay for traffic it doesn't care about. They ride
 their own `MixerClient.subscribeMeters` capability and their own `meters` WS
 message instead.
 
+### `/meters/0` — the output side's levels (issue #36)
+
+The console meters its own **internal strips**, not its output sockets. So an
+output's meter is the meter of whatever feeds it — which is also why two
+destinations fed by the same bus correctly read the same level.
+
+Subscribed exactly like `/meters/1`, on the same renewal tick, with the same
+`,siii` form and the same little-endian blob format:
+
+```text
+/meters ,siii "/meters/0" 0 0 <time_factor>
+```
+
+The reply carries **70 floats**, laid out in the same strip order
+`/-stat/selidx` uses (see §The messages we track):
+
+| index | strips |
+|---|---|
+| 0–31 | Ch 1–32 |
+| 32–39 | Aux In 1–8 |
+| 40–47 | FX return 1–8 |
+| **48–63** | **Mix bus 1–16** |
+| **64–69** | **Matrix 1–6** |
+
+`32 + 8 + 8 + 16 + 6 = 70`: the block is that ordering truncated immediately
+before the main strips (`selidx` 70 = L/R, 71 = M/C). Only the bold rows are
+read — `apps/x32-bridge/src/x32/meters.ts`'s `SOURCE_METER_*` constants are
+the single place this layout lives.
+
+**Main L/R, M/C, monitor and talkback are deliberately not metered.** They are
+not in this block, and the block that carries them has not been identified, so
+an output fed by one reports "not metered" rather than a guessed level. At the
+maintainer's venue that is Out 14 (the sub, fed by M/C). A reply of any length
+other than 70 disables output meters entirely rather than reading fixed
+offsets out of an unknown layout — a bar beside the wrong speaker is worse
+than no bar.
+
+**Status: corroborated, not proven.** The `selidx` ordering is verified against
+the protocol document, and the 70-value length matches it exactly (and only
+with 16 buses — 8 would give 62). Measured at the venue 2026-08-30 with all
+input channels at noise floor but a stereo source playing: indices 34–35 were
+the hottest values on the desk (Aux In 3/4, the playback feed), 64–69 active
+while 48–63 were silent, and 64/65 identical to 68/69 — matching
+docs/venue-betania.md, where Matrix 1/2 is the legacy recording feed and
+Matrix 5/6 now feeds Main L/R. What is still missing is a controlled test:
+drive one source at a time and confirm which index moves. The project owner
+accepted the hypothesis without it.
+
+### Other meter blocks, measured but unused
+
+All of `/meters/{0,1,2,3,4,5,6,7,13}` reply. Counts observed on fw 4.06:
+70, 96, 49, 22, 82, 27, 4, 16 and 48 floats respectively. Two are worth
+recording so they are not re-investigated:
+
+- **`/meters/1`'s indices 32–95 are not levels.** They sit pinned at exactly
+  `1.000` with occasional dips — gain-reduction/gate state, not audio. The
+  tempting "we already receive 96 floats, the rest must be the buses" is
+  wrong.
+- **`/meters/7` has exactly 16 values but is not the 16 console XLR outs.**
+  With Matrix 3/4 (which feed console outs 1–2 at this venue) demonstrably
+  carrying audio, `/meters/7` stayed at noise floor, 15–20× below them. It is
+  most likely P16/Ultranet. The count coincidence is a trap.
+
 ## Discovery (step 18)
 
 X32-Edit's own LAN discovery is exactly what the bridge implements: broadcast

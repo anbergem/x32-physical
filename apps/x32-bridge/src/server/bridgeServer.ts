@@ -367,6 +367,22 @@ export async function startBridgeServer(
   });
 
   /**
+   * The output side's levels (issue #36) — same discipline as `meters` above:
+   * its own message, rounded to 3 decimals, skipped when nobody is listening.
+   * Also an optional capability, so an adapter that cannot read the console's
+   * internal strips simply never sends it and the UI shows no output meters
+   * rather than zeroes.
+   */
+  const round3 = (level: number): number => Math.round(level * 1000) / 1000;
+  const unsubscribeSourceMeters = mixerClient.subscribeSourceMeters?.((levels) => {
+    if (wss.clients.size === 0) return;
+    broadcast({
+      type: "source-meters",
+      levels: { buses: levels.buses.map(round3), matrices: levels.matrices.map(round3) },
+    });
+  });
+
+  /**
    * The in-app update notice (step 20): a check that completes after clients
    * are already connected still reaches them, via its own broadcast message
    * rather than piggybacking on `event`/`snapshot` (architecture.md §7).
@@ -477,6 +493,7 @@ export async function startBridgeServer(
     async close() {
       unsubscribe();
       unsubscribeMeters?.();
+      unsubscribeSourceMeters?.();
       unsubscribeUpdateChecker();
       updateChecker.stop();
       for (const socket of wss.clients) socket.terminate();
