@@ -1633,3 +1633,132 @@ body {
     min-height: 44px;
   }
 }
+
+/* --- editor: cabling affordances (issue #28) -----------------------------
+   Availability is *rendered*, not merely enforced. While a cable is in
+   flight every socket says whether it could take it, so an illegal target is
+   visibly out of reach before it is clicked — the guardrail, with the
+   pipeline's rejection left as the safety net underneath. */
+.port--cable-available {
+  outline: 2px solid var(--accent, #d8a657);
+  outline-offset: 1px;
+  cursor: pointer;
+}
+
+.port--cable-source {
+  outline: 2px dashed var(--accent, #d8a657);
+  outline-offset: 1px;
+}
+
+/* Dimmed rather than hidden: the socket is still part of the schematic and
+   still worth reading, it simply cannot take this cable. */
+.port--cable-unavailable {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cabling-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent, #d8a657);
+  border-radius: 8px;
+  background: var(--surface-raised, #1b1b1b);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+  z-index: 40;
+}
+
+.cabling-banner__text {
+  font-size: 13px;
+}
+
+/* 44px minimum: this is used on a tablet at the desk, where the pointer is a
+   finger (issue #22's coarse-pointer rule). */
+.cabling-banner__cancel,
+.inspector__action,
+.inspector__danger,
+.inspector__choices button,
+.inspector__cable button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line, #333);
+  border-radius: 6px;
+  background: var(--surface-raised, #1b1b1b);
+  color: inherit;
+  cursor: pointer;
+}
+
+.inspector__choices {
+  display: flex;
+  gap: 6px;
+}
+
+.inspector__choices button[aria-pressed="true"] {
+  border-color: var(--accent, #d8a657);
+  color: var(--accent, #d8a657);
+}
+
+.inspector__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inspector__cable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inspector__cable-text,
+.inspector__confirm-text {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.inspector__danger {
+  border-color: #b3574f;
+  color: #e0938c;
+}
+
+.inspector__actions,
+.inspector__confirm {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector__confirm-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.add-destination {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 0;
+}
+
+.add-destination--open {
+  flex-wrap: wrap;
+}
+
+/* A refused edit, shown where it cannot be missed — cabling closes the
+   inspector, so the inspector alone is not a reliable home for a rejection. */
+.app__editing-error {
+  margin: 0;
+  padding: 8px 16px;
+  background: #3a1f1d;
+  border-bottom: 1px solid #b3574f;
+  color: #e8b4ae;
+  font-size: 13px;
+}

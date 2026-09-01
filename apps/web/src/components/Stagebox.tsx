@@ -19,6 +19,8 @@ import { selectDevice, selectInstallation } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
 import { DeviceFrame, MissingDevice, socketNumbers } from "./DeviceFrame";
+import { socketAnnotationsFor } from "../installation/socketAnnotations";
+
 import { InputPort } from "./InputPort";
 import { OutputPort } from "./OutputPort";
 
@@ -34,6 +36,7 @@ export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
   const device = useAppStore(selectDevice(deviceId));
   const installation = useAppStore(selectInstallation);
   const aes50Labels = aes50LabelsFor(installation);
+  const socketAnnotations = socketAnnotationsFor(installation);
   const outputSlots = outputSlotsFor(installation);
   const outputDestinations = physicalOutputDestinationsFor(installation);
 
@@ -78,6 +81,12 @@ export function Stagebox({ deviceId }: { deviceId: DeviceId }) {
                 ? undefined
                 : `${busChannel.bus}${busChannel.channel}`
             }
+            // A stagebox input can be annotated too — the schema allows it on
+            // any device with inputs, and the validator enforces it there.
+            // Only panels ever rendered one before (issue #12 was a panel),
+            // so a legal stagebox annotation was invisible until issue #28
+            // made annotations editable everywhere.
+            socketAnnotation={socketAnnotations.get(endpoint)}
           />
         );
       })}

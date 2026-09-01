@@ -19,13 +19,16 @@
  */
 
 import type { Device, DeviceId } from "@x32/domain";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { GatewayMode, MixerGateway } from "../gateway/mixerGateway";
+import { cablesTouchingDestination } from "../installation/cabling";
+import { deviceGroupOperation, removeDeviceOperation } from "../installation/edits";
 import { commitDeviceLabel } from "../installation/labelEdit";
 import {
   selectDevice,
   selectEditingDevice,
+  selectInstallation,
   selectInstallationEditError,
   selectInstallationVersion,
   selectSetEditingDevice,
@@ -78,8 +81,19 @@ function DeviceInspectorPanel({
   const setEditingDevice = useAppStore(selectSetEditingDevice);
 
   const storedLabel = device?.label;
+  const storedGroup = device?.group;
   const [draft, setDraft] = useState(storedLabel ?? "");
+  const [groupDraft, setGroupDraft] = useState(storedGroup ?? "");
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const labelRef = useRef<HTMLInputElement>(null);
+  const installation = useAppStore(selectInstallation);
+  // The walk lives in a pure module function called from `useMemo`, never in
+  // JSX — and never in a selector, which would hand
+  // `useSyncExternalStore` a fresh array on every render.
+  const cables = useMemo(
+    () => cablesTouchingDestination(installation, deviceId),
+    [installation, deviceId],
+  );
 
   // The installation itself changed under us — this edit landing, or someone
   // else's arriving over the socket. The field follows the file: it shows what
@@ -87,6 +101,10 @@ function DeviceInspectorPanel({
   useEffect(() => {
     if (storedLabel !== undefined) setDraft(storedLabel);
   }, [storedLabel]);
+
+  useEffect(() => {
+    setGroupDraft(storedGroup ?? "");
+  }, [storedGroup]);
 
   useEffect(() => {
     labelRef.current?.select();
@@ -117,6 +135,19 @@ function DeviceInspectorPanel({
   function commit(): void {
     if (device === undefined) return;
     commitDeviceLabel(gateway, version, deviceId, device.label, draft);
+  }
+
+  function commitGroup(): void {
+    if (device === undefined || version === null) return;
+    const operation = deviceGroupOperation(deviceId, device.group, groupDraft);
+    if (operation === null) return;
+    gateway.applyInstallationEdit(version, operation);
+  }
+
+  function removeDevice(): void {
+    if (version === null) return;
+    gateway.applyInstallationEdit(version, removeDeviceOperation(deviceId));
+    setEditingDevice(null);
   }
 
   return (
@@ -160,6 +191,65 @@ function DeviceInspectorPanel({
           }}
         />
       </label>
+
+      <label className="inspector__field">
+        <span className="inspector__field-name">Group</span>
+        <input
+          type="text"
+          className="inspector__input"
+          placeholder="Ungrouped"
+          value={groupDraft}
+          onChange={(event) => setGroupDraft(event.target.value)}
+          onBlur={commitGroup}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitGroup();
+              return;
+            }
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              setGroupDraft(device?.group ?? "");
+            }
+          }}
+        />
+      </label>
+
+      {/* Destinations only: removing a stagebox or panel changes AES50
+          cascade arithmetic across the whole installation, which belongs with
+          structural editing (issue #29) where the consequences can be shown
+          properly. */}
+      {device.kind === "destination" && (
+        <div className="inspector__actions">
+          {confirmingRemove ? (
+            <div className="inspector__confirm">
+              {/* The consequence, in the installation's terms — never
+                  "removes 1 connection". */}
+              <p className="inspector__confirm-text">
+                Remove {device.label}?
+                {cables.length > 0 &&
+                  ` Its ${cables.length === 1 ? "feed" : `${cables.length} feeds`} will be uncabled too.`}
+              </p>
+              <div className="inspector__confirm-buttons">
+                <button type="button" className="inspector__danger" onClick={removeDevice}>
+                  Remove
+                </button>
+                <button type="button" onClick={() => setConfirmingRemove(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="inspector__danger"
+              onClick={() => setConfirmingRemove(true)}
+            >
+              Remove destination
+            </button>
+          )}
+        </div>
+      )}
 
       {editError !== null && <p className="inspector__error">{editError}</p>}
 

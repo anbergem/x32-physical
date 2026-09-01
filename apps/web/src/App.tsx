@@ -38,6 +38,10 @@ import { ConnectionStatus } from "./components/ConnectionStatus";
 import { ConsoleSection } from "./components/ConsoleSection";
 import { Destinations } from "./components/Destinations";
 import { DeviceInspector } from "./components/DeviceInspector";
+import { SocketInspector } from "./components/SocketInspector";
+import { AddDestination } from "./components/AddDestination";
+import { CablingBanner } from "./components/CablingBanner";
+import { EditGatewayProvider } from "./components/editGatewayContext";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
 import { EditModeControl } from "./components/EditModeControl";
 import { Mixer } from "./components/Mixer";
@@ -53,7 +57,11 @@ import { Stage } from "./components/Stage";
 import { SystemStatus } from "./components/SystemStatus";
 import { UpdateNotice } from "./components/UpdateNotice";
 import type { GatewayMode, MixerGateway } from "./gateway/mixerGateway";
-import { selectClearHover, selectEditMode } from "./state/selectors";
+import {
+  selectClearHover,
+  selectEditMode,
+  selectInstallationEditError,
+} from "./state/selectors";
 import { useAppStore } from "./state/storeContext";
 
 function initialVisibility(): SectionVisibility {
@@ -65,6 +73,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
   const [visibility, setVisibility] = useState<SectionVisibility>(initialVisibility);
   const clearHover = useAppStore(selectClearHover);
   const editMode = useAppStore(selectEditMode);
+  const editError = useAppStore(selectInstallationEditError);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -97,6 +106,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
   }
 
   return (
+    <EditGatewayProvider gateway={gateway}>
     <div className={`app${editMode ? " app--editing" : ""}`}>
       <header className="app__bar">
         <h1 className="app__title">X32 Physical Routing Visualizer</h1>
@@ -118,6 +128,16 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
         </p>
       )}
 
+      {/* A rejection must never vanish. Cabling closes the inspector, so an
+          edit refused mid-cable had nowhere to be shown — the operator saw
+          the banner disappear and nothing else, which reads exactly like
+          success. This is the always-visible fallback (issue #28). */}
+      {editMode && editError !== null && (
+        <p className="app__editing-error" role="alert">
+          {editError}
+        </p>
+      )}
+
       <main className="schematic" onPointerUp={handleBackgroundPointerUp}>
         {allHidden && (
           <p className="schematic__empty">
@@ -128,6 +148,7 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
         {visibility.stage && <Stage />}
 
         {visibility.destinations && <Destinations />}
+        {visibility.destinations && editMode && <AddDestination gateway={gateway} />}
 
         {showConsole && (
           <ConsoleSection
@@ -142,6 +163,9 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
       </main>
 
       {editMode && <DeviceInspector gateway={gateway} mode={mode} />}
+      {editMode && <SocketInspector gateway={gateway} mode={mode} />}
+      {editMode && <CablingBanner />}
     </div>
+    </EditGatewayProvider>
   );
 }

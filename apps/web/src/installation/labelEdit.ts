@@ -20,7 +20,7 @@
  */
 
 import type { DeviceId } from "@x32/domain";
-import type { InstallationOperation } from "@x32/installation";
+import type { InstallationOperation, SetDeviceLabelOperation } from "@x32/installation";
 
 /** The slice of `MixerGateway` a label commit needs. */
 export interface InstallationEditSender {
@@ -37,7 +37,7 @@ export function deviceLabelOperation(
   device: DeviceId,
   currentLabel: string,
   draft: string,
-): InstallationOperation | null {
+): SetDeviceLabelOperation | null {
   const label = draft.trim();
   if (label === "" || label === currentLabel) return null;
   return { kind: "set-device-label", device, label };

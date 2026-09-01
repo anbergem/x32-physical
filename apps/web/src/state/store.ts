@@ -56,7 +56,14 @@ import {
   mixerOutputSourceRefEquals,
   mixerSourceRefEquals,
 } from "@x32/domain";
+import type { ConnectionEnd } from "@x32/installation";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
+
+/** The socket the inspector is open on: a device and a 1-based socket number. */
+export interface EditingSocket {
+  device: DeviceId;
+  input: number;
+}
 import type { UpdateAvailable } from "@x32/protocol";
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
@@ -131,6 +138,23 @@ export interface AppState {
   // kind, rather than next to `sectionVisibility.ts`.
   editMode: boolean;
   editingDevice: DeviceId | null;
+  /**
+   * The socket being inspected, if any (issue #28). Separate from
+   * `editingDevice` rather than a union with it because a socket inspector
+   * shows different fields (its annotation, what it is cabled to) and the two
+   * are never open at once — selecting one clears the other.
+   */
+  editingSocket: EditingSocket | null;
+  /**
+   * The first end of a cable the operator is drawing, or `null` when not
+   * cabling (issue #28).
+   *
+   * Half-made cables live here rather than in component state so that every
+   * socket on the schematic can ask "am I a legal target for what is in
+   * flight?" and render itself unavailable if not — teaching the domain rule
+   * through the interface instead of reporting it after a rejection.
+   */
+  cablingFrom: ConnectionEnd | null;
 
   // Runtime: the bridge's (or mock repository's) reason for refusing an edit,
   // shown inline in the inspector. A rejection changed nothing about the
@@ -231,6 +255,8 @@ export interface AppActions {
   /** Turning edit mode off also closes the inspector and clears its error. */
   setEditMode(editing: boolean): void;
   setEditingDevice(device: DeviceId | null): void;
+  setEditingSocket(socket: EditingSocket | null): void;
+  setCablingFrom(end: ConnectionEnd | null): void;
   setInstallationEditError(reason: string | null): void;
 
   // Fourth path — never composed with any other slice's patch (architecture.md §5).
@@ -441,6 +467,8 @@ export function createAppStore(
     baselineSaveError: null,
     editMode: false,
     editingDevice: null,
+    editingSocket: null,
+    cablingFrom: null,
     installationEditError: null,
     meterLevels: null,
     sourceMeterLevels: null,
@@ -594,7 +622,13 @@ export function createAppStore(
       set(
         editing
           ? { editMode: true }
-          : { editMode: false, editingDevice: null, installationEditError: null },
+          : {
+              editMode: false,
+              editingDevice: null,
+              editingSocket: null,
+              cablingFrom: null,
+              installationEditError: null,
+            },
       );
     },
 
@@ -602,7 +636,27 @@ export function createAppStore(
     setEditingDevice(device) {
       const state = get();
       if (state.editingDevice === device) return;
-      set({ editingDevice: device, installationEditError: null });
+      set({ editingDevice: device, editingSocket: null, installationEditError: null });
+    },
+
+    /** The socket inspector and the device inspector are never open together. */
+    setEditingSocket(socket) {
+      const state = get();
+      const same =
+        state.editingSocket?.device === socket?.device &&
+        state.editingSocket?.input === socket?.input;
+      if (same) return;
+      set({ editingSocket: socket, editingDevice: null, installationEditError: null });
+    },
+
+    /**
+     * Starts, retargets or cancels a cable. Clearing it is how "cancel"
+     * works, so it must always be reachable — Escape and a visible control
+     * both call this with `null`.
+     */
+    setCablingFrom(end) {
+      if (get().cablingFrom === end) return;
+      set({ cablingFrom: end, installationEditError: null });
     },
 
     setInstallationEditError(reason) {

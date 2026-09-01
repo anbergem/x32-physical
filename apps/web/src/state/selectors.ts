@@ -28,6 +28,7 @@ import type {
   OutputRouteIndex,
   RouteIndex,
   RoutingDiscrepancy,
+  SocketAnnotation,
 } from "@x32/domain";
 import {
   endpointId,
@@ -36,10 +37,14 @@ import {
   mixerSourceRefEquals,
   parseEndpointId,
 } from "@x32/domain";
+import type { ConnectionEnd } from "@x32/installation";
 import type { MixerConnectionState, MixerSnapshot } from "@x32/mixer-contracts";
 import type { UpdateAvailable } from "@x32/protocol";
 
-import type { AppState, AppStoreState } from "./store";
+import type { CablingState } from "../installation/cabling";
+import { cablingStateFor } from "../installation/cabling";
+
+import type { AppState, AppStoreState, EditingSocket } from "./store";
 
 // --- runtime slice ---------------------------------------------------------
 
@@ -464,6 +469,55 @@ export function selectOutputMeterLevel(
     if (outputState === undefined) return null;
     return meterLevelForOutputSource(outputState.source, state.sourceMeterLevels);
   };
+}
+
+/**
+ * This endpoint's role in the cable currently being drawn (issue #28).
+ *
+ * Primitive per endpoint, like `selectHoverStatus` and `selectMeterLevel`:
+ * starting a cable must not rerender the whole schematic, and — crucially —
+ * a selector returning a fresh object would loop `useSyncExternalStore`
+ * forever.
+ */
+export function selectCablingState(
+  endpoint: EndpointId,
+): (state: AppState) => CablingState {
+  return (state) => cablingStateFor(state.installation, state.cablingFrom, endpoint);
+}
+
+/** The half-made cable, if any. */
+export function selectCablingFrom(state: AppState): ConnectionEnd | null {
+  return state.cablingFrom;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetCablingFrom(
+  state: AppStoreState,
+): (end: ConnectionEnd | null) => void {
+  return state.setCablingFrom;
+}
+
+/** The socket the inspector is open on. */
+export function selectEditingSocket(state: AppState): EditingSocket | null {
+  return state.editingSocket;
+}
+
+/** Stable action identity: subscribing to it never causes a rerender. */
+export function selectSetEditingSocket(
+  state: AppStoreState,
+): (socket: EditingSocket | null) => void {
+  return state.setEditingSocket;
+}
+
+/** The annotation on one socket, or `undefined` when it carries none. */
+export function selectSocketAnnotation(
+  device: DeviceId,
+  input: number,
+): (state: AppState) => SocketAnnotation | undefined {
+  return (state) =>
+    state.installation.devices
+      .find((candidate) => candidate.id === device)
+      ?.sockets?.find((annotation) => annotation.input === input);
 }
 
 export function selectSocketMeterLevel(

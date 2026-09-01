@@ -234,3 +234,119 @@ describe("InMemoryInstallationRepository", () => {
     expect(state.text).toBe("not: [valid, yaml");
   });
 });
+
+/**
+ * The everyday operations, through the whole pipeline (issue #28).
+ *
+ * These belong here rather than beside `applyOperation`, because the rules
+ * they test are not the operation's: an individually sensible edit can still
+ * leave the document invalid, and only the pipeline validates the *result*.
+ * The interface's job is to make these unreachable; this is the safety net
+ * underneath it, and the net has to hold.
+ */
+describe("applyInstallationEdit: the everyday operations", () => {
+  async function sampleRepository() {
+    const repository = new InMemoryInstallationRepository(SAMPLE_YAML);
+    const { version } = await repository.read();
+    return { repository, version };
+  }
+
+  it("rejects cabling a stagebox input that already has a feeding socket", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // pit-box input 1 is already fed by pit-wall input 1.
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-connection",
+      from: { kind: "socket", device: deviceId("upstage-tie"), input: 1 },
+      to: { kind: "socket", device: deviceId("pit-box"), input: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("rejects cabling a socket that carries an annotation", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // pit-wall socket 4 is annotated broken; annotated and cabled are
+    // mutually exclusive, and the UI should not offer this at all.
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-connection",
+      from: { kind: "socket", device: deviceId("pit-wall"), input: 4 },
+      to: { kind: "socket", device: deviceId("pit-box"), input: 7 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("rejects annotating a socket that is cabled", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // The same rule from the other direction: pit-wall socket 1 is cabled.
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "set-socket-annotation",
+      device: deviceId("pit-wall"),
+      input: 1,
+      status: "broken",
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("removes a destination and its cables in one write, leaving a valid document", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "remove-device",
+      device: deviceId("house-left"),
+    });
+
+    expect(result.ok).toBe(true);
+    const after = await repository.read();
+    // The pipeline validated the result, so a dangling reference would have
+    // been rejected rather than written.
+    expect(after.installation).not.toBeNull();
+    expect(after.text).not.toMatch(/house-left/);
+  });
+
+  it("accepts a group change and writes it", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "set-device-group",
+      device: deviceId("green-room"),
+      group: "Back of house",
+    });
+
+    expect(result.ok).toBe(true);
+    expect((await repository.read()).text).toMatch(/Back of house/);
+  });
+
+  it("rejects removing a stagebox, and writes nothing", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "remove-device",
+      device: deviceId("pit-box"),
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("still refuses every one of these on a stale base version", async () => {
+    const { repository } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, installationVersion("stale"), {
+      kind: "set-device-group",
+      device: deviceId("green-room"),
+      group: "Back of house",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe(STALE_BASE_VERSION_REASON);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+});

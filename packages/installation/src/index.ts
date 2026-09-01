@@ -15,8 +15,15 @@ export type { DeviceDocument, InstallationDocument } from "./schema";
 export { installationDocumentSchema } from "./schema";
 
 export type {
+  AddConnectionOperation,
+  AddDestinationOperation,
+  ConnectionEnd,
   InstallationOperation,
+  RemoveConnectionOperation,
+  RemoveDeviceOperation,
+  SetDeviceGroupOperation,
   SetDeviceLabelOperation,
+  SetSocketAnnotationOperation,
 } from "./operations";
 export {
   applyOperation,

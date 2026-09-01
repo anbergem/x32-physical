@@ -10,17 +10,31 @@
  * component never sets it, only reads its effect.
  */
 
+import type { PointerEvent as ReactPointerEvent } from "react";
+
 import type { EndpointId, SocketAnnotation } from "@x32/domain";
 
+
+
 import { isMeterHot, meterBarHeightPercent } from "../format/meter";
+import { cableEndForEndpoint, cablingReasonFor } from "../installation/cabling";
+import { addConnectionOperation } from "../installation/edits";
 import {
+  selectCablingFrom,
+  selectCablingState,
   selectDiagnosticStatus,
+  selectEditMode,
+  selectInstallation,
+  selectInstallationVersion,
+  selectSetCablingFrom,
+  selectSetEditingSocket,
   selectHoverStatus,
   selectSelectionStatus,
   selectSocketMeterLevel,
 } from "../state/selectors";
 import { useAppStore } from "../state/storeContext";
 
+import { useEditGateway } from "./editGatewayContext";
 import { EndpointTooltip } from "./EndpointTooltip";
 import {
   diagnosticModifier,
@@ -62,6 +76,16 @@ export function InputPort({
   // level and nothing else, so a meter tick rerenders only the sockets some
   // channel actually consumes, never the whole schematic.
   const meterLevel = useAppStore(selectSocketMeterLevel(endpoint));
+  // Edit mode (issue #28). `cabling.state` is "idle" whenever no cable is in
+  // flight, so none of this changes how the schematic looks in normal use.
+  const editMode = useAppStore(selectEditMode);
+  const cablingState = useAppStore(selectCablingState(endpoint));
+  const installation = useAppStore(selectInstallation);
+  const cablingFrom = useAppStore(selectCablingFrom);
+  const setCablingFrom = useAppStore(selectSetCablingFrom);
+  const setEditingSocket = useAppStore(selectSetEditingSocket);
+  const version = useAppStore(selectInstallationVersion);
+  const gateway = useEditGateway();
 
   // Single composition point for the class list: one class per highlight
   // layer, so hover, selection and diagnostics join independently without
@@ -77,12 +101,56 @@ export function InputPort({
   if (selectionClass !== null) classNames.push(selectionClass);
   const diagnosticClass = diagnosticModifier("port", diagnosticStatus);
   if (diagnosticClass !== null) classNames.push(diagnosticClass);
+  if (editMode && cablingState !== "idle") {
+    // Availability is rendered, not merely enforced: an illegal target is
+    // visibly out of reach before it is clicked, which is the whole point of
+    // an editor over a spreadsheet (issue #28).
+    classNames.push(`port--cable-${cablingState}`);
+  }
+
+  const end = editMode ? cableEndForEndpoint(endpoint) : null;
+
+  /**
+   * In edit mode a tap means "edit this socket", not "pin its route" — the
+   * mode changes what the gesture is for, so the pin handler is replaced
+   * rather than added to. Hover still works, so the schematic keeps
+   * explaining itself while editing.
+   */
+  function onEditPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (end === null) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.stopPropagation();
+
+    if (cablingFrom === null) {
+      if (end.kind === "socket") setEditingSocket({ device: end.device, input: end.input });
+      return;
+    }
+    if (cablingState !== "available") return;
+    if (version === null || gateway === null) return;
+
+    gateway.applyInstallationEdit(version, addConnectionOperation(cablingFrom, end));
+    setCablingFrom(null);
+  }
+
+  const interaction = editMode
+    ? {
+        onPointerEnter: pointer.onPointerEnter,
+        onPointerLeave: pointer.onPointerLeave,
+        onPointerUp: onEditPointerUp,
+      }
+    : pointer;
 
   return (
     <div
       className={classNames.join(" ")}
       data-endpoint={endpoint}
-      {...pointer}
+      data-cabling={editMode && cablingState !== "idle" ? cablingState : undefined}
+      title={
+        editMode && cablingState === "unavailable"
+          ? (cablingReasonFor(installation, cablingFrom, endpoint) ?? undefined)
+          : undefined
+      }
+      {...interaction}
     >
       <span className="port__number">{label}</span>
       {/* A broken socket carries no AES50 sublabel — it reaches nothing. */}
