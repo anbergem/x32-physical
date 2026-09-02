@@ -19,15 +19,19 @@
  */
 
 import type { Device, DeviceId } from "@x32/domain";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { GatewayMode, MixerGateway } from "../gateway/mixerGateway";
-import { cablesTouchingDestination } from "../installation/cabling";
+import { formatAes50ChainDetail } from "../format/aes50";
+import { describeRemoval } from "../installation/structuralEdit";
 import { deviceGroupOperation, removeDeviceOperation } from "../installation/edits";
 import { commitDeviceLabel } from "../installation/labelEdit";
+
+import { StructuralFields } from "./StructuralFields";
 import {
   selectDevice,
   selectEditingDevice,
+  selectAes50ChainDiscrepancies,
   selectInstallation,
   selectInstallationEditError,
   selectInstallationVersion,
@@ -87,13 +91,7 @@ function DeviceInspectorPanel({
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const labelRef = useRef<HTMLInputElement>(null);
   const installation = useAppStore(selectInstallation);
-  // The walk lives in a pure module function called from `useMemo`, never in
-  // JSX — and never in a selector, which would hand
-  // `useSyncExternalStore` a fresh array on every render.
-  const cables = useMemo(
-    () => cablesTouchingDestination(installation, deviceId),
-    [installation, deviceId],
-  );
+  const chainDiscrepancies = useAppStore(selectAes50ChainDiscrepancies);
 
   // The installation itself changed under us — this edit landing, or someone
   // else's arriving over the socket. The field follows the file: it shows what
@@ -215,41 +213,49 @@ function DeviceInspectorPanel({
         />
       </label>
 
-      {/* Destinations only: removing a stagebox or panel changes AES50
-          cascade arithmetic across the whole installation, which belongs with
-          structural editing (issue #29) where the consequences can be shown
-          properly. */}
-      {device.kind === "destination" && (
-        <div className="inspector__actions">
-          {confirmingRemove ? (
-            <div className="inspector__confirm">
-              {/* The consequence, in the installation's terms — never
-                  "removes 1 connection". */}
-              <p className="inspector__confirm-text">
-                Remove {device.label}?
-                {cables.length > 0 &&
-                  ` Its ${cables.length === 1 ? "feed" : `${cables.length} feeds`} will be uncabled too.`}
-              </p>
-              <div className="inspector__confirm-buttons">
-                <button type="button" className="inspector__danger" onClick={removeDevice}>
-                  Remove
-                </button>
-                <button type="button" onClick={() => setConfirmingRemove(false)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="inspector__danger"
-              onClick={() => setConfirmingRemove(true)}
-            >
-              Remove destination
-            </button>
-          )}
-        </div>
+      {/* Structural fields — counts, the AES50 mapping, the output block.
+          Nothing for a destination, which has no sockets of its own. */}
+      <StructuralFields device={device} gateway={gateway} />
+
+      {/* The console's own view of the AES50 chain, shown exactly where boxes
+          are declared (issue #29). It is the only independent confirmation
+          this tool has, and it is most useful at the moment someone is
+          typing what they believe the rig to be. */}
+      {device.kind === "stagebox" && chainDiscrepancies.length > 0 && (
+        <p className="inspector__warning">
+          The console reports a different set of stage boxes:{" "}
+          {chainDiscrepancies.map(formatAes50ChainDetail).join("; ")}
+        </p>
       )}
+
+      {/* Any kind may be removed since issue #29 — but removing a stagebox
+          strands every socket that fed it, so the confirmation counts the
+          real cost first. */}
+      <div className="inspector__actions">
+        {confirmingRemove ? (
+          <div className="inspector__confirm">
+            <p className="inspector__confirm-text">
+              {describeRemoval(installation, deviceId)}
+            </p>
+            <div className="inspector__confirm-buttons">
+              <button type="button" className="inspector__danger" onClick={removeDevice}>
+                Remove
+              </button>
+              <button type="button" onClick={() => setConfirmingRemove(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="inspector__danger"
+            onClick={() => setConfirmingRemove(true)}
+          >
+            Remove {KIND_LABELS[device.kind].toLowerCase()}
+          </button>
+        )}
+      </div>
 
       {editError !== null && <p className="inspector__error">{editError}</p>}
 

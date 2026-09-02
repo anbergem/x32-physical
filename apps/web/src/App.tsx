@@ -40,6 +40,7 @@ import { Destinations } from "./components/Destinations";
 import { DeviceInspector } from "./components/DeviceInspector";
 import { SocketInspector } from "./components/SocketInspector";
 import { AddDestination } from "./components/AddDestination";
+import { AddDeviceControl } from "./components/AddDeviceControl";
 import { CablingBanner } from "./components/CablingBanner";
 import { EditGatewayProvider } from "./components/editGatewayContext";
 import { DiagnosticsControl } from "./components/DiagnosticsControl";
@@ -119,6 +120,12 @@ export function App({ mode, gateway }: { mode: GatewayMode; gateway: MixerGatewa
           <SectionsControl visibility={visibility} onChange={setVisibility} />
         </div>
       </header>
+
+      {editMode && (
+        <div className="app__edit-bar">
+          <AddDeviceControl gateway={gateway} />
+        </div>
+      )}
 
       {editMode && (
         <p className="app__editing-banner" role="status">

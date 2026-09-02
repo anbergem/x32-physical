@@ -1762,3 +1762,45 @@ body {
   color: #e8b4ae;
   font-size: 13px;
 }
+
+/* --- structural editing (issue #29) -------------------------------------- */
+
+.app__edit-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 0;
+}
+
+.add-device {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line, #333);
+  border-radius: 8px;
+  background: var(--surface-raised, #1b1b1b);
+  max-width: 360px;
+}
+
+/* The consequence of a number, shown as it is typed. */
+.inspector__preview {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--accent, #d8a657);
+}
+
+.inspector__hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* A collision or an overrun: wrong in a way nothing downstream can catch. */
+.inspector__warning {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid #d08b45;
+  background: #3a2a17;
+  color: #f0c48a;
+  font-size: 12px;
+}

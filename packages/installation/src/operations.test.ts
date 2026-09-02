@@ -427,12 +427,13 @@ describe("applyOperation: add-connection / remove-connection", () => {
   });
 });
 
-describe("applyOperation: add-destination", () => {
+describe("applyOperation: add-device (destinations)", () => {
   it("adds a destination with a group", () => {
     const document = sample();
     applyOperation(document, {
-      kind: "add-destination",
+      kind: "add-device",
       device: deviceId("balcony"),
+      deviceKind: "destination",
       label: "Balcony Fill",
       group: "Auditorium",
     });
@@ -449,8 +450,9 @@ describe("applyOperation: add-destination", () => {
   it("omits the group key when none is given", () => {
     const document = sample();
     applyOperation(document, {
-      kind: "add-destination",
+      kind: "add-device",
       device: deviceId("balcony"),
+      deviceKind: "destination",
       label: "Balcony Fill",
     });
 
@@ -461,8 +463,9 @@ describe("applyOperation: add-destination", () => {
   it("refuses a duplicate device id", () => {
     expect(() =>
       applyOperation(sample(), {
-        kind: "add-destination",
+        kind: "add-device",
         device: GREEN_ROOM,
+        deviceKind: "destination",
         label: "Another Green Room",
       }),
     ).toThrow(/already exists/);
@@ -471,8 +474,9 @@ describe("applyOperation: add-destination", () => {
   it("preserves every comment", () => {
     const document = sample();
     applyOperation(document, {
-      kind: "add-destination",
+      kind: "add-device",
       device: deviceId("balcony"),
+      deviceKind: "destination",
       label: "Balcony Fill",
     });
 
@@ -494,12 +498,16 @@ describe("applyOperation: remove-device", () => {
     ).toBe(false);
   });
 
-  it("refuses to remove anything that is not a destination", () => {
-    // Removing a stagebox changes cascade arithmetic across the whole file —
-    // structural editing, issue #29.
-    expect(() =>
-      applyOperation(sample(), { kind: "remove-device", device: PIT_BOX }),
-    ).toThrow(/only destinations/);
+  it("removes a stagebox and every connection that referenced it (issue #29)", () => {
+    // Step 3 refused this; step 4 allows it, because refusing structurally
+    // valid edits only pushes people back to a text editor with no guardrails
+    // at all. The consequences are stated by the UI before asking.
+    const document = sample();
+    applyOperation(document, { kind: "remove-device", device: PIT_BOX });
+
+    const result = parseInstallationYaml(String(document));
+    expect(result.devices.some((d) => d.id === PIT_BOX)).toBe(false);
+    expect(result.connections.some((c) => JSON.stringify(c).includes("pit-box"))).toBe(false);
   });
 
   it("refuses an unknown device", () => {
@@ -526,8 +534,8 @@ describe("parseInstallationOperation: the everyday operations", () => {
     }, "op").kind).toBe("add-connection");
 
     expect(parseInstallationOperation(
-      { kind: "add-destination", device: "balcony", label: "Balcony" }, "op",
-    ).kind).toBe("add-destination");
+      { kind: "add-device", device: "balcony", deviceKind: "destination", label: "Balcony" }, "op",
+    ).kind).toBe("add-device");
 
     expect(parseInstallationOperation(
       { kind: "remove-device", device: "green-room" }, "op",
@@ -550,5 +558,164 @@ describe("parseInstallationOperation: the everyday operations", () => {
       from: { device: "pit-wall", input: 4 },
       to: { kind: "socket", device: "pit-box", input: 7 },
     }, "op")).toThrow(/from/);
+  });
+});
+
+/**
+ * Structural editing (issue #29) — the operations that build an installation
+ * rather than maintain one.
+ *
+ * The two values these tests care most about are `aes50.offset` and
+ * `outputBlock.start`. Neither appears on any patch sheet, both were
+ * reverse-engineered, and getting either wrong silently mislabels every
+ * socket or every output on a box with nothing over OSC able to catch it.
+ */
+describe("applyOperation: add-device", () => {
+  it("adds a stagebox with its AES50 mapping", () => {
+    const document = sample();
+    applyOperation(document, {
+      kind: "add-device",
+      device: deviceId("upstage-box"),
+      deviceKind: "stagebox",
+      label: "Upstage Box",
+      inputs: 16,
+      aes50: { bus: "B", offset: 16 },
+      outputs: 8,
+      outputBlock: { start: 9 },
+    });
+
+    const device = parseInstallationYaml(String(document)).devices
+      .find((d) => d.id === deviceId("upstage-box"));
+    expect(device?.kind).toBe("stagebox");
+    expect(device?.aes50).toEqual({ bus: "B", offset: 16 });
+    expect(device?.outputBlock).toEqual({ start: 9 });
+  });
+
+  it("refuses a stagebox with no AES50 mapping, rather than adding an invalid one", () => {
+    // There is no valid "add now, map later": the pipeline validates after
+    // every operation, so the intermediate document would be refused anyway.
+    expect(() =>
+      applyOperation(sample(), {
+        kind: "add-device",
+        device: deviceId("upstage-box"),
+        deviceKind: "stagebox",
+        label: "Upstage Box",
+        inputs: 16,
+      }),
+    ).toThrow(/AES50 mapping/);
+  });
+
+  it("refuses an AES50 mapping on a panel or console", () => {
+    expect(() =>
+      applyOperation(sample(), {
+        kind: "add-device",
+        device: deviceId("wall"),
+        deviceKind: "passive-panel",
+        label: "Wall",
+        inputs: 4,
+        aes50: { bus: "A", offset: 0 },
+      }),
+    ).toThrow(/Only a stagebox/);
+  });
+
+  it("refuses a non-destination with no inputs", () => {
+    expect(() =>
+      applyOperation(sample(), {
+        kind: "add-device",
+        device: deviceId("wall"),
+        deviceKind: "passive-panel",
+        label: "Wall",
+      }),
+    ).toThrow(/at least 1 input/);
+  });
+
+  it("adds a panel and preserves every comment", () => {
+    const document = sample();
+    applyOperation(document, {
+      kind: "add-device",
+      device: deviceId("wall"),
+      deviceKind: "passive-panel",
+      label: "Wall Plate",
+      inputs: 4,
+      group: "Upstage",
+    });
+
+    expect(commentLines(String(document))).toEqual(commentLines(SAMPLE_YAML));
+    const device = parseInstallationYaml(String(document)).devices
+      .find((d) => d.id === deviceId("wall"));
+    expect(device?.inputs).toBe(4);
+    expect(device?.group).toBe("Upstage");
+  });
+});
+
+describe("applyOperation: set-device-field", () => {
+  it("changes a stagebox's AES50 offset", () => {
+    const document = sample();
+    applyOperation(document, {
+      kind: "set-device-field",
+      device: PIT_BOX,
+      edit: { field: "aes50Offset", value: 16 },
+    });
+
+    expect(parseInstallationYaml(String(document)).devices
+      .find((d) => d.id === PIT_BOX)?.aes50?.offset).toBe(16);
+  });
+
+  it("changes the bus, the input count and the output block", () => {
+    const document = sample();
+    for (const edit of [
+      { field: "aes50Bus", value: "A" },
+      // Grown, not shrunk: pit-box has cables into inputs 9–12, and shrinking
+      // below them would strand those sockets (asserted in edit.test.ts).
+      { field: "inputs", value: 32 },
+      { field: "outputBlockStart", value: 9 },
+    ] as const) {
+      applyOperation(document, { kind: "set-device-field", device: PIT_BOX, edit });
+    }
+
+    const device = parseInstallationYaml(String(document)).devices.find((d) => d.id === PIT_BOX);
+    expect(device?.aes50?.bus).toBe("A");
+    expect(device?.inputs).toBe(32);
+    expect(device?.outputBlock).toEqual({ start: 9 });
+  });
+
+  it("clearing the output block clears the output count with it", () => {
+    // The two are a schema pair, so clearing one alone could only ever
+    // produce a document the pipeline refuses. Asserted on the text, because
+    // the sample's pit-box also has cabled outputs — clearing them strands
+    // those cables, which the pipeline rejects (edit.test.ts). Deliberately
+    // *not* cascaded: silently deleting cables as a side effect of editing a
+    // number would be a far bigger surprise than being told to uncable first.
+    const document = sample();
+    applyOperation(document, {
+      kind: "set-device-field",
+      device: PIT_BOX,
+      edit: { field: "outputBlockStart", value: null },
+    });
+
+    const pitBoxBlock = String(document).split("pit-wall:")[0] ?? "";
+    expect(pitBoxBlock).not.toMatch(/outputBlock:/);
+    expect(pitBoxBlock).not.toMatch(/^\s+outputs:/m);
+  });
+
+  it("refuses an AES50 field on a device that is not a stagebox", () => {
+    expect(() =>
+      applyOperation(sample(), {
+        kind: "set-device-field",
+        device: PIT_WALL,
+        edit: { field: "aes50Offset", value: 8 },
+      }),
+    ).toThrow(/Only a stagebox/);
+  });
+
+  it("preserves every comment", () => {
+    const document = sample();
+    applyOperation(document, {
+      kind: "set-device-field",
+      device: PIT_BOX,
+      edit: { field: "aes50Offset", value: 16 },
+    });
+
+    expect(commentLines(String(document))).toEqual(commentLines(SAMPLE_YAML));
   });
 });

@@ -324,7 +324,7 @@ describe("applyInstallationEdit: the everyday operations", () => {
     expect((await repository.read()).text).toMatch(/Back of house/);
   });
 
-  it("rejects removing a stagebox, and writes nothing", async () => {
+  it("removes a stagebox and its cables in one write (issue #29)", async () => {
     const { repository, version } = await sampleRepository();
 
     const result = await applyInstallationEdit(repository, version, {
@@ -332,8 +332,12 @@ describe("applyInstallationEdit: the everyday operations", () => {
       device: deviceId("pit-box"),
     });
 
-    expect(result.ok).toBe(false);
-    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+    expect(result.ok).toBe(true);
+    const after = await repository.read();
+    // Valid, because the cascade happened inside the one operation — a
+    // two-step removal would have left a dangling reference here.
+    expect(after.installation).not.toBeNull();
+    expect(after.text).not.toMatch(/pit-box/);
   });
 
   it("still refuses every one of these on a stale base version", async () => {
@@ -348,5 +352,289 @@ describe("applyInstallationEdit: the everyday operations", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe(STALE_BASE_VERSION_REASON);
     expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+});
+
+/**
+ * Structural editing through the pipeline (issue #29).
+ *
+ * The rules here are the ones with silent, total failure modes — an AES50
+ * range that overlaps another box, or an input count that strands cables.
+ * Nothing over OSC can catch either, so the pipeline refusing them is the
+ * last line of defence behind the interface.
+ */
+describe("applyInstallationEdit: structural editing", () => {
+  async function sampleRepository() {
+    const repository = new InMemoryInstallationRepository(SAMPLE_YAML);
+    const { version } = await repository.read();
+    return { repository, version };
+  }
+
+  it("rejects an AES50 range that overlaps another box on the same bus", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // pit-box already occupies B 1–16 at offset 0.
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-device",
+      device: deviceId("second-box"),
+      deviceKind: "stagebox",
+      label: "Second Box",
+      inputs: 16,
+      aes50: { bus: "B", offset: 8 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("accepts a non-overlapping range on the same bus", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-device",
+      device: deviceId("second-box"),
+      deviceKind: "stagebox",
+      label: "Second Box",
+      inputs: 16,
+      aes50: { bus: "B", offset: 16 },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects offset + inputs running past AES50 channel 48", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-device",
+      device: deviceId("late-box"),
+      deviceKind: "stagebox",
+      label: "Late Box",
+      inputs: 16,
+      aes50: { bus: "A", offset: 40 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("rejects an output block that would run past Out 16", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "set-device-field",
+      device: deviceId("pit-box"),
+      edit: { field: "outputBlockStart", value: 12 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("rejects a second console device", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // The sample has no console, so add one, then try to add another.
+    const first = await applyInstallationEdit(repository, version, {
+      kind: "add-device",
+      device: deviceId("foh"),
+      deviceKind: "console",
+      label: "FOH",
+      inputs: 32,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const second = await applyInstallationEdit(repository, first.state.version, {
+      kind: "add-device",
+      device: deviceId("foh-2"),
+      deviceKind: "console",
+      label: "Second FOH",
+      inputs: 32,
+    });
+
+    expect(second.ok).toBe(false);
+  });
+
+  it("rejects shrinking inputs below a socket that is cabled", async () => {
+    const { repository, version } = await sampleRepository();
+
+    // pit-box has cables into inputs 9–12.
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "set-device-field",
+      device: deviceId("pit-box"),
+      edit: { field: "inputs", value: 8 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+
+  it("rejects clearing an output block whose outputs are still cabled", async () => {
+    const { repository, version } = await sampleRepository();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "set-device-field",
+      device: deviceId("pit-box"),
+      edit: { field: "outputBlockStart", value: null },
+    });
+
+    // Not cascaded on purpose: deleting cables as a side effect of editing a
+    // number would surprise; being told to uncable first does not.
+    expect(result.ok).toBe(false);
+    expect((await repository.read()).text).toBe(SAMPLE_YAML);
+  });
+});
+
+/**
+ * Create-from-empty (issue #29) — the acceptance test for the whole editor
+ * milestone (#25).
+ *
+ * An empty installation is not a special mode; it is the ordinary one with
+ * nothing in it. If that holds, then everything the editor can do is reachable
+ * from a blank file, and nobody needs a text editor to start.
+ */
+describe("building an installation from empty", () => {
+  const EMPTY = "version: 2\ndevices: {}\nconnections: []\n";
+
+  it("an empty installation is valid and parses to nothing", async () => {
+    const repository = new InMemoryInstallationRepository(EMPTY);
+    const state = await repository.read();
+
+    expect(state.installation).not.toBeNull();
+    expect(state.installation?.devices).toEqual([]);
+    expect(state.installation?.connections).toEqual([]);
+  });
+
+  it("builds a working topology one operation at a time", async () => {
+    const repository = new InMemoryInstallationRepository(EMPTY);
+
+    /** Applies an operation against the current version and fails loudly if refused. */
+    async function apply(operation: InstallationOperation): Promise<void> {
+      const { version } = await repository.read();
+      const result = await applyInstallationEdit(repository, version, operation);
+      if (!result.ok) {
+        throw new Error(`refused: ${result.reason} (${JSON.stringify(operation)})`);
+      }
+    }
+
+    await apply({
+      kind: "add-device",
+      device: deviceId("box-a"),
+      deviceKind: "stagebox",
+      label: "Stage Box A",
+      inputs: 16,
+      aes50: { bus: "A", offset: 0 },
+      outputs: 8,
+      outputBlock: { start: 1 },
+    });
+    await apply({
+      kind: "add-device",
+      device: deviceId("wall"),
+      deviceKind: "passive-panel",
+      label: "Wall Plate",
+      inputs: 4,
+      group: "Stage",
+    });
+    await apply({
+      kind: "add-device",
+      device: deviceId("foh"),
+      deviceKind: "console",
+      label: "FOH Desk",
+      inputs: 32,
+    });
+    await apply({
+      kind: "add-device",
+      device: deviceId("house"),
+      deviceKind: "destination",
+      label: "House",
+      group: "Auditorium",
+    });
+
+    // Cable the panel into the box, and the box's output to the speaker.
+    await apply({
+      kind: "add-connection",
+      from: { kind: "socket", device: deviceId("wall"), input: 1 },
+      to: { kind: "socket", device: deviceId("box-a"), input: 1 },
+    });
+    await apply({
+      kind: "add-connection",
+      from: { kind: "device-output", device: deviceId("box-a"), output: 1 },
+      to: { kind: "destination", device: deviceId("house") },
+    });
+
+    // Annotate a socket that is deliberately spare.
+    await apply({
+      kind: "set-socket-annotation",
+      device: deviceId("wall"),
+      input: 4,
+      status: "unused",
+      note: "Spare",
+    });
+
+    const final = await repository.read();
+    const installation = final.installation;
+
+    expect(installation).not.toBeNull();
+    expect(installation?.devices.map((device) => device.id).sort()).toEqual([
+      "box-a",
+      "foh",
+      "house",
+      "wall",
+    ]);
+    expect(installation?.devices.find((d) => d.id === deviceId("box-a"))?.aes50).toEqual({
+      bus: "A",
+      offset: 0,
+    });
+    expect(
+      installation?.devices.find((d) => d.id === deviceId("wall"))?.sockets,
+    ).toEqual([{ input: 4, status: "unused", note: "Spare" }]);
+    // Two declared cables; the AES50 and console-out edges are derived, never
+    // written, so they must not appear here.
+    expect(installation?.connections).toHaveLength(2);
+  });
+
+  it("writes a file a human would want to hand-edit", async () => {
+    // `yaml` inherits flow style from its container, so a document seeded as
+    // `devices: {}` grows every device as a one-line flow map unless told
+    // otherwise — producing something nobody would open by choice. The file
+    // staying hand-editable is the whole reason operations are surgical, so
+    // the generated shape has to match the hand-written one.
+    const repository = new InMemoryInstallationRepository(EMPTY);
+    const { version } = await repository.read();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-device",
+      device: deviceId("box-a"),
+      deviceKind: "stagebox",
+      label: "Stage Box A",
+      inputs: 16,
+      aes50: { bus: "A", offset: 0 },
+    });
+    expect(result.ok).toBe(true);
+
+    const text = (await repository.read()).text;
+    // Block style for the device and its fields …
+    expect(text).toMatch(/^ {2}box-a:$/m);
+    expect(text).toMatch(/^ {4}kind: stagebox$/m);
+    // … and a flow one-liner for aes50, exactly as the sample writes it.
+    expect(text).toMatch(/^ {4}aes50: \{ bus: A, offset: 0 \}$/m);
+    expect(text).not.toMatch(/devices:\s*\{/);
+  });
+
+  it("refuses a cable into a device that has not been added yet", async () => {
+    // The order in which someone builds is theirs to choose, but a cable can
+    // only reference devices that exist — said plainly, naming the device.
+    const repository = new InMemoryInstallationRepository(EMPTY);
+    const { version } = await repository.read();
+
+    const result = await applyInstallationEdit(repository, version, {
+      kind: "add-connection",
+      from: { kind: "socket", device: deviceId("wall"), input: 1 },
+      to: { kind: "socket", device: deviceId("box-a"), input: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/wall/);
   });
 });

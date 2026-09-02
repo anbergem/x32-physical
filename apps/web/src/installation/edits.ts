@@ -15,10 +15,12 @@ import type { DeviceId } from "@x32/domain";
 import { deviceId } from "@x32/domain";
 import type {
   AddConnectionOperation,
-  AddDestinationOperation,
+  AddDeviceOperation,
   ConnectionEnd,
+  DeviceFieldEdit,
   RemoveConnectionOperation,
   RemoveDeviceOperation,
+  SetDeviceFieldOperation,
   SetDeviceGroupOperation,
   SetSocketAnnotationOperation,
 } from "@x32/installation";
@@ -100,15 +102,15 @@ export function addDestinationOperation(
   label: string,
   group: string,
   existingIds: readonly DeviceId[],
-): AddDestinationOperation | null {
+): AddDeviceOperation | null {
   const trimmed = label.trim();
   if (trimmed === "") return null;
 
-  const device = uniqueDeviceId(trimmed, existingIds);
   const trimmedGroup = group.trim();
   return {
-    kind: "add-destination",
-    device,
+    kind: "add-device",
+    device: uniqueDeviceId(trimmed, existingIds),
+    deviceKind: "destination",
     label: trimmed,
     ...(trimmedGroup === "" ? {} : { group: trimmedGroup }),
   };
@@ -116,6 +118,42 @@ export function addDestinationOperation(
 
 export function removeDeviceOperation(device: DeviceId): RemoveDeviceOperation {
   return { kind: "remove-device", device };
+}
+
+/** One structural field of a device (issue #29). */
+export function deviceFieldOperation(
+  device: DeviceId,
+  edit: DeviceFieldEdit,
+): SetDeviceFieldOperation {
+  return { kind: "set-device-field", device, edit };
+}
+
+/**
+ * A new stagebox, panel or console.
+ *
+ * Everything the kind needs to be valid travels in the one operation: a
+ * stagebox added without its AES50 mapping would leave the document invalid
+ * and the pipeline would refuse it, so there is no "add now, configure next".
+ */
+export function addDeviceOperation(
+  deviceKind: "stagebox" | "passive-panel" | "console",
+  label: string,
+  inputs: number,
+  existingIds: readonly DeviceId[],
+  aes50?: { bus: "A" | "B"; offset: number },
+): AddDeviceOperation | null {
+  const trimmed = label.trim();
+  if (trimmed === "" || !Number.isInteger(inputs) || inputs < 1) return null;
+  if (deviceKind === "stagebox" && aes50 === undefined) return null;
+
+  return {
+    kind: "add-device",
+    device: uniqueDeviceId(trimmed, existingIds),
+    deviceKind,
+    label: trimmed,
+    inputs,
+    ...(deviceKind === "stagebox" && aes50 !== undefined ? { aes50 } : {}),
+  };
 }
 
 /**

@@ -303,10 +303,37 @@ connections:
 
 ## Editing it at the venue
 
+**Two equal ways: in the app, or in a text editor.** Since the installation
+editor (epic #25) the whole file can be built and maintained from the UI —
+switch on *Edit installation*, and you can rename devices, group them,
+annotate broken or spare sockets, cable and uncable, add and remove
+destinations, and add or reconfigure stageboxes, panels and the console. An
+installation with no devices at all is a valid starting point, so a new venue
+can be built from nothing without opening a file.
+
+This document remains the source of truth for both. The editor writes exactly
+the schema described here — same fields, same rules — through surgical
+operations that leave your comments, key order and quoting untouched, and it
+validates the *whole resulting document* before writing anything. An edit that
+would leave the installation invalid is refused with a sentence saying why,
+and nothing is written.
+
+Two values deserve particular care whichever way you edit, because they are
+the ones that fail silently: **`aes50.offset`** and **`outputBlock.start`**.
+Neither appears on any patch sheet, the console reports the same channels
+whatever you declare, and a wrong value leaves a schematic that looks entirely
+correct while pointing at the wrong socket. The editor shows the consequence
+of each as you type it ("inputs 1–16 → AES50-A 17–32") and names any box whose
+channels you would be claiming twice — but it will never infer either for you.
+They are physical settings on the box, and only looking at the box can settle
+them.
+
 In production the bridge reads this file at startup and serves it to the web
 app over `GET /api/installation`. A cabling correction is therefore a file
 edit plus a service restart, not a new release — see the README's "Changing
-the physical wiring" for the exact steps.
+the physical wiring" for the exact steps. Edits made *in the app* take effect
+immediately and are broadcast to every connected browser; only hand-edits need
+the restart.
 
 The file to edit is the one in the state directory
 (`%ProgramData%\X32RoutingVisualizer\installation.yaml`), which needs no admin

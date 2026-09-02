@@ -108,8 +108,9 @@ describe("socketAnnotationOperation", () => {
 describe("addDestinationOperation", () => {
   it("derives a readable id from the label", () => {
     expect(addDestinationOperation("Balcony Fill", "", [])).toEqual({
-      kind: "add-destination",
+      kind: "add-device",
       device: deviceId("balcony-fill"),
+      deviceKind: "destination",
       label: "Balcony Fill",
     });
   });

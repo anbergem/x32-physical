@@ -107,15 +107,58 @@ export interface RemoveConnectionOperation {
 }
 
 /**
- * Add a destination — a powered speaker or zone. Destinations carry no socket
- * number and no `inputs` of their own (the loader supplies 0), so a label and
- * an optional group is the whole of it.
+ * Add a device of any kind (issue #29).
+ *
+ * It carries **everything the kind needs to be valid**, because the pipeline
+ * validates the document after each operation: a stagebox added without its
+ * `aes50` mapping would fail `missing-aes50` and be refused, so there is no
+ * "add it now, configure it next" sequence to be had. The same reasoning as
+ * `remove-device`'s cascade.
+ *
+ * Per-kind rules, enforced here so a malformed request is refused with a
+ * sentence rather than a schema dump:
+ *
+ * - `stagebox` — `inputs` ≥ 1 and `aes50` are required; `outputs` and
+ *   `outputBlock` are optional.
+ * - `passive-panel`, `console` — `inputs` ≥ 1, and **no** `aes50`: only a
+ *   stagebox connects to an AES50 bus.
+ * - `destination` — a label, optionally a group, nothing else. `inputs: 0` is
+ *   supplied by the loader and is never authored.
  */
-export interface AddDestinationOperation {
-  readonly kind: "add-destination";
+export interface AddDeviceOperation {
+  readonly kind: "add-device";
   readonly device: DeviceId;
+  readonly deviceKind: "stagebox" | "passive-panel" | "console" | "destination";
   readonly label: string;
   readonly group?: string;
+  readonly inputs?: number;
+  readonly outputs?: number;
+  readonly aes50?: { readonly bus: "A" | "B"; readonly offset: number };
+  readonly outputBlock?: { readonly start: number };
+}
+
+/**
+ * One structural field of an existing device (issue #29).
+ *
+ * `aes50Offset` and `outputBlockStart` are the two most dangerous values in
+ * the whole file: neither appears on any patch sheet, both were
+ * reverse-engineered from the cascade, and getting either wrong silently
+ * mislabels every socket or every output on that box — with nothing over OSC
+ * able to catch it. They are editable here, but the interface's job is to
+ * present them as questions about hardware and show the resulting ranges, and
+ * never to infer them.
+ */
+export type DeviceFieldEdit =
+  | { readonly field: "inputs"; readonly value: number }
+  | { readonly field: "outputs"; readonly value: number | null }
+  | { readonly field: "aes50Bus"; readonly value: "A" | "B" }
+  | { readonly field: "aes50Offset"; readonly value: number }
+  | { readonly field: "outputBlockStart"; readonly value: number | null };
+
+export interface SetDeviceFieldOperation {
+  readonly kind: "set-device-field";
+  readonly device: DeviceId;
+  readonly edit: DeviceFieldEdit;
 }
 
 /**
@@ -150,7 +193,8 @@ export type InstallationOperation =
   | SetSocketAnnotationOperation
   | AddConnectionOperation
   | RemoveConnectionOperation
-  | AddDestinationOperation
+  | AddDeviceOperation
+  | SetDeviceFieldOperation
   | RemoveDeviceOperation;
 
 /** Every operation kind this build knows, for guards and for logging. */
@@ -160,7 +204,8 @@ export const INSTALLATION_OPERATION_KINDS = [
   "set-socket-annotation",
   "add-connection",
   "remove-connection",
-  "add-destination",
+  "add-device",
+  "set-device-field",
   "remove-device",
 ] as const;
 
@@ -181,8 +226,10 @@ export function describeOperation(operation: InstallationOperation): string {
       return `add-connection ${describeEnd(operation.from)} -> ${describeEnd(operation.to)}`;
     case "remove-connection":
       return `remove-connection ${describeEnd(operation.from)} -> ${describeEnd(operation.to)}`;
-    case "add-destination":
-      return `add-destination ${operation.device} ("${operation.label}")`;
+    case "add-device":
+      return `add-device ${operation.deviceKind} ${operation.device} ("${operation.label}")`;
+    case "set-device-field":
+      return `set-device-field ${operation.device} ${operation.edit.field} -> ${String(operation.edit.value)}`;
     case "remove-device":
       return `remove-device ${operation.device}`;
   }
@@ -243,8 +290,12 @@ export function applyOperation(
       applyRemoveConnection(document, operation);
       return;
 
-    case "add-destination":
-      applyAddDestination(document, operation);
+    case "add-device":
+      applyAddDevice(document, operation);
+      return;
+
+    case "set-device-field":
+      applySetDeviceField(document, operation);
       return;
 
     case "remove-device":
@@ -385,10 +436,15 @@ function applyAddConnection(document: Document, operation: AddConnectionOperatio
   if (!document.hasIn(["connections"])) {
     document.setIn(["connections"], []);
   }
-  const seq = document.getIn(["connections"], true) as { items: unknown[] };
-  seq.items.push(
-    document.createNode({ from: endToPlain(operation.from), to: endToPlain(operation.to) }),
-  );
+  const seq = document.getIn(["connections"], true) as { items: unknown[]; flow?: boolean };
+  const entry = document.createNode({
+    from: endToPlain(operation.from),
+    to: endToPlain(operation.to),
+  });
+  // `- from: { … }` / `  to: { … }` — the sample's shape exactly.
+  applyHouseStyle(entry, ["from", "to"]);
+  seq.flow = false;
+  seq.items.push(entry);
 }
 
 function applyRemoveConnection(
@@ -430,40 +486,169 @@ function removeConnectionAt(document: Document, index: number): void {
   }
 }
 
-function applyAddDestination(
-  document: Document,
-  operation: AddDestinationOperation,
-): void {
+/**
+ * Matches the hand-written house style, because the file must stay pleasant to
+ * hand-edit — that is the whole reason operations are surgical rather than a
+ * re-serialisation.
+ *
+ * `yaml` inherits flow style from the container it writes into, so a document
+ * seeded as `devices: {}` would grow every device as a one-line flow map and
+ * produce something no one would want to open. The convention in
+ * `installation.sample.yaml` is: devices and their fields in block style, with
+ * `aes50` and `outputBlock` kept as flow one-liners, exactly as
+ * `aes50: { bus: B, offset: 0 }`.
+ */
+function applyHouseStyle(node: unknown, nested: readonly string[] = []): void {
+  if (node === null || typeof node !== "object") return;
+  const collection = node as { flow?: boolean; get?: (key: string) => unknown };
+  collection.flow = false;
+  for (const key of nested) {
+    const child = collection.get?.(key);
+    if (child !== undefined && child !== null && typeof child === "object") {
+      (child as { flow?: boolean }).flow = true;
+    }
+  }
+}
+
+function applyAddDevice(document: Document, operation: AddDeviceOperation): void {
   if (document.hasIn(["devices", operation.device])) {
     throw new Error(
       `Device "${operation.device}" already exists: device ids must be unique.`,
     );
   }
 
-  const group = operation.group?.trim() ?? "";
   const device: Record<string, unknown> = {
-    kind: "destination",
+    kind: operation.deviceKind,
     label: operation.label,
   };
+
+  if (operation.deviceKind === "destination") {
+    // A destination is a device-level endpoint: no sockets of its own, and
+    // `inputs: 0` supplied by the loader rather than authored.
+    if (operation.inputs !== undefined || operation.aes50 !== undefined) {
+      throw new Error(
+        `A destination has no inputs or AES50 mapping of its own — ` +
+          `"${operation.device}" declared them.`,
+      );
+    }
+  } else {
+    if (operation.inputs === undefined || !Number.isInteger(operation.inputs) || operation.inputs < 1) {
+      throw new Error(
+        `A ${operation.deviceKind} must declare at least 1 input — ` +
+          `"${operation.device}" declared ${String(operation.inputs)}.`,
+      );
+    }
+    device.inputs = operation.inputs;
+
+    if (operation.deviceKind === "stagebox") {
+      // Required, and required *here*: a stagebox added without it would fail
+      // `missing-aes50` and the whole edit would be refused, so there is no
+      // valid "add now, map later" sequence.
+      if (operation.aes50 === undefined) {
+        throw new Error(
+          `Stagebox "${operation.device}" needs its AES50 mapping ` +
+            `({ bus, offset }) — a stagebox without one is not a valid installation.`,
+        );
+      }
+      device.aes50 = { bus: operation.aes50.bus, offset: operation.aes50.offset };
+      if (operation.outputs !== undefined) device.outputs = operation.outputs;
+      if (operation.outputBlock !== undefined) {
+        device.outputBlock = { start: operation.outputBlock.start };
+      }
+    } else if (operation.aes50 !== undefined) {
+      throw new Error(
+        `Only a stagebox connects to an AES50 bus — "${operation.device}" is a ` +
+          `${operation.deviceKind}.`,
+      );
+    }
+  }
+
+  const group = operation.group?.trim() ?? "";
   if (group !== "") device.group = group;
 
   if (!document.hasIn(["devices"])) {
-    document.setIn(["devices"], {});
+    document.setIn(["devices"], document.createNode({}));
   }
-  document.setIn(["devices", operation.device], device);
+  const node = document.createNode(device);
+  applyHouseStyle(node, ["aes50", "outputBlock"]);
+  document.setIn(["devices", operation.device], node);
+  // The `devices` map itself: a document seeded as `devices: {}` is flow, and
+  // would otherwise stay that way for every device ever added to it.
+  applyHouseStyle(document.getIn(["devices"], true));
+}
+
+function applySetDeviceField(
+  document: Document,
+  operation: SetDeviceFieldOperation,
+): void {
+  requireDevice(document, operation.device);
+  const base = ["devices", operation.device];
+  const { edit } = operation;
+
+  switch (edit.field) {
+    case "inputs":
+      document.setIn([...base, "inputs"], edit.value);
+      return;
+
+    // `outputs` and `outputBlock` are a schema *pair*: a stagebox that
+    // presents a block must say how many outs it has, and a declared output
+    // count needs a block to sit in. So clearing either clears both —
+    // clearing one alone could only ever produce a document the pipeline
+    // refuses, which would make the operation useless rather than safe.
+    case "outputs":
+      if (edit.value === null) {
+        document.deleteIn([...base, "outputs"]);
+        document.deleteIn([...base, "outputBlock"]);
+      } else {
+        document.setIn([...base, "outputs"], edit.value);
+      }
+      return;
+
+    case "aes50Bus":
+    case "aes50Offset": {
+      requireStagebox(document, operation.device, "an AES50 mapping");
+      if (!document.hasIn([...base, "aes50"])) {
+        document.setIn([...base, "aes50"], document.createNode({}));
+      }
+      const key = edit.field === "aes50Bus" ? "bus" : "offset";
+      document.setIn([...base, "aes50", key], edit.value);
+      return;
+    }
+
+    case "outputBlockStart": {
+      requireStagebox(document, operation.device, "an output block");
+      if (edit.value === null) {
+        document.deleteIn([...base, "outputBlock"]);
+        document.deleteIn([...base, "outputs"]);
+        return;
+      }
+      if (!document.hasIn([...base, "outputBlock"])) {
+        document.setIn([...base, "outputBlock"], document.createNode({}));
+      }
+      document.setIn([...base, "outputBlock", "start"], edit.value);
+      return;
+    }
+  }
+}
+
+function requireStagebox(document: Document, device: DeviceId, what: string): void {
+  const kind: unknown = document.getIn(["devices", device, "kind"]);
+  if (kind === "stagebox") return;
+  throw new Error(
+    `Only a stagebox has ${what} — "${device}" is a ` +
+      `${typeof kind === "string" ? kind : "device of unknown kind"}.`,
+  );
 }
 
 function applyRemoveDevice(document: Document, operation: RemoveDeviceOperation): void {
   requireDevice(document, operation.device);
 
-  const kind: unknown = document.getIn(["devices", operation.device, "kind"]);
-  if (kind !== "destination") {
-    throw new Error(
-      `Cannot remove "${operation.device}": only destinations can be removed here. ` +
-        `Removing a ${typeof kind === "string" ? kind : "device"} changes AES50 ` +
-        `cascade arithmetic across the whole installation.`,
-    );
-  }
+  // Any kind may be removed since issue #29. Removing a stagebox or panel is
+  // far more consequential than removing a destination — it changes AES50
+  // cascade arithmetic and strands every socket that fed it — so the *UI*
+  // states those consequences before asking. The operation itself stays
+  // uniform: refusing structurally valid edits down here would only push
+  // people back to a text editor, which has no guardrails at all.
 
   // Cascade in the same operation — see RemoveDeviceOperation's doc comment.
   // Walk backwards so each splice leaves the lower indices valid.
@@ -588,14 +773,40 @@ export function parseInstallationOperation(
         from: parseConnectionEnd(value.from, `${context}.from`),
         to: parseConnectionEnd(value.to, `${context}.to`),
       };
-    case "add-destination":
+    case "add-device":
       return {
-        kind: "add-destination",
+        kind: "add-device",
         device: parseDeviceId(value.device, `${context}.device`),
+        deviceKind: parseDeviceKind(value.deviceKind, `${context}.deviceKind`),
         label: requireString(value.label, `${context}.label`),
         ...(value.group === undefined
           ? {}
           : { group: requireString(value.group, `${context}.group`) }),
+        ...(value.inputs === undefined
+          ? {}
+          : { inputs: requireCount(value.inputs, `${context}.inputs`) }),
+        ...(value.outputs === undefined
+          ? {}
+          : { outputs: requireCount(value.outputs, `${context}.outputs`) }),
+        ...(value.aes50 === undefined
+          ? {}
+          : { aes50: parseAes50Mapping(value.aes50, `${context}.aes50`) }),
+        ...(value.outputBlock === undefined
+          ? {}
+          : {
+              outputBlock: {
+                start: requireCount(
+                  isRecord(value.outputBlock) ? value.outputBlock.start : undefined,
+                  `${context}.outputBlock.start`,
+                ),
+              },
+            }),
+      };
+    case "set-device-field":
+      return {
+        kind: "set-device-field",
+        device: parseDeviceId(value.device, `${context}.device`),
+        edit: parseDeviceFieldEdit(value.edit, `${context}.edit`),
       };
     case "remove-device":
       return {
@@ -659,6 +870,73 @@ function parseConnectionEnd(value: unknown, context: string): ConnectionEnd {
       throw malformed(
         `${context}.kind`,
         '"socket" | "device-output" | "console-output" | "destination"',
+      );
+  }
+}
+
+function parseDeviceKind(
+  value: unknown,
+  context: string,
+): "stagebox" | "passive-panel" | "console" | "destination" {
+  if (
+    value === "stagebox" ||
+    value === "passive-panel" ||
+    value === "console" ||
+    value === "destination"
+  ) {
+    return value;
+  }
+  throw malformed(context, '"stagebox" | "passive-panel" | "console" | "destination"');
+}
+
+/** A socket/output count or an offset: a non-negative integer. Ranges are `validateInstallation`'s rule. */
+function requireCount(value: unknown, context: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw malformed(context, "a non-negative integer");
+  }
+  return value;
+}
+
+function parseAes50Mapping(
+  value: unknown,
+  context: string,
+): { bus: "A" | "B"; offset: number } {
+  if (!isRecord(value)) throw malformed(context, "an object with bus and offset");
+  if (value.bus !== "A" && value.bus !== "B") {
+    throw malformed(`${context}.bus`, '"A" | "B"');
+  }
+  return { bus: value.bus, offset: requireCount(value.offset, `${context}.offset`) };
+}
+
+function parseDeviceFieldEdit(value: unknown, context: string): DeviceFieldEdit {
+  if (!isRecord(value) || typeof value.field !== "string") {
+    throw malformed(context, 'an edit with a "field"');
+  }
+
+  switch (value.field) {
+    case "inputs":
+      return { field: "inputs", value: requireCount(value.value, `${context}.value`) };
+    case "outputs":
+      return {
+        field: "outputs",
+        value: value.value === null ? null : requireCount(value.value, `${context}.value`),
+      };
+    case "aes50Bus":
+      if (value.value !== "A" && value.value !== "B") {
+        throw malformed(`${context}.value`, '"A" | "B"');
+      }
+      return { field: "aes50Bus", value: value.value };
+    case "aes50Offset":
+      return { field: "aes50Offset", value: requireCount(value.value, `${context}.value`) };
+    case "outputBlockStart":
+      return {
+        field: "outputBlockStart",
+        value: value.value === null ? null : requireCount(value.value, `${context}.value`),
+      };
+    default:
+      throw malformed(
+        `${context}.field`,
+        '"inputs" | "outputs" | "aes50Bus" | "aes50Offset" | "outputBlockStart"',
       );
   }
 }
