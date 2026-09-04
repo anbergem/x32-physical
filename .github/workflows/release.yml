@@ -25,7 +25,7 @@ on:
 #
 # WinSW (https://github.com/winsw/winsw) is the Windows service host that
 # actually speaks the Service Control Protocol on node.exe's behalf (see
-# deploy/msi/Product.wxs and deploy/msi/winsw/X32RoutingVisualizer.xml).
+# deploy/msi/Product.wxs and deploy/msi/winsw/X32PhysicalRoutingVisualizer.xml).
 # Pinned to v2.12.0 — GitHub Releases doesn't publish a digest for this
 # project's assets, so WINSW_SHA256 below was computed by hand from that
 # exact release asset at pin time (2026-08-24) and is verified on every run;
@@ -128,7 +128,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: msi
-          path: dist/release/X32RoutingVisualizer-*.msi
+          path: dist/release/X32PhysicalRoutingVisualizer-*.msi
           if-no-files-found: error
 
   verify:
@@ -144,7 +144,7 @@ jobs:
         id: msi
         shell: pwsh
         run: |
-          $msi = Get-ChildItem -Path msi -Filter "X32RoutingVisualizer-*.msi" | Select-Object -First 1
+          $msi = Get-ChildItem -Path msi -Filter "X32PhysicalRoutingVisualizer-*.msi" | Select-Object -First 1
           if ($null -eq $msi) {
             Write-Error "No MSI found in the downloaded artifact."
             exit 1
@@ -190,13 +190,13 @@ jobs:
       - name: Assert the service is registered and running
         shell: pwsh
         run: |
-          $svc = Get-Service -Name "X32RoutingVisualizer" -ErrorAction SilentlyContinue
+          $svc = Get-Service -Name "X32PhysicalRoutingVisualizer" -ErrorAction SilentlyContinue
           if ($null -eq $svc) {
-            Write-Error "Service 'X32RoutingVisualizer' was not found after install."
+            Write-Error "Service 'X32PhysicalRoutingVisualizer' was not found after install."
             exit 1
           }
           if ($svc.Status -ne "Running") {
-            Write-Error "Service 'X32RoutingVisualizer' is not Running (status: $($svc.Status))."
+            Write-Error "Service 'X32PhysicalRoutingVisualizer' is not Running (status: $($svc.Status))."
             exit 1
           }
           Write-Host "Service is registered and Running (display name: $($svc.DisplayName))."
@@ -209,7 +209,7 @@ jobs:
           # every installed build advertised an update to the release it was
           # already running. Asserted before the uninstall, which removes the
           # file along with the rest of INSTALLFOLDER.
-          $versionFile = "C:\Program Files\X32 Routing Visualizer\VERSION"
+          $versionFile = "C:\Program Files\X32 Physical Routing Visualizer\VERSION"
           if (-not (Test-Path $versionFile)) {
             Write-Error "No VERSION file at '$versionFile' after install."
             exit 1
@@ -239,12 +239,12 @@ jobs:
         shell: pwsh
         run: |
           Start-Sleep -Seconds 3
-          $svc = Get-Service -Name "X32RoutingVisualizer" -ErrorAction SilentlyContinue
+          $svc = Get-Service -Name "X32PhysicalRoutingVisualizer" -ErrorAction SilentlyContinue
           if ($null -ne $svc) {
-            Write-Error "Service 'X32RoutingVisualizer' still exists after uninstall (status: $($svc.Status))."
+            Write-Error "Service 'X32PhysicalRoutingVisualizer' still exists after uninstall (status: $($svc.Status))."
             exit 1
           }
-          $installDir = "C:\Program Files\X32 Routing Visualizer"
+          $installDir = "C:\Program Files\X32 Physical Routing Visualizer"
           if (Test-Path $installDir) {
             Write-Error "Install directory '$installDir' still exists after uninstall."
             exit 1
@@ -282,5 +282,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          msi_path="$(ls msi/X32RoutingVisualizer-*.msi)"
+          msi_path="$(ls msi/X32PhysicalRoutingVisualizer-*.msi)"
           gh release upload "${{ github.event.release.tag_name }}" "${msi_path}" --clobber --repo "${{ github.repository }}"

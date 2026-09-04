@@ -91,7 +91,7 @@ app over `GET /api/installation`; the web app's own bundled copy is only a
 fallback for when that fails. A cabling correction is a file edit plus a
 service restart — see README.md's "Changing the physical wiring" for the
 exact steps, including the `X32_INSTALLATION_FILE` override path (a
-venue-local copy under `%ProgramData%\X32RoutingVisualizer\`) for a one-off
+venue-local copy under `%ProgramData%\X32PhysicalRoutingVisualizer\`) for a one-off
 on-site fix that doesn't touch the release-shipped `%ProgramFiles%` copy.
 There is deliberately no file watching — a service restart is the trigger,
 not a live reload.

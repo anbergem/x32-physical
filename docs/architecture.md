@@ -693,7 +693,7 @@ Two files, and the distinction is the whole point:
 
 | | Path | Lifecycle |
 | --- | --- | --- |
-| **Live** | `<state dir>/installation.yaml` — the same directory as `baseline.json`; `%ProgramData%\X32RoutingVisualizer\` under the MSI, `data/` in dev | Venue data. Created once; never removed or overwritten by any upgrade or uninstall. `Users` has Modify, so a tech edits it without admin rights. |
+| **Live** | `<state dir>/installation.yaml` — the same directory as `baseline.json`; `%ProgramData%\X32PhysicalRoutingVisualizer\` under the MSI, `data/` in dev | Venue data. Created once; never removed or overwritten by any upgrade or uninstall. `Users` has Modify, so a tech edits it without admin rights. |
 | **Seed** | `config/installation.yaml` next to the server module, i.e. inside `%ProgramFiles%` | Program data. Removed and reinstalled wholesale by `MajorUpgrade`. |
 
 `config.ts`'s `resolveStateDirectory` derives the state directory from

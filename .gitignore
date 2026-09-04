@@ -11,7 +11,7 @@ dist/
 apps/x32-bridge/data/
 
 # A venue's own topology (issue #26). The live copy belongs in the bridge's
-# state directory (`%ProgramData%\X32RoutingVisualizer\` under the MSI), where
+# state directory (`%ProgramData%\X32PhysicalRoutingVisualizer\` under the MSI), where
 # no upgrade can overwrite it; this path is only the seed a release ships, and
 # whatever room you happen to be describing is yours, not the repo's.
 # `config/installation.sample.yaml` stays tracked as the starting point.

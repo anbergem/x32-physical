@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  X32 Routing Visualizer — MSI installer (WiX v5, docs/plan.md step 19).
+  X32 Physical Routing Visualizer — MSI installer (WiX v5, docs/plan.md step 19).
 
   Built by scripts/build-msi.mjs on windows-latest CI (macOS cannot run
   `wix build` or `msiexec` — this authoring is verified end-to-end only by
@@ -17,20 +17,20 @@
                       not from inside this file — see build-msi.mjs)
 
   Install layout, all under one INSTALLFOLDER
-  (%ProgramFiles%\X32 Routing Visualizer\ — no directory-picker UI, so this
+  (%ProgramFiles%\X32 Physical Routing Visualizer\ — no directory-picker UI, so this
   path is fixed and known ahead of time; see the comment in
-  deploy/msi/winsw/X32RoutingVisualizer.xml):
+  deploy/msi/winsw/X32PhysicalRoutingVisualizer.xml):
 
     server.mjs, VERSION, config\, web\   <- harvested (AppFiles.wxs, generated)
     node.exe                             <- portable Node runtime
-    X32RoutingVisualizer.exe             <- WinSW, renamed; the actual Windows
+    X32PhysicalRoutingVisualizer.exe             <- WinSW, renamed; the actual Windows
                                              service binary (node.exe cannot
                                              speak SCP directly)
-    X32RoutingVisualizer.xml             <- WinSW's own config: launches
+    X32PhysicalRoutingVisualizer.xml             <- WinSW's own config: launches
                                              `node.exe server.mjs` as WinSW's
                                              supervised child
 
-  State lives in %ProgramData%\X32RoutingVisualizer\ (installation.yaml,
+  State lives in %ProgramData%\X32PhysicalRoutingVisualizer\ (installation.yaml,
   baseline.json, WinSW's logs, optional settings.env) — created once,
   permanently, and NEVER removed by an upgrade or uninstall: it is venue data
   (the room's own wiring and the blessed baseline), not program data. The
@@ -42,8 +42,8 @@
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
-  <Package Name="X32 Routing Visualizer"
-           Manufacturer="Betania"
+  <Package Name="X32 Physical Routing Visualizer"
+           Manufacturer="anbergem"
            Version="$(var.ProductVersion)"
            UpgradeCode="ea17cced-15a2-4d35-873c-9fa2ffbdb759"
            Language="1033"
@@ -55,11 +55,24 @@
       upgrade an older install; regenerating it would turn every future
       release into a side-by-side install instead of an in-place upgrade.
       DO NOT REGENERATE.
+
+      It deliberately survived the v0.2.0 rename, when the product name, the
+      service id, the install folder and the ProgramData folder all changed
+      from "X32 Routing Visualizer"/"X32RoutingVisualizer". The GUID is opaque
+      and carries no naming semantics: its only job is to say "this is the
+      same product as before", which is still true.
+
+      Keeping it is also what makes a *forgotten* uninstall harmless. v0.2.0
+      is meant to be installed over a wiped v0.1.x, but if someone skips that
+      step, a stable UpgradeCode means the new MSI simply upgrades the old
+      install and leaves two empty directories behind. Had the GUID changed,
+      the same slip would produce two installs and two services fighting over
+      port 8765 — a far worse failure, and one nobody would diagnose quickly.
     -->
 
     <MajorUpgrade
       AllowSameVersionUpgrades="yes"
-      DowngradeErrorMessage="A newer version of X32 Routing Visualizer is already installed. Uninstall it first if you need to downgrade."
+      DowngradeErrorMessage="A newer version of X32 Physical Routing Visualizer is already installed. Uninstall it first if you need to downgrade."
       Schedule="afterInstallValidate" />
 
     <MediaTemplate EmbedCab="yes" />
@@ -67,7 +80,7 @@
     <!-- ============================== Directories ============================== -->
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="X32 Routing Visualizer">
+      <Directory Id="INSTALLFOLDER" Name="X32 Physical Routing Visualizer">
 
         <!-- Portable Node.js runtime — not harvested (a single well-known
              file, downloaded and SHA256-verified by the release workflow). -->
@@ -80,15 +93,15 @@
              actual Windows service. WiX derives the service's binary path
              from this component's own File automatically. -->
         <Component Id="ServiceComponent" Guid="*">
-          <File Id="WinSwExeFile" Source="$(var.WinSwExePath)" Name="X32RoutingVisualizer.exe" KeyPath="yes" />
-          <File Id="WinSwConfigFile" Source="winsw\X32RoutingVisualizer.xml" Name="X32RoutingVisualizer.xml" />
+          <File Id="WinSwExeFile" Source="$(var.WinSwExePath)" Name="X32PhysicalRoutingVisualizer.exe" KeyPath="yes" />
+          <File Id="WinSwConfigFile" Source="winsw\X32PhysicalRoutingVisualizer.xml" Name="X32PhysicalRoutingVisualizer.xml" />
 
           <ServiceInstall
             Id="ServiceInstall"
             Type="ownProcess"
             Vital="yes"
-            Name="X32RoutingVisualizer"
-            DisplayName="X32 Routing Visualizer"
+            Name="X32PhysicalRoutingVisualizer"
+            DisplayName="X32 Physical Routing Visualizer"
             Description="Serves the X32 physical routing visualizer web UI and bridges to the console (read-only; never writes to the mixer)."
             Start="auto"
             ErrorControl="normal"
@@ -96,7 +109,7 @@
 
           <ServiceControl
             Id="ServiceControl"
-            Name="X32RoutingVisualizer"
+            Name="X32PhysicalRoutingVisualizer"
             Start="install"
             Stop="both"
             Remove="uninstall"
@@ -118,7 +131,7 @@
       settings.env override (X32_HOST / X32_BRIDGE_PORT for an unusual
       network — see apps/x32-bridge/src/config.ts's
       parseSettingsFileContents/applySettingsFileOverrides and
-      deploy/msi/winsw/X32RoutingVisualizer.xml's X32_SETTINGS_FILE).
+      deploy/msi/winsw/X32PhysicalRoutingVisualizer.xml's X32_SETTINGS_FILE).
 
       `Permanent="yes"` + `RemoveFolder On="never"` mean neither an upgrade
       nor a full uninstall ever deletes this directory or its contents: the
@@ -129,7 +142,7 @@
       settings.env by hand) can both write here without further ACL surgery.
     -->
     <StandardDirectory Id="CommonAppDataFolder">
-      <Directory Id="APPDATAFOLDER" Name="X32RoutingVisualizer">
+      <Directory Id="APPDATAFOLDER" Name="X32PhysicalRoutingVisualizer">
         <Component Id="AppDataFolderComponent" Guid="*" Permanent="yes" NeverOverwrite="yes">
           <CreateFolder>
             <util:PermissionEx User="Users" GenericAll="yes" />
@@ -142,7 +155,7 @@
                how a folder is kept. -->
           <RegistryValue
             Root="HKLM"
-            Key="Software\Betania\X32RoutingVisualizer"
+            Key="Software\anbergem\X32PhysicalRoutingVisualizer"
             Name="DataDirCreated"
             Type="integer"
             Value="1"
@@ -154,17 +167,17 @@
     <!-- Shortcuts: Start Menu + Desktop, both a plain internet shortcut to
          the app's one-and-only URL (no console IP to configure — step 18). -->
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ApplicationProgramsFolder" Name="X32 Routing Visualizer">
+      <Directory Id="ApplicationProgramsFolder" Name="X32 Physical Routing Visualizer">
         <Component Id="StartMenuShortcutComponent" Guid="*">
           <util:InternetShortcut
             Id="StartMenuShortcut"
-            Name="X32 Routing"
+            Name="X32 Physical Routing"
             Target="http://localhost:8765"
             Type="url" />
           <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
           <RegistryValue
             Root="HKCU"
-            Key="Software\Betania\X32RoutingVisualizer"
+            Key="Software\anbergem\X32PhysicalRoutingVisualizer"
             Name="StartMenuShortcutInstalled"
             Type="integer"
             Value="1"
@@ -177,12 +190,12 @@
       <Component Id="DesktopShortcutComponent" Guid="*">
         <util:InternetShortcut
           Id="DesktopShortcut"
-          Name="X32 Routing"
+          Name="X32 Physical Routing"
           Target="http://localhost:8765"
           Type="url" />
         <RegistryValue
           Root="HKCU"
-          Key="Software\Betania\X32RoutingVisualizer"
+          Key="Software\anbergem\X32PhysicalRoutingVisualizer"
           Name="DesktopShortcutInstalled"
           Type="integer"
           Value="1"
@@ -192,7 +205,7 @@
 
     <!-- ============================== Feature ============================== -->
 
-    <Feature Id="MainFeature" Title="X32 Routing Visualizer" Level="1">
+    <Feature Id="MainFeature" Title="X32 Physical Routing Visualizer" Level="1">
       <ComponentRef Id="NodeExeComponent" />
       <ComponentRef Id="ServiceComponent" />
       <ComponentGroupRef Id="AppFiles" />

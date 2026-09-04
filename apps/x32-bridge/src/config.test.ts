@@ -158,9 +158,9 @@ describe("resolveInstallationFileOverride (issue #3)", () => {
   it("returns the configured override", () => {
     expect(
       resolveInstallationFileOverride({
-        X32_INSTALLATION_FILE: "C:\\ProgramData\\X32RoutingVisualizer\\installation.yaml",
+        X32_INSTALLATION_FILE: "C:\\ProgramData\\X32PhysicalRoutingVisualizer\\installation.yaml",
       }),
-    ).toBe("C:\\ProgramData\\X32RoutingVisualizer\\installation.yaml");
+    ).toBe("C:\\ProgramData\\X32PhysicalRoutingVisualizer\\installation.yaml");
   });
 
   it("treats a blank override as unset", () => {
@@ -175,7 +175,7 @@ describe("the state directory (issue #26)", () => {
 
   it("follows the baseline wherever it is configured — the MSI's ProgramData directory", () => {
     // POSIX-form path so this asserts the derivation itself on any platform;
-    // on Windows the same call resolves C:\ProgramData\X32RoutingVisualizer.
+    // on Windows the same call resolves C:\ProgramData\X32PhysicalRoutingVisualizer.
     expect(
       resolveStateDirectory({ X32_BASELINE_FILE: "/var/lib/x32/baseline.json" }),
     ).toBe("/var/lib/x32");

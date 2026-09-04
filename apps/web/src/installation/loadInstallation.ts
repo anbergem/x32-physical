@@ -45,8 +45,8 @@ const API_SOURCE = API_PATH;
  * the loader so no other failure inherits advice that does not apply to it.
  */
 export const INSTALLATION_ERROR_HINT =
-  "The venue topology comes from the bridge. Check that the X32 Routing " +
-  "Visualizer service is running, and that its installation.yaml loads " +
+  "The venue topology comes from the bridge. Check that the X32 Physical " +
+  "Routing Visualizer service is running, and that its installation.yaml loads " +
   "(the service log names the problem), then reload this page.";
 
 function errorMessage(error: unknown): string {

@@ -14,7 +14,7 @@
  * **Two files, and the difference matters** (issue #26):
  *
  * - The **live** file is venue data. It lives in the bridge's state
- *   directory next to `baseline.json` (`%ProgramData%\X32RoutingVisualizer\`
+ *   directory next to `baseline.json` (`%ProgramData%\X32PhysicalRoutingVisualizer\`
  *   under the MSI, `data/` in dev) — a directory the installer creates,
  *   grants `Users` Modify on, and **never removes or overwrites**, on
  *   upgrade or uninstall. `config.ts`'s `resolveInstallationFilePath`
@@ -49,7 +49,7 @@ export const INSTALLATION_FILE_NAME = "installation.yaml";
  * `data/installation.yaml`, relative to the bridge process's cwd — the same
  * default state directory `config.ts`'s `DEFAULT_BASELINE_FILE` puts
  * `baseline.json` in. Under the MSI both are absolute `%ProgramData%` paths
- * instead (`deploy/msi/winsw/X32RoutingVisualizer.xml`), so this default is
+ * instead (`deploy/msi/winsw/X32PhysicalRoutingVisualizer.xml`), so this default is
  * really the dev one.
  */
 export const DEFAULT_INSTALLATION_FILE = join("data", INSTALLATION_FILE_NAME);
@@ -60,7 +60,7 @@ export const DEFAULT_INSTALLATION_FILE = join("data", INSTALLATION_FILE_NAME);
  * for `VERSION`. After `scripts/release-build.mjs` bundles the bridge into
  * `dist/release/app/server.mjs`, this resolves to
  * `dist/release/app/config/installation.yaml`, which the MSI harvests into
- * `%ProgramFiles%\X32 Routing Visualizer\config\`.
+ * `%ProgramFiles%\X32 Physical Routing Visualizer\config\`.
  *
  * This is a **seed only**. It is never the file the app reads at runtime and
  * never the file a technician edits: `MajorUpgrade` removes and reinstalls

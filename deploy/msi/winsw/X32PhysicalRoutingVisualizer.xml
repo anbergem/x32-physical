@@ -7,13 +7,13 @@
   and supervises `node.exe server.mjs` as its child process.
 
   This file must sit next to the renamed WinSW executable
-  (X32RoutingVisualizer.exe) with the SAME basename — that is how WinSW
+  (X32PhysicalRoutingVisualizer.exe) with the SAME basename — that is how WinSW
   finds its config, there is no path passed on the command line.
 
   All paths below are static/hardcoded because the MSI never offers a custom
   install-directory UI (WixUI_Minimal, no directory picker): the install
-  location is always "%ProgramFiles%\X32 Routing Visualizer" and the state
-  directory is always "%ProgramData%\X32RoutingVisualizer" (both standard,
+  location is always "%ProgramFiles%\X32 Physical Routing Visualizer" and the state
+  directory is always "%ProgramData%\X32PhysicalRoutingVisualizer" (both standard,
   version-independent Windows folders). If a future step adds a directory
   picker, this file must become build-time-generated instead of static.
 
@@ -22,8 +22,8 @@
   server.mjs are found there without hardcoding the install path here.
 -->
 <service>
-  <id>X32RoutingVisualizer</id>
-  <name>X32 Routing Visualizer</name>
+  <id>X32PhysicalRoutingVisualizer</id>
+  <name>X32 Physical Routing Visualizer</name>
   <description>Serves the X32 physical routing visualizer web UI and bridges to the console (read-only; never writes to the mixer).</description>
 
   <executable>%BASE%\node.exe</executable>
@@ -36,11 +36,11 @@
        file is not the supported override path. -->
   <env name="X32_MIXER" value="x32"/>
   <env name="X32_WEB_DIST" value="%BASE%\web"/>
-  <env name="X32_BASELINE_FILE" value="C:\ProgramData\X32RoutingVisualizer\baseline.json"/>
-  <env name="X32_SETTINGS_FILE" value="C:\ProgramData\X32RoutingVisualizer\settings.env"/>
+  <env name="X32_BASELINE_FILE" value="C:\ProgramData\X32PhysicalRoutingVisualizer\baseline.json"/>
+  <env name="X32_SETTINGS_FILE" value="C:\ProgramData\X32PhysicalRoutingVisualizer\settings.env"/>
 
   <!-- No X32_INSTALLATION_FILE: since issue #26 the bridge already reads
-       C:\ProgramData\X32RoutingVisualizer\installation.yaml by default. It
+       C:\ProgramData\X32PhysicalRoutingVisualizer\installation.yaml by default. It
        derives that from X32_BASELINE_FILE's directory (the state directory),
        so the venue's topology and its blessed baseline always live together,
        in the one directory the MSI never removes or overwrites. First run
@@ -49,10 +49,10 @@
 
        Set X32_INSTALLATION_FILE in settings.env (not here) only to put the
        file somewhere else entirely.
-  <env name="X32_INSTALLATION_FILE" value="C:\ProgramData\X32RoutingVisualizer\installation.yaml"/>
+  <env name="X32_INSTALLATION_FILE" value="C:\ProgramData\X32PhysicalRoutingVisualizer\installation.yaml"/>
   -->
 
-  <logpath>C:\ProgramData\X32RoutingVisualizer</logpath>
+  <logpath>C:\ProgramData\X32PhysicalRoutingVisualizer</logpath>
   <log mode="roll-by-size">
     <sizeThreshold>5120</sizeThreshold>
     <keepFiles>5</keepFiles>

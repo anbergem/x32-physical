@@ -24,7 +24,7 @@
  *                        GET /api/installation (issue #3, architecture.md
  *                        §7); unset defaults to installation.yaml in the
  *                        bridge's state directory — the same directory as
- *                        the baseline, %ProgramData%\X32RoutingVisualizer\
+ *                        the baseline, %ProgramData%\X32PhysicalRoutingVisualizer\
  *                        under the MSI (issue #26). That file is created
  *                        once from the copy a release ships, and never
  *                        overwritten afterwards, so a venue's own topology

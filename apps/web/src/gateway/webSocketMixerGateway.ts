@@ -173,7 +173,7 @@ export class WebSocketMixerGateway implements MixerGateway {
       this.#store
         .getState()
         .setInstallationEditError(
-          "Not connected to the X32 Routing Visualizer service, so nothing was saved.",
+          "Not connected to the X32 Physical Routing Visualizer service, so nothing was saved.",
         );
       return;
     }

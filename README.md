@@ -121,16 +121,16 @@ whenever a release is published there.
 
 **First install:**
 
-1. Download `X32RoutingVisualizer-<version>.msi` from the [Releases
+1. Download `X32PhysicalRoutingVisualizer-<version>.msi` from the [Releases
    page](../../releases).
 2. Double-click it. That's it — no prompts to answer (there's no console IP
    to ask for: the bridge finds the X32 on the LAN itself, plan step 18).
 
-The installer registers "X32 Routing Visualizer" as a Windows service
+The installer registers "X32 Physical Routing Visualizer" as a Windows service
 (auto-start at boot, no one needs to be logged in) and drops an "X32
 Routing" shortcut on the Start Menu and Desktop pointing at
 `http://localhost:8765`. Silent installs work too: `msiexec /i
-X32RoutingVisualizer-<version>.msi /quiet`.
+X32PhysicalRoutingVisualizer-<version>.msi /quiet`.
 
 **Updating:** download the newer `.msi` and double-click it. The MSI's fixed
 `UpgradeCode` (see `deploy/msi/Product.wxs`) makes this an in-place upgrade —
@@ -143,18 +143,18 @@ running build (plan step 20); it is only a notice, never a downloader — the
 tech still downloads and double-clicks the new MSI by hand.
 
 **Uninstalling:** use *Add or Remove Programs*, or `msiexec /x
-X32RoutingVisualizer-<version>.msi /quiet`. The service is stopped and
+X32PhysicalRoutingVisualizer-<version>.msi /quiet`. The service is stopped and
 removed and the install directory deleted; the `%ProgramData%` state
 directory is deliberately left behind (see below).
 
 **Where things live:**
 
-- `%ProgramFiles%\X32 Routing Visualizer\` — the app itself (`server.mjs`,
+- `%ProgramFiles%\X32 Physical Routing Visualizer\` — the app itself (`server.mjs`,
   `web\`, `config\`, portable `node.exe`, the WinSW service host). Replaced
   wholesale by every upgrade; removed by uninstall. The
   `config\installation.yaml` in there is only a **seed** — never edit it, an
   upgrade throws it away.
-- `%ProgramData%\X32RoutingVisualizer\` — venue state: `installation.yaml`
+- `%ProgramData%\X32PhysicalRoutingVisualizer\` — venue state: `installation.yaml`
   (your room's wiring — the file the app actually reads), `baseline.json`
   (the "known correct routing" saved via **Save as correct**), the service's
   rotated logs, and an *optional* `settings.env`. **The MSI never removes or
@@ -163,7 +163,7 @@ directory is deliberately left behind (see below).
 
 **Overriding auto-discovery:** if the console is on an unusual network (or
 there are several X32s and the wrong one gets picked), create
-`%ProgramData%\X32RoutingVisualizer\settings.env` by hand (Notepad; the
+`%ProgramData%\X32PhysicalRoutingVisualizer\settings.env` by hand (Notepad; the
 `Users` group has write access, no admin needed) with lines like:
 
 ```
@@ -171,14 +171,14 @@ X32_HOST=192.168.1.10
 X32_BRIDGE_PORT=8765
 ```
 
-Restart the "X32 Routing Visualizer" service (Services app, or `net stop` /
+Restart the "X32 Physical Routing Visualizer" service (Services app, or `net stop` /
 `net start`) for it to take effect. Any variable actually set in the
 service's own environment always wins over this file — it only fills gaps.
 
 **Changing the physical wiring:** edit
-`%ProgramData%\X32RoutingVisualizer\installation.yaml` in Notepad (the
+`%ProgramData%\X32PhysicalRoutingVisualizer\installation.yaml` in Notepad (the
 `Users` group has write access — **no admin rights needed**), then restart
-the "X32 Routing Visualizer" service (Services app, or `net stop` /
+the "X32 Physical Routing Visualizer" service (Services app, or `net stop` /
 `net start`). The bridge reads that file at startup and serves it to the web
 app over `GET /api/installation`, so a cabling correction is a file edit plus
 a restart, never a new release.
@@ -191,7 +191,7 @@ edits made there would vanish silently, discovered months later by whoever
 next looks at the schematic. Edit the `%ProgramData%` copy, always.
 
 *Upgrading from a version that kept the topology in `%ProgramFiles%`*: copy
-that file to `%ProgramData%\X32RoutingVisualizer\installation.yaml` **before**
+that file to `%ProgramData%\X32PhysicalRoutingVisualizer\installation.yaml` **before**
 installing the new MSI. First run only seeds when nothing is there, so your
 own wiring stays; without it, the venue gets whatever wiring the release
 shipped.

@@ -91,8 +91,8 @@ export function resolveWebDistPath(env: NodeJS.ProcessEnv): string | undefined {
  *
  * It is derived from wherever the baseline is configured to live rather than
  * configured twice, so the two can never drift apart. Under the MSI that is
- * `C:\ProgramData\X32RoutingVisualizer\` (set as `X32_BASELINE_FILE` in
- * `deploy/msi/winsw/X32RoutingVisualizer.xml`) — a directory the installer
+ * `C:\ProgramData\X32PhysicalRoutingVisualizer\` (set as `X32_BASELINE_FILE` in
+ * `deploy/msi/winsw/X32PhysicalRoutingVisualizer.xml`) — a directory the installer
  * creates, grants `Users` Modify on, and **never removes or overwrites** on
  * upgrade or uninstall. In dev it is `data/`, relative to the bridge
  * process's cwd (gitignored).

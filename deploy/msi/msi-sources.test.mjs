@@ -20,9 +20,9 @@ describe("deploy/msi source files are well-formed XML", () => {
     expect(() => assertXmlWellFormed(xml, { label: "Product.wxs" })).not.toThrow();
   });
 
-  it("winsw/X32RoutingVisualizer.xml", async () => {
-    const xml = await readFile(join(HERE, "winsw", "X32RoutingVisualizer.xml"), "utf8");
-    expect(() => assertXmlWellFormed(xml, { label: "X32RoutingVisualizer.xml" })).not.toThrow();
+  it("winsw/X32PhysicalRoutingVisualizer.xml", async () => {
+    const xml = await readFile(join(HERE, "winsw", "X32PhysicalRoutingVisualizer.xml"), "utf8");
+    expect(() => assertXmlWellFormed(xml, { label: "X32PhysicalRoutingVisualizer.xml" })).not.toThrow();
   });
 
   it("Product.wxs references only known WiX preprocessor variables", async () => {

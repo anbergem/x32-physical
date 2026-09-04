@@ -16,7 +16,7 @@
  *     --version 1.2.3 \
  *     [--out dist/release]
  *
- * Produces `<out>/X32RoutingVisualizer-<version>.msi`.
+ * Produces `<out>/X32PhysicalRoutingVisualizer-<version>.msi`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -82,7 +82,7 @@ async function main() {
   await mkdir(dirname(harvestFragment), { recursive: true });
   await writeFile(harvestFragment, harvestXml, "utf8");
 
-  const msiPath = join(outDir, `X32RoutingVisualizer-${version}.msi`);
+  const msiPath = join(outDir, `X32PhysicalRoutingVisualizer-${version}.msi`);
 
   const wixArgs = [
     "build",
@@ -95,7 +95,7 @@ async function main() {
     "-ext",
     "WixToolset.UI.wixext",
     // Product.wxs binds two files by paths relative to the authoring dir
-    // (winsw\\X32RoutingVisualizer.xml, and License.rtf via WixUILicenseRtf).
+    // (winsw\\X32PhysicalRoutingVisualizer.xml, and License.rtf via WixUILicenseRtf).
     // wix resolves those against its bindpaths, not against the .wxs location,
     // so deploy/msi must be one — otherwise WIX0103 "Cannot find the File".
     "-bindpath",

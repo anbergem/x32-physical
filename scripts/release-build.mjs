@@ -31,7 +31,7 @@
  * `config/installation.yaml` here is **not** the copy the running app uses
  * (issue #26). It is installed into `%ProgramFiles%`, which every MSI upgrade
  * removes and reinstalls, so the bridge copies it once into its state
- * directory (`%ProgramData%\X32RoutingVisualizer\`) and reads it from there
+ * directory (`%ProgramData%\X32PhysicalRoutingVisualizer\`) and reads it from there
  * ever after, never overwriting what it finds. A cabling correction at the
  * venue is editing *that* file and restarting the service — no admin rights,
  * no rebuilt release, and nothing an upgrade can undo.

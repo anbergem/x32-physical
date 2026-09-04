@@ -14,7 +14,7 @@ is declared here, and the schematic derives itself from it.
 ### Getting started
 
 The live file lives in the **bridge's state directory** — the same directory
-as `baseline.json`: `%ProgramData%\X32RoutingVisualizer\installation.yaml` on
+as `baseline.json`: `%ProgramData%\X32PhysicalRoutingVisualizer\installation.yaml` on
 an MSI install, `apps/x32-bridge/data/installation.yaml` in dev (issue #26).
 It is deliberately not inside the installed program folder, which an upgrade
 replaces wholesale.
@@ -336,7 +336,7 @@ immediately and are broadcast to every connected browser; only hand-edits need
 the restart.
 
 The file to edit is the one in the state directory
-(`%ProgramData%\X32RoutingVisualizer\installation.yaml`), which needs no admin
+(`%ProgramData%\X32PhysicalRoutingVisualizer\installation.yaml`), which needs no admin
 rights and which no upgrade overwrites. The copy under `%ProgramFiles%` is a
 seed, and editing it is pointless: the next upgrade deletes it.
 
