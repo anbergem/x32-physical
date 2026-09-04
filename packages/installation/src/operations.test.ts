@@ -107,6 +107,14 @@ describe("applyOperation: set-device-label", () => {
 
   it("leaves the document untouched when it rejects", () => {
     const document = parseDocument(SAMPLE_YAML);
+    // Compared against the document's *own* serialisation, not the file's
+    // bytes. What this test means is "a refused operation mutated nothing",
+    // and `String(document)` always emits LF regardless of how the file was
+    // checked out — so comparing it to the raw file asserts the line-ending
+    // convention of the checkout as well, which is not this test's business.
+    // That is how the v0.2.0 release build failed: green on Linux CI, red on
+    // the windows-latest release job where checkout had applied CRLF.
+    const before = String(document);
 
     expect(() =>
       applyOperation(document, {
@@ -116,7 +124,7 @@ describe("applyOperation: set-device-label", () => {
       }),
     ).toThrow();
 
-    expect(String(document)).toBe(SAMPLE_YAML);
+    expect(String(document)).toBe(before);
   });
 });
 

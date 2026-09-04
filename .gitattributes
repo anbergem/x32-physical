@@ -1,0 +1,17 @@
+# Check every text file out with LF on every platform.
+#
+# Without this, `actions/checkout` on a Windows runner applies `core.autocrlf`
+# and hands the build CRLF files. That breaks any test that compares a
+# serialised YAML document against the file it was read from, because the
+# `yaml` library always emits LF — which is exactly how the v0.2.0 release
+# build failed while CI (Linux) stayed green: the release job is the only one
+# that runs the suite on windows-latest.
+#
+# Nothing in this repo needs CRLF. There are no .bat/.cmd/.ps1 files; the
+# Windows side is a WiX .wxs and a WinSW .xml, both of which are XML parsers'
+# problems rather than the shell's.
+* text=auto eol=lf
+
+# Belt and braces for the fixtures that are compared byte-for-byte.
+*.yaml text eol=lf
+*.yml  text eol=lf
