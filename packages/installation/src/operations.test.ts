@@ -318,6 +318,65 @@ describe("applyOperation: set-socket-annotation", () => {
     expect(socket?.note).toBeUndefined();
   });
 
+  it("re-creates a cleared annotation as a flow one-liner, not a block map", () => {
+    // Found in the field: clearing an annotation and setting it again
+    // reformatted that part of the venue's file from
+    //   4: { status: broken, note: "..." }
+    // to a block map, because a newly created node inherits no style. The
+    // whole point of surgical edits is that the file keeps the shape its
+    // author gave it, so a round trip must be invisible.
+    const document = sample();
+    for (const op of [
+      { kind: "set-socket-annotation", device: PIT_WALL, input: 4, status: null },
+      { kind: "set-socket-annotation", device: PIT_WALL, input: 4, status: "broken", note: "Bent pin" },
+    ] as const) {
+      applyOperation(document, op);
+    }
+
+    // Flow one-liner, and the free-text note quoted the way the author wrote
+    // it — `status` stays a bare token, as the sample has it.
+    expect(String(document)).toMatch(/^\s+4: \{ status: broken, note: "Bent pin" \}$/m);
+  });
+
+  it("keeps a cleared-and-restored annotation byte-identical", () => {
+    // The strongest form of the promise: clear it, put it back with the same
+    // note, and the document is exactly what it was. This failed twice while
+    // being written — first the flow style, then the quoting — and each miss
+    // silently reformatted part of the venue's real file.
+    const before = String(sample());
+    const document = sample();
+    for (const op of [
+      { kind: "set-socket-annotation", device: PIT_WALL, input: 4, status: null },
+      {
+        kind: "set-socket-annotation",
+        device: PIT_WALL,
+        input: 4,
+        status: "broken",
+        note: "Cracked connector — do not use",
+      },
+    ] as const) {
+      applyOperation(document, op);
+    }
+
+    expect(String(document)).toBe(before);
+  });
+
+  it("styles a brand-new sockets map the same way", () => {
+    // pit-box has no annotations at all, so this exercises creating both the
+    // `sockets` map (block) and the entry inside it (flow).
+    const document = sample();
+    applyOperation(document, {
+      kind: "set-socket-annotation",
+      device: PIT_BOX,
+      input: 7,
+      status: "unused",
+    });
+
+    const text = String(document);
+    expect(text).toMatch(/^ {4}sockets:$/m);
+    expect(text).toMatch(/^ {6}7: \{ status: unused \}$/m);
+  });
+
   it("preserves every comment", () => {
     const document = sample();
     applyOperation(document, {
@@ -635,6 +694,24 @@ describe("applyOperation: add-device", () => {
         label: "Wall",
       }),
     ).toThrow(/at least 1 input/);
+  });
+
+  it("writes free text quoted and enum tokens bare, as the sample does", () => {
+    const document = sample();
+    applyOperation(document, {
+      kind: "add-device",
+      device: deviceId("wall"),
+      deviceKind: "passive-panel",
+      label: "Wall Plate",
+      inputs: 4,
+      group: "Upstage",
+    });
+
+    const text = String(document);
+    expect(text).toMatch(/^ {4}label: "Wall Plate"$/m);
+    expect(text).toMatch(/^ {4}group: "Upstage"$/m);
+    // …but not the enum-ish tokens, which the sample leaves bare.
+    expect(text).toMatch(/^ {4}kind: passive-panel$/m);
   });
 
   it("adds a panel and preserves every comment", () => {

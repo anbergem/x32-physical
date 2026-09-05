@@ -263,7 +263,7 @@ export function applyOperation(
   switch (operation.kind) {
     case "set-device-label":
       requireDevice(document, operation.device);
-      setScalar(document, ["devices", operation.device, "label"], operation.label);
+      setScalar(document, ["devices", operation.device, "label"], operation.label, "free-text");
       return;
 
     case "set-device-group": {
@@ -273,7 +273,7 @@ export function applyOperation(
       if (group === "") {
         document.deleteIn(path);
       } else {
-        setScalar(document, path, group);
+        setScalar(document, path, group, "free-text");
       }
       return;
     }
@@ -346,17 +346,27 @@ function applySocketAnnotation(
   const socketsPath = ["devices", operation.device, "sockets"];
   if (!document.hasIn(socketsPath)) {
     document.setIn(socketsPath, document.createNode({}));
+    // Block style for the map itself, matching every hand-written `sockets:`.
+    applyHouseStyle(document.getIn(socketsPath, true));
   }
   if (!document.hasIn(path)) {
-    document.setIn(path, document.createNode({}));
+    const entry = document.createNode({});
+    // …but the annotation *itself* is a flow one-liner, exactly as the sample
+    // writes it: `4: { status: broken, note: "Cracked connector" }`. Without
+    // this a re-created annotation comes back as a block map, so clearing and
+    // re-setting one silently reformats that part of the venue's file — which
+    // is precisely what the surgical-edit design exists to avoid. Only *new*
+    // entries are styled; an existing one keeps whatever the author chose.
+    (entry as { flow?: boolean }).flow = true;
+    document.setIn(path, entry);
   }
-  setScalar(document, [...path, "status"] as string[], operation.status);
+  setScalar(document, [...path, "status"], operation.status);
 
   const note = operation.note?.trim() ?? "";
   if (note === "") {
     document.deleteIn([...path, "note"]);
   } else {
-    setScalar(document, [...path, "note"] as string[], note);
+    setScalar(document, [...path, "note"], note, "free-text");
   }
 }
 
@@ -498,15 +508,25 @@ function removeConnectionAt(document: Document, index: number): void {
  * `aes50` and `outputBlock` kept as flow one-liners, exactly as
  * `aes50: { bus: B, offset: 0 }`.
  */
-function applyHouseStyle(node: unknown, nested: readonly string[] = []): void {
+function applyHouseStyle(
+  node: unknown,
+  nested: readonly string[] = [],
+  quoted: readonly string[] = [],
+): void {
   if (node === null || typeof node !== "object") return;
-  const collection = node as { flow?: boolean; get?: (key: string) => unknown };
+  const collection = node as { flow?: boolean; get?: (key: string, keep?: boolean) => unknown };
   collection.flow = false;
   for (const key of nested) {
     const child = collection.get?.(key);
     if (child !== undefined && child !== null && typeof child === "object") {
       (child as { flow?: boolean }).flow = true;
     }
+  }
+  // Free-text fields are quoted, the way the sample writes them; enum-ish
+  // tokens (kind, bus, status) are left bare. See `freshScalar`.
+  for (const key of quoted) {
+    const child = collection.get?.(key, true);
+    if (isScalar(child)) child.type = "QUOTE_DOUBLE";
   }
 }
 
@@ -570,7 +590,7 @@ function applyAddDevice(document: Document, operation: AddDeviceOperation): void
     document.setIn(["devices"], document.createNode({}));
   }
   const node = document.createNode(device);
-  applyHouseStyle(node, ["aes50", "outputBlock"]);
+  applyHouseStyle(node, ["aes50", "outputBlock"], ["label", "group"]);
   document.setIn(["devices", operation.device], node);
   // The `devices` map itself: a document seeded as `devices: {}` is flow, and
   // would otherwise stay that way for every device ever added to it.
@@ -695,13 +715,39 @@ function requireDevice(document: Document, device: DeviceId): void {
  * line as the value. `setIn` is the fallback for a key that does not exist
  * yet.
  */
-function setScalar(document: Document, path: string[], value: string): void {
+function setScalar(
+  document: Document,
+  path: (string | number)[],
+  value: string,
+  style: "free-text" | "token" = "token",
+): void {
   const existing: unknown = document.getIn(path, true);
   if (isScalar(existing)) {
     existing.value = value;
     return;
   }
-  document.setIn(path, value);
+  document.setIn(path, freshScalar(document, value, style));
+}
+
+/**
+ * A scalar in the house style for a *newly created* key.
+ *
+ * `installation.sample.yaml` quotes free text — `label: "Pit Box"`,
+ * `note: "Cracked connector — do not use"` — and leaves enum-ish tokens bare:
+ * `kind: stagebox`, `status: broken`, `bus: B`. Without this, a key created
+ * by an edit comes back unquoted, so clearing and re-setting an annotation
+ * silently strips the author's quotes. Existing scalars are never restyled;
+ * `setScalar` reuses those, keeping whatever the author chose.
+ *
+ * Quoting free text is also the safer default in its own right: a note is the
+ * one field likely to contain a colon or a `#`.
+ */
+function freshScalar(document: Document, value: string, style: "free-text" | "token"): unknown {
+  const node = document.createNode(value);
+  if (style === "free-text") {
+    (node as { type?: string }).type = "QUOTE_DOUBLE";
+  }
+  return node;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
