@@ -60,19 +60,60 @@ export interface DiscoverX32Options {
 
 /**
  * The real `DiscoverySocket`: an unconnected UDP4 socket bound to an
- * ephemeral local port with `SO_BROADCAST` enabled, used only for the
- * lifetime of one `discoverX32` call.
+ * ephemeral local port with `SO_BROADCAST` enabled. `discoverX32` uses one
+ * for a single call; `createX32Discoverer` keeps one for its whole lifetime
+ * and calls `sendBroadcast` on it once per attempt — so **every** call must
+ * transmit, not just the one that happens to bind the socket.
+ *
+ * Exported for `discovery.test.ts` only: reuse is a property of the real
+ * socket, which a fake can't demonstrate.
  */
-function createRealDiscoverySocket(port: number, broadcastAddress: string): DiscoverySocket {
+export function createRealDiscoverySocket(port: number, broadcastAddress: string): DiscoverySocket {
   const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
   let handler: ((buffer: Uint8Array, remoteAddress: string) => void) | null = null;
 
-  // A discovery failure (permission denied enabling broadcast, no interface,
-  // etc.) must never crash the bridge — swallow socket-level errors here;
-  // `discoverX32`'s timeout still resolves with whatever (possibly nothing)
-  // was collected.
-  socket.on("error", () => {
-    /* intentionally ignored — see comment above */
+  let bound = false;
+  let binding = false;
+  /** The datagram waiting on an in-flight bind; only the newest is worth sending. */
+  let pending: Uint8Array | null = null;
+  let lastLoggedError: string | null = null;
+
+  const transmit = (buffer: Uint8Array): void => {
+    try {
+      socket.setBroadcast(true);
+      socket.send(buffer, port, broadcastAddress);
+    } catch (error) {
+      logSocketError(error);
+    }
+  };
+
+  // A discovery failure (permission denied enabling broadcast, no interface
+  // up yet at boot, etc.) must never crash the bridge, so nothing here
+  // throws — `discoverX32`'s timeout still resolves with whatever (possibly
+  // nothing) was collected. It is logged, though, once per distinct message:
+  // "the broadcast never left this machine" and "nothing answered it" look
+  // identical from the caller's side, and only one of them is a network
+  // problem worth chasing.
+  function logSocketError(error: unknown): void {
+    const message = errorMessage(error);
+    if (message === lastLoggedError) return;
+    lastLoggedError = message;
+    console.warn(`x32-bridge: discovery socket error: ${message}`);
+  }
+
+  socket.on("error", (error) => {
+    // A failed bind leaves the socket unbound; clearing `binding` lets the
+    // next attempt try again rather than waiting on a bind that never lands.
+    binding = false;
+    logSocketError(error);
+  });
+  socket.on("listening", () => {
+    bound = true;
+    binding = false;
+    if (pending === null) return;
+    const buffer = pending;
+    pending = null;
+    transmit(buffer);
   });
   socket.on("message", (message, rinfo) => {
     handler?.(message, rinfo.address);
@@ -80,23 +121,24 @@ function createRealDiscoverySocket(port: number, broadcastAddress: string): Disc
 
   return {
     sendBroadcast(buffer) {
-      // `send()` before the socket is bound triggers an implicit bind; once
-      // bound (or on that implicit bind's callback) `setBroadcast` can be
-      // called. Node queues `send` calls made before binding completes, so
-      // issuing setBroadcast via the 'listening' event and then sending is
-      // the reliable order.
-      socket.once("listening", () => {
-        try {
-          socket.setBroadcast(true);
-          socket.send(buffer, port, broadcastAddress);
-        } catch {
-          /* permission or interface error — ignored, see class-level comment */
-        }
-      });
+      // `setBroadcast` needs a bound socket, so the first call binds and
+      // sends from the 'listening' event. Later calls find the socket already
+      // bound and send straight away — `bind()` throws on a bound socket and
+      // 'listening' fires only once, so routing them through the bind path
+      // again (as this did until v0.2.0) transmitted nothing at all: a
+      // console that was off for the first attempt was never found.
+      if (bound) {
+        transmit(buffer);
+        return;
+      }
+      pending = buffer;
+      if (binding) return;
+      binding = true;
       try {
         socket.bind(0);
-      } catch {
-        /* ignored */
+      } catch (error) {
+        binding = false;
+        logSocketError(error);
       }
     },
     onMessage(callback) {

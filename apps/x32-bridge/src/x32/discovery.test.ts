@@ -1,13 +1,20 @@
 /**
- * `discoverX32` tests, driven entirely through a fake `DiscoverySocket` — no
- * real socket, no real network. Fake timers exercise the timeout window
- * without any real waiting.
+ * `discoverX32` tests, driven almost entirely through a fake
+ * `DiscoverySocket` — no real socket, no real network. Fake timers exercise
+ * the timeout window without any real waiting.
+ *
+ * The exception is the last `describe`, which opens a real UDP socket on
+ * loopback: whether a *reused* socket still transmits is a property of
+ * `node:dgram`, and the fake — whose `sendBroadcast` always records — would
+ * pass whether or not it does.
  */
+
+import dgram from "node:dgram";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { X32Discovered } from "./discovery";
-import { createX32Discoverer, discoverX32 } from "./discovery";
+import { createRealDiscoverySocket, createX32Discoverer, discoverX32 } from "./discovery";
 import { encodeOscMessage } from "./osc";
 
 type MessageHandler = (buffer: Uint8Array, remoteAddress: string) => void;
@@ -289,5 +296,90 @@ describe("createX32Discoverer", () => {
     expect(warn).toHaveBeenCalledTimes(2);
 
     warn.mockRestore();
+  });
+});
+
+describe("the real discovery socket, on loopback", () => {
+  /** A stand-in console: counts `/info` datagrams and, while `on`, answers them. */
+  async function startFakeConsole(): Promise<{
+    port: number;
+    received: () => number;
+    setOn: (on: boolean) => void;
+    nextDatagram: () => Promise<void>;
+    close: () => void;
+  }> {
+    const socket = dgram.createSocket("udp4");
+    let received = 0;
+    let on = true;
+    let waiter: (() => void) | null = null;
+
+    socket.on("message", (_message, rinfo) => {
+      received += 1;
+      waiter?.();
+      waiter = null;
+      if (on) socket.send(infoReply("V2.07", "osc-server", "X32", "4.06"), rinfo.port, rinfo.address);
+    });
+    await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", resolve));
+
+    return {
+      port: socket.address().port,
+      received: () => received,
+      setOn: (next) => {
+        on = next;
+      },
+      nextDatagram: () =>
+        new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("nothing reached the wire within 1s")), 1_000);
+          waiter = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        }),
+      close: () => socket.close(),
+    };
+  }
+
+  it("transmits on every call, not only the one that binds it", async () => {
+    vi.useRealTimers();
+    const fakeConsole = await startFakeConsole();
+    const socket = createRealDiscoverySocket(fakeConsole.port, "127.0.0.1");
+
+    try {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const arrived = fakeConsole.nextDatagram();
+        socket.sendBroadcast(encodeOscMessage("/info", []));
+        await arrived;
+        expect(fakeConsole.received()).toBe(attempt);
+      }
+    } finally {
+      socket.close();
+      fakeConsole.close();
+    }
+  });
+
+  it("finds a console that was switched off for the first attempt", async () => {
+    // Only `Date` is faked: the backoff window is skipped by moving the
+    // clock, while the socket and the reply window run in real time.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fakeConsole = await startFakeConsole();
+    const discoverer = createX32Discoverer({ port: fakeConsole.port, broadcastAddress: "127.0.0.1" });
+
+    try {
+      fakeConsole.setOn(false);
+      expect(await discoverer.discover({ timeoutMs: 150 })).toEqual([]);
+
+      fakeConsole.setOn(true);
+      vi.setSystemTime(Date.now() + 2_001); // past the 2s backoff
+      const found = await discoverer.discover({ timeoutMs: 150 });
+
+      expect(found.map((console) => console.host)).toEqual(["127.0.0.1"]);
+      expect(fakeConsole.received()).toBe(2);
+    } finally {
+      discoverer.close();
+      fakeConsole.close();
+      warn.mockRestore();
+    }
   });
 });
