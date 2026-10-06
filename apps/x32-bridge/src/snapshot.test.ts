@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { mixerChannelId } from "@x32/domain";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 
-import { cloneSnapshot } from "./snapshot";
+import { applyEventToSnapshot, cloneSnapshot } from "./snapshot";
 
 function populatedSnapshot(): MixerSnapshot {
   return {
@@ -73,4 +73,72 @@ describe("cloneSnapshot", () => {
   // snapshot can legitimately arrive without it — a `baseline.json` written
   // before the field existed — is normalised at the parse boundary instead.
   // That case is covered in `packages/protocol/src/parse.test.ts`.
+});
+
+describe("applyEventToSnapshot", () => {
+  it("applies an output routing change to that slot only", () => {
+    const next = applyEventToSnapshot(populatedSnapshot(), {
+      type: "output-source-changed",
+      output: 15,
+      source: { kind: "bus", bus: 3 },
+    });
+
+    expect(next.outputs).toEqual([
+      { output: 1, source: { kind: "matrix", matrix: 1 } },
+      { output: 15, source: { kind: "bus", bus: 3 } },
+    ]);
+  });
+
+  it("replaces the AES50 link state", () => {
+    const state = {
+      buses: [
+        { bus: "A" as const, audioError: true, auxError: true },
+        { bus: "B" as const, audioError: false, auxError: false },
+      ],
+      locked: false,
+    };
+
+    const next = applyEventToSnapshot(populatedSnapshot(), { type: "aes50-link-state-changed", state });
+
+    expect(next.aes50LinkState).toEqual(state);
+    expect(next.aes50LinkState).not.toBe(state);
+  });
+
+  it("replaces one bus's AES50 chain in place and adds a bus it has not seen", () => {
+    const boxesOnA = [
+      { position: 1, model: "S16", rawLetter: "N" },
+      { position: 2, model: "S16", rawLetter: "N" },
+    ];
+
+    const replaced = applyEventToSnapshot(populatedSnapshot(), {
+      type: "aes50-chain-changed",
+      chain: { bus: "A", boxes: boxesOnA },
+    });
+    const added = applyEventToSnapshot(replaced, {
+      type: "aes50-chain-changed",
+      chain: { bus: "B", boxes: [] },
+    });
+
+    expect(replaced.aes50Chain).toEqual([{ bus: "A", boxes: boxesOnA }]);
+    expect(added.aes50Chain).toEqual([
+      { bus: "A", boxes: boxesOnA },
+      { bus: "B", boxes: [] },
+    ]);
+  });
+
+  it("leaves the snapshot it was given untouched", () => {
+    const before = populatedSnapshot();
+
+    applyEventToSnapshot(before, { type: "output-source-changed", output: 1, source: { kind: "off" } });
+    applyEventToSnapshot(before, { type: "channel-name-changed", channel: mixerChannelId(1), name: "Renamed" });
+    applyEventToSnapshot(before, { type: "aes50-chain-changed", chain: { bus: "A", boxes: [] } });
+
+    expect(before).toEqual(populatedSnapshot());
+  });
+
+  it("ignores a connection change, which is not part of the snapshot", () => {
+    const before = populatedSnapshot();
+
+    expect(applyEventToSnapshot(before, { type: "connection-state-changed", state: "disconnected" })).toBe(before);
+  });
 });

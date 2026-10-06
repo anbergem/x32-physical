@@ -35,7 +35,6 @@
  */
 
 import { MIXER_CHANNEL_COUNT } from "@x32/domain";
-import type { MixerChannelState } from "@x32/domain";
 import type { InstallationFileState, InstallationOperation } from "@x32/installation";
 import { applyInstallationEdit, describeOperation } from "@x32/installation";
 import type {
@@ -57,7 +56,7 @@ import {
   shippedInstallationSeedPath,
 } from "../installationFile";
 import { DiskInstallationRepository } from "../installationRepository";
-import { cloneSnapshot } from "../snapshot";
+import { applyEventToSnapshot, cloneSnapshot } from "../snapshot";
 import type { UpdateChecker } from "../updateCheck";
 import { startUpdateChecker } from "../updateCheck";
 
@@ -235,18 +234,6 @@ export async function startBridgeServer(
     for (const socket of wss.clients) send(socket, message);
   }
 
-  function replaceChannel(
-    channel: MixerChannelState["channel"],
-    update: (current: MixerChannelState) => MixerChannelState,
-  ): void {
-    cachedSnapshot = {
-      ...cachedSnapshot,
-      channels: cachedSnapshot.channels.map((current) =>
-        current.channel === channel ? update(current) : current,
-      ),
-    };
-  }
-
   async function resync(): Promise<void> {
     try {
       cachedSnapshot = cloneSnapshot(await mixerClient.getSnapshot());
@@ -404,16 +391,7 @@ export async function startBridgeServer(
       return;
     }
 
-    if (event.type === "selected-channel-changed") {
-      cachedSnapshot = { ...cachedSnapshot, selectedChannel: event.channel };
-    } else if (event.type === "channel-name-changed") {
-      replaceChannel(event.channel, (current) => ({ ...current, name: event.name }));
-    } else if (event.type === "channel-source-changed") {
-      replaceChannel(event.channel, (current) => ({
-        ...current,
-        source: { ...event.source },
-      }));
-    }
+    cachedSnapshot = applyEventToSnapshot(cachedSnapshot, event);
 
     console.log(`x32-bridge: ${describeEvent(event)}`);
     broadcast({ type: "event", event });

@@ -7,7 +7,7 @@
 
 import { mixerChannelId } from "@x32/domain";
 import { installationVersion } from "@x32/installation";
-import { MockMixerClient } from "@x32/mixer-contracts";
+import { createDefaultMockSnapshot, MockMixerClient } from "@x32/mixer-contracts";
 import type { MixerSnapshot } from "@x32/mixer-contracts";
 import type { ServerMessage } from "@x32/protocol";
 import { existsSync } from "node:fs";
@@ -212,6 +212,71 @@ describe("startBridgeServer", () => {
     expect(resynced.mixerConnection).toBe("connected");
   });
 
+  // A client that connects *after* a change must be handed the same state an
+  // already-open client reached by receiving the event. These three event
+  // types were once forwarded but never applied to the bridge's own cache,
+  // so a late browser showed the console as it was at connect — at the
+  // venue, an AES50 link error read during the desk's boot that every
+  // already-open browser had long since seen clear.
+  it("hands a late client the current AES50 link state, not the one read at connect", async () => {
+    // The venue's sequence: the link is in error when the bridge first reads
+    // it (the desk is still booting), and clears a moment later.
+    const mock = new MockMixerClient({
+      ...createDefaultMockSnapshot(),
+      aes50LinkState: {
+        buses: [
+          { bus: "A", audioError: true, auxError: true },
+          { bus: "B", audioError: true, auxError: true },
+        ],
+        locked: true,
+      },
+    });
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
+
+    const early = await connectClient(bridge.port);
+    await early.next(); // initial snapshot, link in error
+    mock.simulateAes50LinkError("A", { audioError: false, auxError: false });
+    await early.next(); // the event clearing it — the bridge has now processed it
+
+    const late = await connectClient(bridge.port);
+    const busA = asSnapshot(await late.next()).snapshot.aes50LinkState?.buses.find((bus) => bus.bus === "A");
+
+    expect(busA).toEqual({ bus: "A", audioError: false, auxError: false });
+  });
+
+  it("hands a late client the current AES50 chain", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
+
+    const early = await connectClient(bridge.port);
+    await early.next();
+    mock.simulateAes50ChainChange("A", []); // the boxes vanish…
+    await early.next();
+    const boxes = [{ position: 1, model: "S16", rawLetter: "N" }];
+    mock.simulateAes50ChainChange("A", boxes); // …and one comes back
+    await early.next();
+
+    const late = await connectClient(bridge.port);
+    const chainA = asSnapshot(await late.next()).snapshot.aes50Chain?.find((chain) => chain.bus === "A");
+
+    expect(chainA).toEqual({ bus: "A", boxes });
+  });
+
+  it("hands a late client the current output routing", async () => {
+    const mock = new MockMixerClient();
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
+
+    const early = await connectClient(bridge.port);
+    await early.next();
+    mock.simulateOutputSourceChange(1, { kind: "bus", bus: 7 });
+    await early.next();
+
+    const late = await connectClient(bridge.port);
+    const output1 = asSnapshot(await late.next()).snapshot.outputs.find((output) => output.output === 1);
+
+    expect(output1?.source).toEqual({ kind: "bus", bus: 7 });
+  });
+
   it("reports the mixer as disconnected to a client that connects while it is down", async () => {
     const mock = new MockMixerClient();
     bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore: inMemoryBaselineStore() });
@@ -329,6 +394,24 @@ describe("baseline persistence (architecture.md §7)", () => {
 
     const onDisk: unknown = JSON.parse(await readFile(baselineFilePath(), "utf8"));
     expect(onDisk).toEqual(initial.snapshot);
+  });
+
+  it("blesses the routing as it is now, including an output changed since connect", async () => {
+    const mock = new MockMixerClient();
+    const baselineStore = new DiskBaselineStore(baselineFilePath());
+    bridge = await startBridgeServer({ mixerClient: mock, port: 0, baselineStore });
+
+    const client = await connectClient(bridge.port);
+    await client.next(); // initial snapshot
+    mock.simulateOutputSourceChange(1, { kind: "bus", bus: 7 });
+    await client.next(); // the routing event
+
+    const changed = client.next();
+    client.socket.send(JSON.stringify({ type: "save-baseline" }));
+    await changed;
+
+    const onDisk = JSON.parse(await readFile(baselineFilePath(), "utf8")) as MixerSnapshot;
+    expect(onDisk.outputs.find((output) => output.output === 1)?.source).toEqual({ kind: "bus", bus: 7 });
   });
 
   it("carries the persisted baseline in the on-connect snapshot after a bridge restart", async () => {
